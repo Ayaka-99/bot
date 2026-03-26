@@ -1,0 +1,26 @@
+{
+  "name": "discord-message-tracker-bot",
+  "version": "1.0.0",
+  "description": "Discord bot to track message counts for all members",
+  "main": "discord-bot-tracker.js",
+  "scripts": {
+    "start": "node discord-bot-tracker.js",
+    "dev": "nodemon discord-bot-tracker.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "message-tracker",
+    "statistics"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.0",
+    "sqlite3": "^5.1.6",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
