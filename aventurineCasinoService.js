@@ -24,6 +24,10 @@ const {
   getUserProfileDecoration,
 } = require('./blackMarketService');
 
+const {
+  recordCasinoGame,
+} = require('./casinoStatsService');
+
 // ==========================================
 // 🎨 視覺素材與常數設定
 // ==========================================
@@ -822,6 +826,16 @@ async function startCasinoGame(db, interaction, user, betInput) {
       [winAmount, userId]
     );
 
+    recordCasinoGame(db, {
+      userId,
+      username,
+      mode: 'pve',
+      result: 'WIN',
+      bet,
+      won: winAmount,
+      net: winProfit + jackpotClaimed,
+    }).catch(() => {});
+
     // 檢查贖身
     checkAndRedeemDebt(db, interaction.member, userId, currentJades - bet + winAmount);
 
@@ -891,6 +905,16 @@ async function handlePlayerHit(db, session, interaction) {
     const vaultShare = Math.floor(session.bet * 0.2);
     await addToIpcVault(db, vaultShare);
 
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'LOSE',
+      bet: session.bet,
+      won: 0,
+      net: -session.bet,
+    }).catch(() => {});
+
     const embed = buildGameEmbed(session, {
       title: '💥 爆牌出局！籌碼歸入砂金口袋',
       quote: getRandomQuote('playerBust'),
@@ -920,6 +944,16 @@ async function handlePlayerHit(db, session, interaction) {
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
       [totalReturn, session.userId]
     );
+
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'WIN',
+      bet: session.bet,
+      won: totalReturn,
+      net: winProfit,
+    }).catch(() => {});
 
     const embed = buildGameEmbed(session, {
       title: '🐉【五龍過關】奇蹟降臨！',
@@ -1008,6 +1042,16 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       [totalReturn, session.userId]
     );
 
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'WIN',
+      bet: session.bet,
+      won: totalReturn,
+      net: winProfit,
+    }).catch(() => {});
+
     checkAndRedeemDebt(db, interaction.member, session.userId, totalReturn);
 
     const embed = buildGameEmbed(session, {
@@ -1057,6 +1101,16 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       [totalReturn, session.userId]
     );
 
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'WIN',
+      bet: session.bet,
+      won: totalReturn,
+      net: winProfit,
+    }).catch(() => {});
+
     checkAndRedeemDebt(db, interaction.member, session.userId, totalReturn);
 
     const embed = buildGameEmbed(session, {
@@ -1088,6 +1142,16 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       vaultShare = Math.min(Math.floor(session.bet * 0.10), 100000);
     }
     await addToIpcVault(db, vaultShare);
+
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'LOSE',
+      bet: session.bet,
+      won: 0,
+      net: -session.bet,
+    }).catch(() => {});
 
     const embed = buildGameEmbed(session, {
       title: '🃏 點數不及！砂金技高一籌',
@@ -1172,6 +1236,16 @@ async function handlePlayerDouble(db, session, interaction) {
     const vaultShare = Math.floor(session.bet * 0.2);
     await addToIpcVault(db, vaultShare);
 
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'LOSE',
+      bet: session.bet,
+      won: 0,
+      net: -session.bet,
+    }).catch(() => {});
+
     const embed = buildGameEmbed(session, {
       title: '💥 孤注一擲爆牌！萬劫不復！',
       quote: getRandomQuote('playerBust'),
@@ -1244,6 +1318,16 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
       [totalReturn, session.userId]
     );
 
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'WIN',
+      bet: session.bet,
+      won: totalReturn,
+      net: winProfit,
+    }).catch(() => {});
+
     checkAndRedeemDebt(db, interaction.member, session.userId, totalReturn);
 
     const embed = buildDiceDuelEmbed(session, {
@@ -1272,6 +1356,16 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
     }
 
     await addToIpcVault(db, vaultShare);
+
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'LOSE',
+      bet: session.bet,
+      won: refund,
+      net: -lostAmount,
+    }).catch(() => {});
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',

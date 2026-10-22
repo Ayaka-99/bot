@@ -107,6 +107,13 @@ const {
   buildTransferEmbed,
 } = require('./transferService');
 
+// 引入賭局勝率統計服務 (/勝率)
+const {
+  initCasinoStatsTable,
+  getUserCasinoStats,
+  buildCasinoStatsEmbed,
+} = require('./casinoStatsService');
+
 function buildCustomTitleModal() {
   const modal = new ModalBuilder()
     .setCustomId('custom_title_modal')
@@ -173,6 +180,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
     initBlackMarket(db).catch(console.error);
     // 初始化星瓊轉帳資料表
     initTransferTable(db).catch(console.error);
+    // 初始化賭局勝率統計資料表
+    initCasinoStatsTable(db).catch(console.error);
   }
 });
 
@@ -331,6 +340,15 @@ const commands = [
         .setRequired(true)
         .setMinValue(1)
         .setMaxValue(32000)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('勝率')
+    .setDescription('查詢個人或伺服器成員在匹諾康尼各賭局（砂金、單挑、大逃殺、買馬）的勝率與戰績')
+    .addUserOption(option =>
+      option.setName('成員')
+        .setDescription('要查詢戰績的目標成員 (留空預設為自己)')
+        .setRequired(false)
     ),
 
   // 星鐵漫遊簽證角色練度面板卡與 UID 綁定指令
@@ -1979,6 +1997,21 @@ client.on('interactionCreate', async (interaction) => {
           embeds: [embed],
           allowedMentions: { users: [targetUser.id] },
         });
+      }
+
+      case '勝率': {
+        const targetUser = options.getUser('成員') || user;
+
+        if (targetUser.bot) {
+          return interaction.reply({
+            content: '🤖 **機器人不上賭桌！**\n它只有一堆代碼跟冰冷的隨機數，沒有任何籌碼與戰績。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const stats = await getUserCasinoStats(db, targetUser.id);
+        const embed = buildCasinoStatsEmbed(targetUser, stats);
+        return interaction.reply({ embeds: [embed] });
       }
 
       // ==========================================

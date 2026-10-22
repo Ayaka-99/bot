@@ -16,6 +16,7 @@ const {
 // 引用單人賭場的 IPC 金庫注入與破產贖身檢查
 const { addToIpcVault, checkAndRedeemDebt } = require('./aventurineCasinoService');
 const { getCasinoTycoon } = require('./blackMarketService');
+const { recordCasinoGame } = require('./casinoStatsService');
 
 // ==========================================
 // 🔒 全局併發安全鎖：防止多桌下注與透支
@@ -614,6 +615,25 @@ async function resolveDuel(db, session) {
     await awardJades(db, pB.userId, refund);
     await addToIpcVault(db, forfeited);
 
+    recordCasinoGame(db, {
+      userId: pA.userId,
+      username: pA.username,
+      mode: 'duel',
+      result: 'LOSE',
+      bet: session.bet,
+      won: refund,
+      net: -(session.bet - refund),
+    }).catch(() => {});
+    recordCasinoGame(db, {
+      userId: pB.userId,
+      username: pB.username,
+      mode: 'duel',
+      result: 'LOSE',
+      bet: session.bet,
+      won: refund,
+      net: -(session.bet - refund),
+    }).catch(() => {});
+
     const embed = new EmbedBuilder()
       .setColor(DANGER_COLOR)
       .setAuthor({ name: '匹諾康尼死鬥 ｜ 單挑結算', iconURL: AVENTURINE_AVATAR })
@@ -676,6 +696,25 @@ async function resolveDuel(db, session) {
   // 發放籌碼給贏家並注入稅金至 IPC 金庫
   await awardJades(db, winner.userId, winPayout);
   await addToIpcVault(db, tax);
+
+  recordCasinoGame(db, {
+    userId: winner.userId,
+    username: winner.username,
+    mode: 'duel',
+    result: 'WIN',
+    bet: session.bet,
+    won: winPayout,
+    net: winPayout - session.bet,
+  }).catch(() => {});
+  recordCasinoGame(db, {
+    userId: loser.userId,
+    username: loser.username,
+    mode: 'duel',
+    result: 'LOSE',
+    bet: session.bet,
+    won: 0,
+    net: -session.bet,
+  }).catch(() => {});
 
   checkAndRedeemDebt(db, winner.member, winner.userId, winPayout).catch(() => {});
 
@@ -743,6 +782,26 @@ async function handleDuelDice(db, interaction, duelId) {
 
     await awardJades(db, winner.userId, winPayout);
     await addToIpcVault(db, tax);
+
+    const loser = winner.userId === pA.userId ? pB : pA;
+    recordCasinoGame(db, {
+      userId: winner.userId,
+      username: winner.username,
+      mode: 'duel',
+      result: 'WIN',
+      bet: session.bet,
+      won: winPayout,
+      net: winPayout - session.bet,
+    }).catch(() => {});
+    recordCasinoGame(db, {
+      userId: loser.userId,
+      username: loser.username,
+      mode: 'duel',
+      result: 'LOSE',
+      bet: session.bet,
+      won: 0,
+      net: -session.bet,
+    }).catch(() => {});
 
     checkAndRedeemDebt(db, winner.member, winner.userId, winPayout).catch(() => {});
 
@@ -1159,6 +1218,15 @@ async function resolveBattleRoyale(db, session) {
 
     for (const p of playersArr) {
       await awardJades(db, p.userId, refund);
+      recordCasinoGame(db, {
+        userId: p.userId,
+        username: p.username,
+        mode: 'br',
+        result: 'LOSE',
+        bet: session.entryFee,
+        won: refund,
+        net: -(session.entryFee - refund),
+      }).catch(() => {});
     }
     await addToIpcVault(db, forfeited);
 
@@ -1175,6 +1243,31 @@ async function resolveBattleRoyale(db, session) {
     } else {
       await addToIpcVault(db, totalSpecPot);
       specResultNote = `💀 無人押中全員爆牌，場外買馬池 **${totalSpecPot.toLocaleString()}** 星瓊全數沒收注入 **IPC 公共金庫**！`;
+    }
+
+    for (const b of session.spectatorBets.values()) {
+      if (b.targetUserId === 'ALL_BUST') {
+        const share = bustBettors.length > 0 ? Math.floor(totalSpecPot / bustBettors.length) : 0;
+        recordCasinoGame(db, {
+          userId: b.spectatorId,
+          username: b.spectatorName,
+          mode: 'horse',
+          result: 'WIN',
+          bet: session.spectatorFee,
+          won: share,
+          net: share - session.spectatorFee,
+        }).catch(() => {});
+      } else {
+        recordCasinoGame(db, {
+          userId: b.spectatorId,
+          username: b.spectatorName,
+          mode: 'horse',
+          result: 'LOSE',
+          bet: session.spectatorFee,
+          won: 0,
+          net: -session.spectatorFee,
+        }).catch(() => {});
+      }
     }
 
     const embed = new EmbedBuilder()
@@ -1244,6 +1337,32 @@ async function finalizeBattleRoyaleWinner(db, session, winnerPlayer, revealList,
   await addToIpcVault(db, tax);
   checkAndRedeemDebt(db, winnerPlayer.member, winnerPlayer.userId, winPayout).catch(() => {});
 
+  // 記錄大逃殺選手戰績
+  const playersArr = Array.from(session.players.values());
+  for (const p of playersArr) {
+    if (p.userId === winnerPlayer.userId) {
+      recordCasinoGame(db, {
+        userId: p.userId,
+        username: p.username,
+        mode: 'br',
+        result: 'WIN',
+        bet: session.entryFee,
+        won: winPayout,
+        net: winPayout - session.entryFee,
+      }).catch(() => {});
+    } else {
+      recordCasinoGame(db, {
+        userId: p.userId,
+        username: p.username,
+        mode: 'br',
+        result: 'LOSE',
+        bet: session.entryFee,
+        won: 0,
+        net: -session.entryFee,
+      }).catch(() => {});
+    }
+  }
+
   // 買馬池分紅
   const winningBettors = Array.from(session.spectatorBets.values()).filter(b => b.targetUserId === winnerPlayer.userId);
   let specResultNote = '';
@@ -1259,6 +1378,32 @@ async function finalizeBattleRoyaleWinner(db, session, winnerPlayer, revealList,
     specResultNote = `💀 無人押中勝者【${winnerPlayer.username}】，買馬池 **${totalSpecPot.toLocaleString()}** 星瓊全數沒收注入 **IPC 公共金庫**！`;
   } else {
     specResultNote = `場外無買馬下注。`;
+  }
+
+  // 記錄場外買馬戰績
+  for (const b of session.spectatorBets.values()) {
+    if (b.targetUserId === winnerPlayer.userId) {
+      const share = winningBettors.length > 0 ? Math.floor(totalSpecPot / winningBettors.length) : 0;
+      recordCasinoGame(db, {
+        userId: b.spectatorId,
+        username: b.spectatorName,
+        mode: 'horse',
+        result: 'WIN',
+        bet: session.spectatorFee,
+        won: share,
+        net: share - session.spectatorFee,
+      }).catch(() => {});
+    } else {
+      recordCasinoGame(db, {
+        userId: b.spectatorId,
+        username: b.spectatorName,
+        mode: 'horse',
+        result: 'LOSE',
+        bet: session.spectatorFee,
+        won: 0,
+        net: -session.spectatorFee,
+      }).catch(() => {});
+    }
   }
 
   const embed = new EmbedBuilder()
