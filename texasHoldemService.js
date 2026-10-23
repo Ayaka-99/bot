@@ -250,6 +250,7 @@ async function startHoldemLobby(db, interaction, hostLimit = 25000) {
         hasActedThisRound: false,
       },
     ],
+    lockTimestamp: Math.floor(Date.now() / 1000) + 60,
     lobbyTimeout: null,
     turnTimeout: null,
     cleanupTimeout: null,
@@ -261,7 +262,7 @@ async function startHoldemLobby(db, interaction, hostLimit = 25000) {
   activeHoldemPlayers.add(userId);
   activeHoldemSessions.set(sessionId, session);
 
-  const embed = buildLobbyEmbed(session, 60);
+  const embed = buildLobbyEmbed(session);
   const row = buildLobbyActionRow(session);
 
   const replyMsg = await interaction.reply({
@@ -272,30 +273,18 @@ async function startHoldemLobby(db, interaction, hostLimit = 25000) {
 
   session.lobbyMessage = replyMsg;
 
-  // 60 秒倒數計時器
-  let countdown = 60;
-  const interval = setInterval(async () => {
-    countdown -= 5;
-    if (session.stage !== 'LOBBY') {
-      clearInterval(interval);
-      return;
-    }
-    if (countdown <= 0) {
-      clearInterval(interval);
+  // 60 秒到期自動鎖桌開局 (Discord 客戶端透過原生時間戳每秒自動倒數，零 API 消耗)
+  session.lobbyTimeout = setTimeout(async () => {
+    if (session.stage === 'LOBBY') {
       await lockAndStartHoldem(session);
-    } else {
-      const updateEmbed = buildLobbyEmbed(session, countdown);
-      replyMsg.edit({ embeds: [updateEmbed] }).catch(() => {});
     }
-  }, 5000);
-
-  session.lobbyInterval = interval;
+  }, 60000);
 }
 
 /**
  * 構建招募大廳 Embed
  */
-function buildLobbyEmbed(session, secondsLeft) {
+function buildLobbyEmbed(session) {
   const seatsDesc = session.seats
     .map((s) => {
       const roleTag = s.seatIndex === 1 ? '👑 [大盲房主]' : s.isNpc ? '💎 [NPC固定席]' : '🪑 [參賽選手]';
@@ -306,6 +295,10 @@ function buildLobbyEmbed(session, secondsLeft) {
   const emptySeats = 6 - session.seats.length;
   const emptyDesc = emptySeats > 0 ? `\n*(尚餘 ${emptySeats} 個空席，滿桌 6 人)*` : '\n*(牌桌已滿額！)*';
 
+  const timeDisplay = session.lockTimestamp
+    ? `<t:${session.lockTimestamp}:R> (預計 <t:${session.lockTimestamp}:T> 鎖桌)`
+    : '即將開局';
+
   return new EmbedBuilder()
     .setTitle('🃏【石心十人盲注桌】德州撲克 5+1 錦標賽正在招募！')
     .setColor(GOLD_COLOR)
@@ -315,7 +308,7 @@ function buildLobbyEmbed(session, secondsLeft) {
       `固定坐鎮第 2 號位的莊家 **詭弈砂金** 正在撫平籌碼，等候開拓者入局。\n\n` +
       `💰 **房主設定買入上限**：**${session.hostLimit.toLocaleString()}** 星瓊\n` +
       `⚖️ **木桶法則平齊機制**：鎖桌時自動取全場最低身家與上限之較小值作為統一籌碼！\n` +
-      `⏳ **開局倒數**：**${secondsLeft}** 秒 (房主亦可隨時點擊【🔥 馬上開始】)\n\n` +
+      `⏳ **開局倒數**：${timeDisplay} (房主亦可隨時點擊【🔥 馬上開始】)\n\n` +
       `**當前牌桌入座名冊**：\n${seatsDesc}${emptyDesc}`
     )
     .setFooter({
@@ -411,10 +404,15 @@ async function handleHoldemJoin(db, interaction, sessionId) {
     flags: MessageFlags.Ephemeral,
   });
 
-  // 刷新大廳訊息
-  const updateEmbed = buildLobbyEmbed(session, 45);
+  // 即時刷新大廳訊息與入座名冊
+  const updateEmbed = buildLobbyEmbed(session);
   const row = buildLobbyActionRow(session);
-  session.lobbyMessage.edit({ embeds: [updateEmbed], components: [row] }).catch(() => {});
+  const targetMsg = interaction.message || session.lobbyMessage;
+  if (targetMsg) {
+    await targetMsg.edit({ embeds: [updateEmbed], components: [row] }).catch((err) => {
+      console.warn('⚠️ 即時刷新大廳入座名冊失敗:', err.message);
+    });
+  }
 }
 
 /**
@@ -441,8 +439,9 @@ async function handleHoldemImmediateStart(db, interaction, sessionId) {
     flags: MessageFlags.Ephemeral,
   });
 
-  if (session.lobbyInterval) {
-    clearInterval(session.lobbyInterval);
+  if (session.lobbyTimeout) {
+    clearTimeout(session.lobbyTimeout);
+    session.lobbyTimeout = null;
   }
 
   await lockAndStartHoldem(session);
@@ -586,6 +585,10 @@ async function handleHoldemHorseModalSubmit(db, interaction, sessionId, selected
 
 async function lockAndStartHoldem(session) {
   if (session.stage !== 'LOBBY') return;
+  if (session.lobbyTimeout) {
+    clearTimeout(session.lobbyTimeout);
+    session.lobbyTimeout = null;
+  }
   session.stage = 'LOCKING';
 
   const db = session.db;
