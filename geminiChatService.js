@@ -2,21 +2,35 @@ const fs = require('fs');
 const path = require('path');
 
 // ==========================================
-// 🔑 API 金鑰配置與環境常數
+// 🔑 API 金鑰配置與環境常數 (優先讀取 .env，防洩漏)
 // ==========================================
-const API_KEYS = [
-  process.env.GEMINI_API_KEY_1 || 'AIzaSyBEF4eRUUaG7O6_El_O0LxMzl51W97lKKU',
-  process.env.GEMINI_API_KEY_2 || 'AIzaSyBFgoxJeJpBZTGA1e0bW68uRbUZLN1iXLk',
+const envKeys = [
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_API_KEY_1,
+  process.env.GEMINI_API_KEY_2,
+].filter(Boolean);
+
+// 若 .env 未設定，提供後備快取 (若失效請在 .env 新增 GEMINI_API_KEY)
+const API_KEYS = envKeys.length > 0 ? envKeys : [
+  'AIzaSyBEF4eRUUaG7O6_El_O0LxMzl51W97lKKU',
+  'AIzaSyBFgoxJeJpBZTGA1e0bW68uRbUZLN1iXLk',
 ];
 
-// 純文字對話專用模型：嚴格維持 gemini-3.5-flash-lite，絕不更動且不超 RPD
-const TEXT_MODELS = ['gemini-3.5-flash-lite'];
+// 純文字對話專用模型：嚴格採用官方極速省額度之 Flash-Lite 模型
+const TEXT_MODELS = [
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-1.5-flash',
+];
 
-// 圖片辨識專用模型：換掉 lite，專用視覺辨識極速強悍的 gemini-3-flash-preview (及 3.5-flash 備援)
-const VISION_MODELS = ['gemini-3-flash-preview', 'gemini-3.5-flash'];
+// 圖片辨識專用模型：
+const VISION_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+];
 
-// 圖片辨識專用獨立金鑰 (專用圖片辨識)
-const IMAGE_API_KEY = process.env.GEMINI_IMAGE_KEY || 'AQ.Ab8RN6J1U1vgdKtP7q9Zpz7YGYPwPY9YX0jmkVNgX0_bco4N3w';
+// 圖片辨識專用獨立金鑰
+const IMAGE_API_KEY = process.env.GEMINI_IMAGE_KEY || API_KEYS[0];
 
 // 當前啟用的金鑰索引 (0 或 1)
 let currentKeyIndex = 0;
