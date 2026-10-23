@@ -373,7 +373,7 @@ async function handleBankruptcyLoan(db, member, user) {
         return resolve({
           success: false,
           reason: 'ALREADY_CLAIMED_TODAY',
-          message: '你今天已經簽過高利貸契約了！明日 07:00 刷新，或者在頻道聊天發言賺取星瓊（每則 +25 星瓊）。',
+          message: '你今天已經簽過高利貸契約了！明日 07:00 刷新，或者在頻道聊天發言賺取星瓊（每則 +400 星瓊）。',
         });
       }
 

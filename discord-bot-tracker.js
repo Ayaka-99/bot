@@ -33,6 +33,7 @@ const {
   getUserCurrency,
   getUserGachaStats,
   addMessageJades,
+  grantUserJades,
   claimDailyJades,
   executeTenPull,
   buildGachaResultEmbed,
@@ -330,7 +331,7 @@ const commands = [
   // 4.6 下半卡池模擬抽卡相關指令
   new SlashCommandBuilder()
     .setName('模擬抽卡')
-    .setDescription('崩壞：星穹鐵道 4.6 下半卡池十連抽模擬 (消耗 1,600 星瓊)')
+    .setDescription('崩壞：星穹鐵道 4.6 下半卡池十連抽模擬 (消耗 8,000 星瓊)')
     .addStringOption(option =>
       option.setName('卡池')
         .setDescription('選擇要躍遷的限定活動角色卡池')
@@ -346,6 +347,21 @@ const commands = [
     .setDescription('查詢個人或伺服器成員的星瓊餘額、抽卡次數與保底進度')
     .addUserOption(option =>
       option.setName('成員').setDescription('要查詢的目標成員 (預設為自己)').setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('發星瓊')
+    .setDescription('【主人專屬】為指定成員增發任意數量的星瓊')
+    .addUserOption(option =>
+      option.setName('成員')
+        .setDescription('要發放星瓊的目標成員')
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option.setName('數量')
+        .setDescription('發放的星瓊數量 (正整數)')
+        .setMinValue(1)
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -799,8 +815,8 @@ client.on('messageCreate', async (message) => {
     (err) => { if (err) console.error('Error updating daily stats:', err); }
   );
 
-  // 增加星瓊：每次伺服器發言 +25 星瓊
-  addMessageJades(db, userId, username, 25).then(() => {
+  // 增加星瓊：每次伺服器發言 +400 星瓊
+  addMessageJades(db, userId, username, 400).then(() => {
     getUserCurrency(db, userId, username).then(curr => {
       if (curr && curr.stellarJades >= 1600) {
         checkAndRedeemDebt(db, message.member, userId, curr.stellarJades).catch(() => {});
@@ -1915,7 +1931,7 @@ client.on('interactionCreate', async (interaction) => {
           } else {
             msg += `• 獲得每日簽到津貼：**+600 星瓊**！\n`;
           }
-          msg += `• 當前星瓊餘額：**${jadeResult.balance.toLocaleString()}** 星瓊 (可進行 ${Math.floor(jadeResult.balance / 1600)} 次十連)\n\n*(💡 提示：若要同時領取崩壞：星穹鐵道遊戲官方簽到獎勵，請輸入 \`/星鐵綁定\` 進行一次性私密綁定)*`;
+          msg += `• 當前星瓊餘額：**${jadeResult.balance.toLocaleString()}** 星瓊 (可進行 ${Math.floor(jadeResult.balance / 8000)} 次十連)\n\n*(💡 提示：若要同時領取崩壞：星穹鐵道遊戲官方簽到獎勵，請輸入 \`/星鐵綁定\` 進行一次性私密綁定)*`;
           return interaction.editReply({ content: msg });
         }
 
@@ -2114,7 +2130,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!result.success) {
           if (result.reason === 'INSUFFICIENT_JADES') {
             return interaction.editReply({
-              content: `⚠️ **星瓊不足，躍遷失敗！**\n\n開拓者 **${user.username}**，每次十連躍遷需消耗 **1,600** 星瓊。\n您當前僅擁有：**${result.currentJades.toLocaleString()}** 星瓊 (還差 ${(result.requiredJades - result.currentJades).toLocaleString()} 星瓊)。\n\n💡 **星瓊賺取途徑**：\n• 在伺服器文字頻道聊天發言：每則訊息 **+25 星瓊**\n• 每日執行 \`/簽到\` 指令：每日簽到津貼 **+600 星瓊**！\n• 輸入 \`/星瓊\` 可隨時查看個人資產與躍遷水位。`,
+              content: `⚠️ **星瓊不足，躍遷失敗！**\n\n開拓者 **${user.username}**，每次十連躍遷需消耗 **8,000** 星瓊。\n您當前僅擁有：**${result.currentJades.toLocaleString()}** 星瓊 (還差 ${(result.requiredJades - result.currentJades).toLocaleString()} 星瓊)。\n\n💡 **星瓊賺取途徑**：\n• 在伺服器文字頻道聊天發言：每則訊息 **+400 星瓊**\n• 每日執行 \`/簽到\` 指令：每日簽到津貼 **+600 星瓊**！\n• 輸入 \`/星瓊\` 可隨時查看個人資產與躍遷水位。`,
             });
           }
           return interaction.editReply({ content: '❌ 躍遷過程遭遇星軌亂流，請稍後再試。' });
@@ -2135,6 +2151,38 @@ client.on('interactionCreate', async (interaction) => {
         const embed = buildCurrencyEmbed(targetUser, currency, stats, dailyClaimed);
         await interaction.reply({ embeds: [embed] });
         break;
+      }
+
+      case '發星瓊': {
+        // 僅限唯一主人 lance_508 擁有最高執行權限
+        if (user.username !== 'lance_508') {
+          return interaction.reply({
+            content: '🚫 **權限不足！**\n星際和平公司金庫鑄幣權限為最高機密，僅限主人 `lance_508` 使用。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const targetUser = options.getUser('成員');
+        const amount = options.getInteger('數量');
+
+        if (!targetUser) {
+          return interaction.reply({ content: '❌ 請指定要發放星瓊的目標成員。', flags: MessageFlags.Ephemeral });
+        }
+
+        if (targetUser.bot) {
+          return interaction.reply({ content: '❌ 機器人不需要星瓊。', flags: MessageFlags.Ephemeral });
+        }
+
+        if (!amount || amount < 1) {
+          return interaction.reply({ content: '❌ 發放數量必須為大於 0 的整數。', flags: MessageFlags.Ephemeral });
+        }
+
+        const updated = await grantUserJades(db, targetUser.id, targetUser.username, amount);
+
+        return interaction.reply({
+          content: `💎 **【主人恩賞・星瓊增發】**\n\n尊貴的主人 <@${user.id}> 已為 <@${targetUser.id}> 劃撥 **+${amount.toLocaleString()}** 星瓊！\n• 受贈者當前星瓊總額：**${updated.stellarJades.toLocaleString()}** 星瓊`,
+          allowedMentions: { users: [targetUser.id] },
+        });
       }
 
       case '轉帳': {

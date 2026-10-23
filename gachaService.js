@@ -161,7 +161,7 @@ function getUserCurrency(db, userId, username) {
   });
 }
 
-function addMessageJades(db, userId, username, amount = 25) {
+function addMessageJades(db, userId, username, amount = 400) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, 16000 + ?)
@@ -170,6 +170,23 @@ function addMessageJades(db, userId, username, amount = 25) {
       (err) => {
         if (err) return reject(err);
         resolve();
+      }
+    );
+  });
+}
+
+/**
+ * 主人專屬發放：為指定使用者增發任意數量星瓊
+ */
+function grantUserJades(db, userId, username, amount) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, 16000 + ?)
+       ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
+      [userId, username, amount, amount],
+      (err) => {
+        if (err) return reject(err);
+        getUserCurrency(db, userId, username).then(resolve).catch(reject);
       }
     );
   });
@@ -259,12 +276,12 @@ function getUserGachaStats(db, userId, username) {
 // ==========================================
 async function executeTenPull(db, userId, username, bannerKey = 'banner1') {
   const currency = await getUserCurrency(db, userId, username);
-  if (currency.stellarJades < 1600) {
+  if (currency.stellarJades < 8000) {
     return {
       success: false,
       reason: 'INSUFFICIENT_JADES',
       currentJades: currency.stellarJades,
-      requiredJades: 1600,
+      requiredJades: 8000,
     };
   }
 
@@ -385,11 +402,11 @@ async function executeTenPull(db, userId, username, bannerKey = 'banner1') {
     });
   }
 
-  // 扣除 1,600 星瓊並同步寫入資料庫 (使用相對扣減避免並發發言遺失星瓊)
+  // 扣除 8,000 星瓊並同步寫入資料庫 (使用相對扣減避免並發發言遺失星瓊)
   await new Promise((resolve, reject) => {
     db.serialize(() => {
       db.run(
-        `UPDATE user_currency SET stellarJades = stellarJades - 1600, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?`,
+        `UPDATE user_currency SET stellarJades = stellarJades - 8000, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?`,
         [userId]
       );
       db.run(
@@ -502,8 +519,8 @@ function buildGachaResultEmbed(user, result) {
       {
         name: '📊 個人躍遷檔案',
         value: [
-          `• 本次消耗：\`1,600\` 星瓊`,
-          `• 剩餘星瓊：**${remainingJades.toLocaleString()}** 星瓊 (還可抽 ${Math.floor(remainingJades / 1600)} 次十連)`,
+          `• 本次消耗：\`8,000\` 星瓊`,
+          `• 剩餘星瓊：**${remainingJades.toLocaleString()}** 星瓊 (還可抽 ${Math.floor(remainingJades / 8000)} 次十連)`,
           `• 累計躍遷次數：**${stats.totalPulls}** 抽`,
           `• 距離 5★ 保底：還差 **${90 - stats.pity5Star}** 抽 (當前已累積 ${stats.pity5Star} 抽)`,
           `• 大保底狀態：${stats.guaranteed5Star ? '🟢 **【大保底已啟動】下次必得限定！**' : '⚪ **【50 / 50 考驗中】**'}`,
@@ -526,7 +543,7 @@ function buildCurrencyEmbed(targetUser, currency, stats, dailyClaimed) {
     .addFields(
       {
         name: '💰 星瓊餘額',
-        value: `**${balance.toLocaleString()}** 星瓊 (可進行 **${Math.floor(balance / 1600)}** 次十連，餘 ${balance % 1600} 星瓊)`,
+        value: `**${balance.toLocaleString()}** 星瓊 (可進行 **${Math.floor(balance / 8000)}** 次十連，餘 ${balance % 8000} 星瓊)`,
         inline: false,
       },
       {
@@ -549,9 +566,9 @@ function buildCurrencyEmbed(targetUser, currency, stats, dailyClaimed) {
       {
         name: '💡 星瓊賺取途徑',
         value: [
-          '• 在伺服器任意文字頻道聊天發言：每則訊息 **+25 星瓊**',
+          '• 在伺服器任意文字頻道聊天發言：每則訊息 **+400 星瓊**',
           '• 每日執行 `/簽到` 指令：領取每日簽到津貼 **+600 星瓊**',
-          '• 每次十連躍遷固定消耗 **1,600 星瓊**',
+          '• 每次十連躍遷固定消耗 **8,000 星瓊**',
         ].join('\n'),
         inline: false,
       }
@@ -567,6 +584,7 @@ module.exports = {
   initGachaTables,
   getUserCurrency,
   addMessageJades,
+  grantUserJades,
   claimDailyJades,
   getUserGachaStats,
   executeTenPull,
