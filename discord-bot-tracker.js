@@ -110,6 +110,7 @@ const {
 // 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
 const {
   initCasinoStatsTable,
+  recordCasinoGame,
   getUserCasinoStats,
   buildCasinoStatsEmbed,
   isMessageSynced,
