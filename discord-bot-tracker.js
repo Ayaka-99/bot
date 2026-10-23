@@ -269,6 +269,11 @@ const commands = [
           { name: '僅回溯賭局勝率 (跳過發言快速同步)', value: 'casino_only' },
           { name: '重置並重新計算賭局勝率 (清空重算)', value: 'casino_reset' }
         )
+    )
+    .addChannelOption(option =>
+      option.setName('頻道')
+        .setDescription('指定要單獨回溯的文字頻道 (留空則掃描全伺服器)')
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
@@ -1667,6 +1672,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const syncMode = options.getString('模式') || 'all';
+        const specifiedChannel = options.getChannel('頻道');
 
         // 若選擇重置模式，先清空賭場勝率統計與同步快照
         if (syncMode === 'casino_reset') {
@@ -1676,11 +1682,13 @@ client.on('interactionCreate', async (interaction) => {
 
         const userMap = await buildUsernameToIdMap(db);
 
-        // 收集全伺服器文字頻道與所有討論串 (活躍 + 已封存公開 + 機器人所在的私人討論串)
+        // 收集目標通道：若指定了頻道則僅掃描該頻道及討論串，否則全伺服器文字頻道
         const targetChannels = [];
-        const textChannels = interaction.guild.channels.cache.filter(c => c.isTextBased());
+        const baseChannels = specifiedChannel
+          ? [specifiedChannel]
+          : Array.from(interaction.guild.channels.cache.filter((c) => c.isTextBased()).values());
 
-        for (const [channelId, channel] of textChannels) {
+        for (const channel of baseChannels) {
           if (!channel.permissionsFor(client.user)?.has('ViewChannel')) continue;
           targetChannels.push(channel);
 
@@ -1688,21 +1696,21 @@ client.on('interactionCreate', async (interaction) => {
             if (channel.threads) {
               const activeThreads = await channel.threads.fetchActive().catch(() => null);
               if (activeThreads?.threads) {
-                activeThreads.threads.forEach(t => {
+                activeThreads.threads.forEach((t) => {
                   if (t.permissionsFor(client.user)?.has('ViewChannel')) targetChannels.push(t);
                 });
               }
 
               const archivedPub = await channel.threads.fetchArchived({ type: 'public' }).catch(() => null);
               if (archivedPub?.threads) {
-                archivedPub.threads.forEach(t => {
+                archivedPub.threads.forEach((t) => {
                   if (t.permissionsFor(client.user)?.has('ViewChannel')) targetChannels.push(t);
                 });
               }
 
               const archivedPriv = await channel.threads.fetchArchived({ type: 'private' }).catch(() => null);
               if (archivedPriv?.threads) {
-                archivedPriv.threads.forEach(t => {
+                archivedPriv.threads.forEach((t) => {
                   if (t.permissionsFor(client.user)?.has('ViewChannel')) targetChannels.push(t);
                 });
               }
@@ -1718,13 +1726,33 @@ client.on('interactionCreate', async (interaction) => {
         const channelCounts = new Map();
         const casinoCounts = { pve: 0, duel: 0, br: 0, horse: 0, skipped: 0 };
 
+        // 賭場上線歷史閾值：在此時間之前的歷史訊息絕對不可能包含 21 點牌局，避免無限翻找
+        const CASINO_EARLIEST_TIMESTAMP = new Date('2026-10-01T00:00:00Z').getTime();
+
+        let lastProgressUpdate = Date.now();
+
         try {
           for (const target of targetChannels) {
             let lastId;
             let targetMsgCount = 0;
 
+            // 即時心跳更新 (每掃描一個通道更新一次進度，防止 15 分鐘 Webhook 超時)
+            if (Date.now() - lastProgressUpdate > 3000) {
+              lastProgressUpdate = Date.now();
+              await interaction
+                .editReply({
+                  content:
+                    `⏳ **正在流式回溯賭局歷史中...**\n` +
+                    `• 進度 [${scannedTargets + 1}/${targetChannels.length}]：\`#${target.name || target.id}\`\n` +
+                    `• 已掃描訊息：**${totalFetched.toLocaleString()}** 則 (無快取低記憶體模式)\n` +
+                    `• 已回溯賭局：🎲 砂金 **${casinoCounts.pve}** ｜ ⚔️ 單挑 **${casinoCounts.duel}** ｜ 👑 大逃殺 **${casinoCounts.br}**`,
+                })
+                .catch(() => {});
+            }
+
             while (true) {
-              const fetchOptions = { limit: 100 };
+              // 關鍵最佳化：cache: false 嚴禁 Discord.js 堆積 Message 到記憶體 Heap！
+              const fetchOptions = { limit: 100, cache: false };
               if (lastId) fetchOptions.before = lastId;
 
               let messages;
@@ -1735,7 +1763,7 @@ client.on('interactionCreate', async (interaction) => {
                 break;
               }
 
-              if (messages.size === 0) break;
+              if (!messages || messages.size === 0) break;
 
               for (const msg of messages.values()) {
                 if (msg.author.bot || msg.author.id === client.user.id) {
@@ -1762,17 +1790,27 @@ client.on('interactionCreate', async (interaction) => {
                   userCounts.get(uid).count++;
 
                   const chKey = `${uid}_${target.id}`;
-                  if (!channelCounts.has(chKey)) channelCounts.set(chKey, { uid, cid: target.id, cname: target.name, count: 0 });
+                  if (!channelCounts.has(chKey))
+                    channelCounts.set(chKey, { uid, cid: target.id, cname: target.name, count: 0 });
                   channelCounts.get(chKey).count++;
                 }
               }
 
-              lastId = messages.last().id;
+              const oldestMsg = messages.last();
+              lastId = oldestMsg ? oldestMsg.id : null;
               targetMsgCount += messages.size;
               totalFetched += messages.size;
 
-              await new Promise(resolve => setTimeout(resolve, 300));
+              // 剪枝最佳化：在 casino_only 模式下，若已翻閱至賭場系統誕生之前，直接 break
+              if (syncMode === 'casino_only' && oldestMsg && oldestMsg.createdTimestamp < CASINO_EARLIEST_TIMESTAMP) {
+                console.log(`[剪枝完成] #${target.name} 訊息已早於賭場上線時間，停止翻查。`);
+                break;
+              }
+
+              // 禮貌性微延遲防止 429
+              await new Promise((resolve) => setTimeout(resolve, 150));
             }
+
             scannedTargets++;
             console.log(`[進度] 通道/討論串 #${target.name} 掃描完成，共 ${targetMsgCount} 則。`);
           }
@@ -1809,25 +1847,25 @@ client.on('interactionCreate', async (interaction) => {
             .setColor('#ffd700')
             .setTitle('📡【全域歷史訊息 ＆ 賭局勝率回溯報告】')
             .setDescription(
-              `報告主人 <@${user.id}>，伺服器全域焦土掃描已順利執行完畢！\n\n` +
-              `📊 **基礎訊息掃描**：\n` +
-              `• 涵蓋頻道與討論串：**${scannedTargets}** 個通道\n` +
-              `• 讀取訊息總量：**${totalFetched.toLocaleString()}** 則訊息\n` +
-              `• 發言統計模式：\`${syncMode}\`\n\n` +
-              `🎰 **歷史賭局回溯補算戰果**：\n` +
-              `• 🎲 **詭弈砂金 (PvE)**：補回 **${casinoCounts.pve}** 場戰績\n` +
-              `• ⚔️ **雙人單挑 (PvP)**：補回 **${casinoCounts.duel}** 場戰績\n` +
-              `• 👑 **大逃殺混戰 (BR)**：補回 **${casinoCounts.br}** 場戰績\n` +
-              `• ⏭️ **防重複略過記錄**：**${casinoCounts.skipped}** 則已存在訊息\n\n` +
-              `✨ *所有成員的歷史勝率與生涯盈虧已全部無縫回填，現在輸入 \`/勝率\` 即可調取完整檔案！*`
+              `報告主人 <@${user.id}>，歷史掃描已順利執行完畢！\n\n` +
+                `📊 **基礎訊息掃描**：\n` +
+                `• 涵蓋頻道與討論串：**${scannedTargets}** 個通道${specifiedChannel ? ` *(限定: <#${specifiedChannel.id}>)*` : ''}\n` +
+                `• 讀取訊息總量：**${totalFetched.toLocaleString()}** 則訊息\n` +
+                `• 發言統計模式：\`${syncMode}\`\n\n` +
+                `🎰 **歷史賭局回溯補算戰果**：\n` +
+                `• 🎲 **詭弈砂金 (PvE)**：補回 **${casinoCounts.pve}** 場戰績\n` +
+                `• ⚔️ **雙人單挑 (PvP)**：補回 **${casinoCounts.duel}** 場戰績\n` +
+                `• 👑 **大逃殺混戰 (BR)**：補回 **${casinoCounts.br}** 場戰績\n` +
+                `• ⏭️ **防重複略過記錄**：**${casinoCounts.skipped}** 則已存在訊息\n\n` +
+                `✨ *所有成員的歷史勝率與生涯盈虧已全部無縫回填，現在輸入 \`/勝率\` 即可調取完整檔案！*`
             )
             .setFooter({ text: '匹諾康尼家族賭場管理局 · 數據回溯中心' })
             .setTimestamp();
 
-          await interaction.editReply({ embeds: [embed] });
+          await interaction.editReply({ content: '', embeds: [embed] });
         } catch (error) {
-          console.error('全域撈取發生毀滅性錯誤:', error);
-          await interaction.editReply('❌ 撈取過程崩潰了，你的伺服器訊息多到讓我的記憶體吐了。');
+          console.error('全域撈取發生毀滅性錯誤:', error.stack || error);
+          await interaction.editReply(`❌ 撈取過程發生錯誤：\`${error.message}\`\n請確認終端機日誌或嘗試指定單一頻道掃描。`);
         }
         break;
       }
