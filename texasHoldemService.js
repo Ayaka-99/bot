@@ -773,6 +773,85 @@ async function lockAndStartHoldem(session) {
 /**
  * 構建包廂對決主控面板 Embed
  */
+
+/**
+ * 構建純文字相容版包廂主控面板 (當缺少 EmbedLinks 權限時自動降級容錯)
+ */
+function buildConsolePlainText(session, highlightAction = '') {
+  let comDisplay = '';
+  if (session.stage === 'PRE_FLOP') {
+    comDisplay = '🂠 🂠 🂠 🂠 🂠  *(翻牌前暗牌)*';
+  } else if (session.stage === 'FLOP') {
+    comDisplay = `${formatCards(session.communityCards.slice(0, 3))}  🂠 🂠`;
+  } else if (session.stage === 'TURN') {
+    comDisplay = `${formatCards(session.communityCards.slice(0, 4))}  🂠`;
+  } else {
+    comDisplay = formatCards(session.communityCards);
+  }
+
+  const seatsDesc = session.seats
+    .map((s) => {
+      let statusIcon = '⏳ 思考中';
+      if (s.isFolded) statusIcon = '🏳️ 已棄牌';
+      else if (s.isAllIn) statusIcon = '🔥 All-in';
+      else if (s.hasActedThisRound) statusIcon = `✅ 已下注 ${s.roundBet.toLocaleString()}`;
+
+      const activeTag = s.seatIndex === session.activeSeatIndex && session.stage !== 'SHOWDOWN' && session.stage !== 'FINISHED'
+        ? ' 👈 **[輪到此位]**'
+        : '';
+      return `> **座位 ${s.seatIndex}**：${s.username} ｜ 剩餘籌碼：**${s.chips.toLocaleString()}** ｜ 狀態：\`${statusIcon}\`${activeTag}`;
+    })
+    .join('\n');
+
+  const activeSeat = session.seats.find((s) => s.seatIndex === session.activeSeatIndex);
+  const turnPrompt = activeSeat
+    ? `🎯 **當前輪到**：${activeSeat.username} (座位 ${activeSeat.seatIndex})\n⏰ **行動倒數**：<t:${Math.floor(Date.now() / 1000) + 30}:R>`
+    : '🏁 正在結算牌局...';
+
+  return (
+    `🃏 **【德州撲克 5+1】— 輪次：${getStageName(session.stage)}**\n` +
+    (highlightAction ? `📢 ${highlightAction}\n\n` : '') +
+    `🌐 **公共牌面 (Community Cards)**：\n${comDisplay}\n\n` +
+    `💰 **當前累積總底池**：**${session.pot.toLocaleString()}** 星瓊 ｜ 📈 **本輪最高注額**：**${session.currentHighestBet.toLocaleString()}** 星瓊\n\n` +
+    `**牌桌席位實時戰況**：\n${seatsDesc}\n\n` +
+    `${turnPrompt}\n\n` +
+    `💡 *提示：點擊下方【👁️ 查看私人底牌】私密看牌。若需精美卡片視窗，請管理員開啟身分組「嵌入連結 (Embed Links)」權限。*`
+  );
+}
+
+/**
+ * 統一更新控制面板訊息 (支援 Embed 與純文字雙模自動容錯切換)
+ */
+async function updateConsoleMessage(session, options) {
+  if (!session.consoleMessage) return;
+  const { embed, plainText, components } = options;
+
+  if (session.usePlainTextConsole) {
+    await session.consoleMessage.edit({
+      content: plainText,
+      embeds: [],
+      components: components || [],
+    }).catch(() => {});
+  } else {
+    try {
+      await session.consoleMessage.edit({
+        content: '',
+        embeds: embed ? [embed] : [],
+        components: components || [],
+      });
+    } catch (err) {
+      if (err.code === 50013) {
+        session.usePlainTextConsole = true;
+        await session.consoleMessage.edit({
+          content: plainText,
+          embeds: [],
+          components: components || [],
+        }).catch(() => {});
+      }
+    }
+  }
+}
+
 function buildConsoleEmbed(session, highlightAction = '') {
   // 公共牌展示
   let comDisplay = '';
