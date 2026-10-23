@@ -166,6 +166,7 @@ const {
   handleHoldemAllIn,
   handleHoldemFold,
   handleHoldemReplay,
+  forceCloseHoldemSession,
 } = require('./texasHoldemService');
 
 // 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
@@ -532,6 +533,16 @@ const commands = [
         .setDescription('每人上桌買入上限 (1,000 ~ 25,000 星瓊，預設 25,000)')
         .setMinValue(1000)
         .setMaxValue(25000)
+        .setRequired(false)
+    ),
+
+  // 【主人專屬】緊急解散德州撲克牌桌並強制銷毀討論串
+  new SlashCommandBuilder()
+    .setName('刪除賭間')
+    .setDescription('【主人專屬】緊急解散異常牌桌並強制銷毀德州撲克包廂討論串')
+    .addChannelOption(option =>
+      option.setName('討論串')
+        .setDescription('要強制刪除的討論串包廂 (留空則預設當前討論串)')
         .setRequired(false)
     ),
 
@@ -2526,6 +2537,85 @@ client.on('interactionCreate', async (interaction) => {
       case '德州撲克': {
         const hostLimit = options.getInteger('買入上限') || 25000;
         await startHoldemLobby(db, interaction, hostLimit);
+        break;
+      }
+
+      // ==========================================
+      // 🛑 【主人專屬】緊急解散德州撲克牌桌並強制銷毀討論串
+      // ==========================================
+      case '刪除賭間': {
+        // 僅限唯一主人 lance_508 擁有最高執行權限
+        if (user.username !== 'lance_508' && !['lance_508', 'lance_0508', '508_forever'].includes(user.username)) {
+          return interaction.reply({
+            content: '🚫 **權限不足！**\n強制刪除賭間為最高管理指令，僅限主人 `lance_508` 執行。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const specifiedChannel = options.getChannel('討論串');
+        let targetThread = specifiedChannel || interaction.channel;
+
+        // 確保為討論串類型
+        if (!targetThread || !targetThread.isThread || !targetThread.isThread()) {
+          return interaction.reply({
+            content: '❌ **目標頻道不是討論串！**\n為確保伺服器安全，`/刪除賭間` 嚴格禁止對常規文字頻道執行刪除。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        // 全域保護名單攔截
+        const PROTECTED_THREAD_IDS = ['1343776195354955836'];
+        if (PROTECTED_THREAD_IDS.includes(targetThread.id)) {
+          return interaction.reply({
+            content: '🛑 **操作受拒！** 該討論串屬於全域受保護名單，嚴禁刪除。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        // 擁有者校驗：僅允許刪除由機器人建立之討論串
+        const botId = client.user.id;
+        let ownerId = targetThread.ownerId;
+        if (!ownerId && typeof targetThread.fetch === 'function') {
+          const fetched = await targetThread.fetch().catch(() => null);
+          if (fetched) ownerId = fetched.ownerId;
+        }
+
+        if (botId && ownerId !== botId) {
+          return interaction.reply({
+            content: `🛑 **操作受拒！** 討論串 #${targetThread.name || '未知'} 由外部使用者 (ID: ${ownerId || '未知'}) 建立，非機器人自身建立，嚴禁刪除！`,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        // 執行牌局 Session 清理與籌碼回退
+        const { refundedCount } = await forceCloseHoldemSession(db, targetThread.id, user.username);
+
+        const isCurrentThread = interaction.channelId === targetThread.id;
+
+        if (isCurrentThread) {
+          await interaction.reply({
+            content: `🚨 **主人已啟動緊急銷毀程序！**\n本賭間討論串將在 2 秒後永久關閉。${refundedCount > 0 ? `\n*(已安全退回 ${refundedCount} 名選手之桌上籌碼)*` : ''}`,
+          });
+
+          setTimeout(async () => {
+            await targetThread.delete('主人手動執行 /刪除賭間 緊急解散').catch((delErr) => {
+              console.error('緊急刪除討論串失敗:', delErr);
+            });
+          }, 2000);
+        } else {
+          try {
+            await targetThread.delete('主人手動執行 /刪除賭間 緊急解散');
+            await interaction.reply({
+              content: `🧹 **已成功強制銷毀德州撲克賭間！**\n已安全刪除討論串：\`#${targetThread.name}\` (ID: ${targetThread.id})${refundedCount > 0 ? `\n*(已原路退還 ${refundedCount} 名選手桌上籌碼，鎖定已完全釋放)*` : ''}`,
+              flags: MessageFlags.Ephemeral,
+            });
+          } catch (delErr) {
+            await interaction.reply({
+              content: `⚠️ **刪除討論串失敗**：${delErr.message}\n可能缺少 Discord「管理討論串」權限。`,
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+        }
         break;
       }
 

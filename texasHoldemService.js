@@ -1817,6 +1817,75 @@ async function handleHoldemReplay(db, interaction, oldSessionId) {
   await lockAndStartHoldem(oldSession);
 }
 
+
+/**
+ * 【主人專屬】強制解散德州撲克牌桌並釋放資源
+ * @param {object} db - SQLite 數據庫
+ * @param {string} threadId - 目標討論串 ID
+ * @param {string} actorName - 操作者名稱
+ * @returns {object} { success: boolean, sessionFound: boolean, refundedCount: number }
+ */
+async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
+  let session = threadSessions.get(threadId);
+
+  // 若以 threadId 找不到，嘗試從 activeHoldemSessions 遍歷尋找
+  if (!session) {
+    for (const s of activeHoldemSessions.values()) {
+      if (s.thread && s.thread.id === threadId) {
+        session = s;
+        break;
+      }
+    }
+  }
+
+  let refundedCount = 0;
+  if (session) {
+    // 1. 清理全部定時器
+    if (session.lobbyTimeout) clearTimeout(session.lobbyTimeout);
+    if (session.turnTimeout) clearTimeout(session.turnTimeout);
+    if (session.cleanupTimeout) clearTimeout(session.cleanupTimeout);
+
+    // 2. 若牌局尚未完成結算，回退所有玩家桌上籌碼
+    if (session.stage !== 'FINISHED' && session.seats) {
+      for (const s of session.seats) {
+        if (!s.isNpc && s.chips > 0) {
+          try {
+            await awardJades(db, s.userId, s.chips);
+            refundedCount++;
+          } catch (err) {
+            console.error(`[緊急解散] 回退玩家 ${s.username} (${s.userId}) 籌碼失敗:`, err);
+          }
+        }
+        activeHoldemPlayers.delete(s.userId);
+      }
+    } else if (session.seats) {
+      for (const s of session.seats) {
+        activeHoldemPlayers.delete(s.userId);
+      }
+    }
+
+    // 3. 釋放房主鎖
+    if (session.hostUserId) {
+      activeHoldemPlayers.delete(session.hostUserId);
+    }
+
+    // 4. 更新大廳原訊息 (若存在)
+    if (session.lobbyMessage) {
+      const cancelEmbed = new EmbedBuilder()
+        .setTitle('🛑【德州撲克 5+1】賭間已由主人強制解散銷毀')
+        .setColor(DANGER_COLOR)
+        .setDescription(`本賭間已由最高管理者 **${actorName}** 執行緊急解散，參賽選手之現存籌碼已安全原路退回。`);
+      session.lobbyMessage.edit({ embeds: [cancelEmbed], components: [] }).catch(() => {});
+    }
+
+    // 5. 移出 Session 記錄
+    activeHoldemSessions.delete(session.sessionId);
+    threadSessions.delete(threadId);
+  }
+
+  return { success: true, sessionFound: !!session, refundedCount };
+}
+
 module.exports = {
   startHoldemLobby,
   handleHoldemJoin,
@@ -1831,6 +1900,8 @@ module.exports = {
   handleHoldemAllIn,
   handleHoldemFold,
   handleHoldemReplay,
+  forceCloseHoldemSession,
+  threadSessions,
   activeHoldemPlayers,
   activeHoldemSessions,
 };
