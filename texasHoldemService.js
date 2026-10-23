@@ -256,6 +256,9 @@ async function startHoldemLobby(db, interaction, hostLimit = 25000) {
     thread: null,
     consoleMessage: null,
     lobbyMessage: null,
+    interaction,
+    channel: interaction.channel,
+    countdown: 60,
   };
 
   activeHoldemPlayers.add(userId);
@@ -276,6 +279,7 @@ async function startHoldemLobby(db, interaction, hostLimit = 25000) {
   let countdown = 60;
   const interval = setInterval(async () => {
     countdown -= 5;
+    session.countdown = countdown;
     if (session.stage !== 'LOBBY') {
       clearInterval(interval);
       return;
@@ -285,7 +289,13 @@ async function startHoldemLobby(db, interaction, hostLimit = 25000) {
       await lockAndStartHoldem(session);
     } else {
       const updateEmbed = buildLobbyEmbed(session, countdown);
-      replyMsg.edit({ embeds: [updateEmbed] }).catch(() => {});
+      try {
+        if (session.interaction) {
+          session.interaction.editReply({ embeds: [updateEmbed] }).catch(() => {});
+        } else {
+          replyMsg.edit({ embeds: [updateEmbed] }).catch(() => {});
+        }
+      } catch (e) {}
     }
   }, 5000);
 
@@ -412,9 +422,22 @@ async function handleHoldemJoin(db, interaction, sessionId) {
   });
 
   // 刷新大廳訊息
-  const updateEmbed = buildLobbyEmbed(session, 45);
+  const secondsLeft = session.countdown || 45;
+  const updateEmbed = buildLobbyEmbed(session, secondsLeft);
   const row = buildLobbyActionRow(session);
-  session.lobbyMessage.edit({ embeds: [updateEmbed], components: [row] }).catch(() => {});
+
+  try {
+    if (session.interaction) {
+      await session.interaction.editReply({ embeds: [updateEmbed], components: [row] });
+    } else if (session.lobbyMessage) {
+      await session.lobbyMessage.edit({ embeds: [updateEmbed], components: [row] });
+    }
+  } catch (refreshErr) {
+    console.warn('⚠️ 刷新德州撲克大廳名冊失敗:', refreshErr.message);
+    if (session.lobbyMessage) {
+      session.lobbyMessage.edit({ embeds: [updateEmbed], components: [row] }).catch(() => {});
+    }
+  }
 }
 
 /**
@@ -693,7 +716,10 @@ async function lockAndStartHoldem(session) {
     session.deck.pop(),
   ];
 
-  // 6. 建立專屬包廂 Thread (Public Thread)
+  // 6. 嘗試建立專屬包廂 Thread (若無權限則自動降級為當前頻道開局)
+  let targetChannel = session.channel || session.lobbyMessage?.channel;
+  let useThread = false;
+
   try {
     const thread = await session.lobbyMessage.startThread({
       name: `🃏 德州撲克-${session.hostUsername}桌`,
@@ -701,6 +727,8 @@ async function lockAndStartHoldem(session) {
     });
     session.thread = thread;
     threadSessions.set(thread.id, session);
+    targetChannel = thread;
+    useThread = true;
 
     // 在主頻道原訊息更新跳轉提示
     const lockedEmbed = new EmbedBuilder()
@@ -713,12 +741,38 @@ async function lockAndStartHoldem(session) {
         (session.isCasualTable ? `⚠️ *(因木桶法則鎖定低於 3,000 星瓊，本局為休閒練習桌，不計入勝率)*\n` : '') +
         `🎲 **當前累積底池**：**${session.pot.toLocaleString()}** 星瓊`
       );
-    session.lobbyMessage.edit({ embeds: [lockedEmbed], components: [] }).catch(() => {});
+    if (session.interaction) {
+      session.interaction.editReply({ embeds: [lockedEmbed], components: [] }).catch(() => {});
+    } else if (session.lobbyMessage) {
+      session.lobbyMessage.edit({ embeds: [lockedEmbed], components: [] }).catch(() => {});
+    }
+  } catch (threadErr) {
+    console.warn('⚠️ 建立討論串失敗 (缺少權限)，自動降級為【頻道公開桌】模式開局:', threadErr.message);
+    useThread = false;
+    session.thread = null;
 
-    // @ 標註全體參賽者進 Thread
+    // 在大廳提示權限並告知切換公開桌模式
+    const fallbackEmbed = new EmbedBuilder()
+      .setTitle('🎲【德州撲克 5+1 錦標賽】頻道公開桌開局！')
+      .setColor(SUCCESS_COLOR)
+      .setDescription(
+        `⚠️ *(因機器人在此頻道無建立討論串權限，已自動降級為【頻道公開桌】模式開局)*\n\n` +
+        `💰 **本局統一攜帶籌碼 (Table Cap)**：**${session.tableCap.toLocaleString()}** 星瓊\n` +
+        (session.isCasualTable ? `⚠️ *(因木桶法則鎖定低於 3,000 星瓊，本局為休閒練習桌，不計入勝率)*\n` : '') +
+        `🎲 **當前累積底池**：**${session.pot.toLocaleString()}** 星瓊`
+      );
+    if (session.interaction) {
+      session.interaction.editReply({ embeds: [fallbackEmbed], components: [] }).catch(() => {});
+    } else if (session.lobbyMessage) {
+      session.lobbyMessage.edit({ embeds: [fallbackEmbed], components: [] }).catch(() => {});
+    }
+  }
+
+  try {
+    // @ 標註全體參賽者進場
     const mentions = session.seats.filter((s) => !s.isNpc).map((s) => `<@${s.userId}>`).join(' ');
-    await thread.send({
-      content: `🔔 各位開拓者請就座！ ${mentions}\n歡迎來到黃金的時刻專屬包廂。砂金已替各位切好牌，對決正式開始！`,
+    await targetChannel.send({
+      content: `🔔 各位開拓者請就座！ ${mentions}\n${useThread ? '歡迎來到黃金的時刻專屬包廂。' : ''}砂金已替各位切好牌，對決正式開始！`,
     });
 
     // 啟動 Pre-Flop 輪次
@@ -727,7 +781,7 @@ async function lockAndStartHoldem(session) {
     session.activeSeatIndex = 2;
     session.roundRaises = 0;
 
-    const consoleMsg = await thread.send({
+    const consoleMsg = await targetChannel.send({
       embeds: [buildConsoleEmbed(session)],
       components: buildConsoleActionRows(session),
     });
@@ -735,8 +789,8 @@ async function lockAndStartHoldem(session) {
 
     // 推進第一個行動
     await triggerNextAction(session);
-  } catch (err) {
-    console.error('❌ 建立德州撲克包廂 Thread 失敗:', err);
+  } catch (playErr) {
+    console.error('❌ 發送德州撲克牌桌面板失敗:', playErr);
     // 容錯回退籌碼
     for (const s of session.seats) {
       if (!s.isNpc) {
@@ -1428,9 +1482,16 @@ function startCleanupTimer(session) {
         await session.lobbyMessage.edit({ embeds: [cleanupEmbed], components: [] }).catch(() => {});
         // 刪除討論串
         await session.thread.delete('德州撲克包廂閒置自動銷毀');
+      } else if (session.consoleMessage) {
+        // 頻道公開桌模式：更新結算面板為閒置結束
+        const cleanupEmbed = new EmbedBuilder()
+          .setTitle('🏁【德州撲克 5+1】牌桌已閒置關閉')
+          .setColor(DARK_PURPLE)
+          .setDescription(`本桌德州撲克已結算完成，牌桌因超過 10 分鐘無人動作已自動封桌。`);
+        await session.consoleMessage.edit({ embeds: [cleanupEmbed], components: [] }).catch(() => {});
       }
     } catch (err) {
-      console.warn('⚠️ 清理德州撲克 Thread 失敗:', err.message);
+      console.warn('⚠️ 清理德州撲克牌桌失敗:', err.message);
     } finally {
       activeHoldemSessions.delete(session.sessionId);
       if (session.thread) threadSessions.delete(session.thread.id);
