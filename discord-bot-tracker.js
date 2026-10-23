@@ -856,6 +856,16 @@ client.on('messageCreate', async (message) => {
   });
 
   // ==========================================
+  // 🔇 禁言頻道 / 討論串黑名單 (不觸發任何迷因圖與 AI 對話回覆)
+  // ==========================================
+  const MUTED_CHANNEL_IDS = ['1343776195354955836'];
+  const currentChannelId = message.channelId || message.channel.id;
+  const parentChannelId = message.channel.parentId;
+  if (MUTED_CHANNEL_IDS.includes(currentChannelId) || (parentChannelId && MUTED_CHANNEL_IDS.includes(parentChannelId))) {
+    return; // 該討論串/頻道全面禁言靜音，僅保留上方發言星瓊與計數統計
+  }
+
+  // ==========================================
   // 💩 關鍵字自動監聽：偵測到「拉完了」3 個字中有 2 個字被觸發時，自動發送 la 圖片 (無需 Tag 或回覆)
   // ==========================================
   const contentToScan = (message.content || '').toLowerCase();
