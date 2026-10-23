@@ -1428,12 +1428,32 @@ function startCleanupTimer(session) {
           .setColor(DARK_PURPLE)
           .setDescription(`本桌德州撲克已結算完成，專屬包廂因超過 30 秒未續局已自動清理銷毀。`);
         await session.lobbyMessage.edit({ embeds: [cleanupEmbed], components: [] }).catch(() => {});
-        // 刪除討論串
-        try {
-          await session.thread.delete('德州撲克結算 30 秒未續局自動刪除');
-        } catch (delErr) {
-          console.warn('⚠️ 刪除 Thread 失敗 (可能缺少管理討論串權限)，嘗試將討論串封存:', delErr.message);
-          await session.thread.setArchived(true, '德州撲克結算 30 秒逾時封存').catch(() => {});
+        // 🛡️ 核心防禦：只能刪除機器人自己建立的討論串，其他討論串嚴禁動到
+        const thread = session.thread;
+        const botId = thread.client?.user?.id;
+        let ownerId = thread.ownerId;
+
+        if (!ownerId && typeof thread.fetch === 'function') {
+          try {
+            const fetched = await thread.fetch().catch(() => null);
+            if (fetched) ownerId = fetched.ownerId;
+          } catch (_) {}
+        }
+
+        const PROTECTED_IDS = ['1343776195354955836'];
+        if (PROTECTED_IDS.includes(thread.id)) {
+          console.warn(`🛑【安全攔截】討論串 ID ${thread.id} 屬於受保護名單，嚴禁刪除！`);
+        } else if (!botId || ownerId !== botId) {
+          console.warn(`🛑【安全攔截】討論串 #${thread.name || '未知'} (ID: ${thread.id}) 建立者為 ${ownerId || '未知'}，非機器人自身 (${botId || '未初始化'})，嚴禁刪除！`);
+        } else {
+          // 刪除討論串
+          try {
+            await thread.delete('德州撲克結算 30 秒未續局自動刪除');
+            console.log(`🧹 已安全清理機器人建立之德州撲克討論串: #${thread.name} (${thread.id})`);
+          } catch (delErr) {
+            console.warn('⚠️ 刪除 Thread 失敗 (可能缺少管理討論串權限)，嘗試將討論串封存:', delErr.message);
+            await thread.setArchived(true, '德州撲克結算 30 秒逾時封存').catch(() => {});
+          }
         }
       }
     } catch (err) {

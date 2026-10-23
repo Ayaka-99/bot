@@ -1,8 +1,50 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionFlagsBits, MessageFlags, AttachmentBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionFlagsBits, MessageFlags, AttachmentBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ThreadChannel } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+
+// ==========================================================
+// 🛡️ 全域討論串安全防護守衛 (Thread Safety Guard)
+// 核心準則：機器人只能刪除自己建立的討論串，其他任何討論串嚴禁動到！
+// ==========================================================
+const PROTECTED_THREAD_IDS = new Set([
+  '1343776195354955836', // 禁言與重要營運專用討論串，永久保護
+]);
+
+if (ThreadChannel && ThreadChannel.prototype && ThreadChannel.prototype.delete) {
+  const originalThreadDelete = ThreadChannel.prototype.delete;
+  ThreadChannel.prototype.delete = async function safeThreadDelete(reason) {
+    const botId = this.client?.user?.id;
+    let ownerId = this.ownerId;
+
+    // 若 ownerId 尚未快取，嘗試非同步獲取最新資料
+    if (!ownerId && typeof this.fetch === 'function') {
+      try {
+        const fetched = await this.fetch();
+        ownerId = fetched?.ownerId;
+      } catch (err) {
+        console.warn(`[討論串防護] 無法獲取討論串 #${this.name || '未知'} (${this.id}) 的 ownerId:`, err.message);
+      }
+    }
+
+    // 1. 檢查受保護討論串白名單
+    if (PROTECTED_THREAD_IDS.has(this.id)) {
+      console.warn(`🛑【討論串防刪守衛】討論串 ID ${this.id} (#${this.name || '未知'}) 屬於受保護名單，嚴格禁止刪除！`);
+      return this;
+    }
+
+    // 2. 核心約束：只能刪除機器人自己建立的討論串 (ownerId === botId)
+    if (!botId || ownerId !== botId) {
+      console.warn(`🛑【討論串防刪守衛】安全攔截！討論串 #${this.name || '未知'} (ID: ${this.id}) 建立者為 ${ownerId || '未知用戶'}，非機器人自身 (${botId || '未初始化'})，嚴禁刪除！`);
+      return this;
+    }
+
+    console.log(`🧹【討論串防刪守衛】驗證通過：討論串 #${this.name} (${this.id}) 確實為機器人自身建立，執行刪除。`);
+    return originalThreadDelete.call(this, reason);
+  };
+  console.log('🛡️ [安全防護] 討論串防刪全域守衛已掛載：僅允許刪除機器人自身建立之討論串。');
+}
 
 // 引入星穹鐵道簽到服務
 const {
