@@ -129,10 +129,10 @@ async function startDuel(db, interaction, betAmount, targetUser = null) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
-  // 1. 下注限制 100 ~ 6400
-  if (betAmount < 100 || betAmount > 6400) {
+  // 1. 下注限制 100 ~ 50000
+  if (betAmount < 100 || betAmount > 50000) {
     return interaction.reply({
-      content: '❌ **單挑下注限制為 100 ～ 6,400 星瓊**！請重新指定合法注額。',
+      content: '❌ **單挑下注限制為 100 ～ 50,000 星瓊**！請重新指定合法注額。',
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -830,9 +830,9 @@ async function startBattleRoyale(db, interaction, entryFee) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
-  if (entryFee < 100 || entryFee > 6400) {
+  if (entryFee < 100 || entryFee > 50000) {
     return interaction.reply({
-      content: '❌ **大逃殺入場費限制為 100 ～ 6,400 星瓊**！請重新指定合法注額。',
+      content: '❌ **大逃殺入場費限制為 100 ～ 50,000 星瓊**！請重新指定合法注額。',
       flags: MessageFlags.Ephemeral,
     });
   }

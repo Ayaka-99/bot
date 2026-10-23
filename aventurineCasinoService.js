@@ -177,12 +177,34 @@ function initAventurineCasino(db) {
                   console.log('✅ 成功為全體成員統一補發 16,000 星瓊！');
                 });
               }
-              resolve();
+              // 執行下一個 migration
+              checkGrant100k();
             });
           } else {
-            resolve();
+            checkGrant100k();
           }
         });
+
+        function checkGrant100k() {
+          const grant100kKey = 'migration_grant_100000_jades_20261023';
+          db.get('SELECT * FROM system_migrations WHERE migrationName = ?', [grant100kKey], (mErr2, row2) => {
+            if (!row2) {
+              console.log('🚀 正在為全體成員發放無條件補貼 100,000 星瓊...');
+              db.run('UPDATE user_currency SET stellarJades = stellarJades + 100000', (uErr2) => {
+                if (uErr2) {
+                  console.error('❌ 全體發放 100000 星瓊失敗:', uErr2);
+                } else {
+                  db.run('INSERT INTO system_migrations (migrationName) VALUES (?)', [grant100kKey], () => {
+                    console.log('✅ 成功為全體成員統一補發 100,000 星瓊！');
+                  });
+                }
+                resolve();
+              });
+            } else {
+              resolve();
+            }
+          });
+        }
       });
     });
   });
@@ -221,9 +243,9 @@ function addToIpcVault(db, amount) {
 
 /**
  * 計算並發放底池獎勵
- * 規則：
- * 1. 分母為 3,200 星瓊 (下注 3,200+ 拿 100% 份額，下注 100 拿 100/3200 = 1/32 份額)
- * 2. 拿到底池獎勵不可超過下注的 10 倍 (例如下注 100 最高拿 1,000 星瓊，下注 3,200 最高拿 32,000 星瓊)
+ * 規則 (2026-10-23 改版)：
+ * 1. 取消 10 倍限制
+ * 2. 每下注 1,000 星瓊可分得金庫 1% 的派彩，滿注 50,000 最多拿 50% 的派彩 (上限 50%)
  * 3. 金庫扣除發放金額後，維持至少 10,000 星瓊種子基金
  */
 function claimJackpotVault(db, bet = 100) {
@@ -232,16 +254,11 @@ function claimJackpotVault(db, bet = 100) {
       const vault = await getIpcVault(db);
       const vaultTotal = vault.currentJades || 10000;
 
-      // 1. 依 3200 為分母計算份額比例
-      const shareRatio = Math.min(1.0, bet / 3200);
-      const rawReward = Math.floor(vaultTotal * shareRatio);
+      // 1. 每下注 1,000 星瓊拿 1%，滿注 50,000 拿最多 50% (取消 10 倍上限)
+      const shareRatio = Math.min(0.50, (bet / 1000) * 0.01);
+      const payout = Math.floor(vaultTotal * shareRatio);
 
-      // 2. 獲獎上限為下注金額的 10 倍
-      const maxCap = bet * 10;
-      const payout = Math.min(rawReward, maxCap);
-      const isCapped = rawReward > maxCap;
-
-      // 3. 計算金庫新餘額 (扣減 payout，並保證不低於 10,000 星瓊種子基金)
+      // 2. 計算金庫新餘額 (扣減 payout，並保證不低於 10,000 星瓊種子基金)
       const newBalance = Math.max(10000, vaultTotal - payout);
 
       db.run(
@@ -252,9 +269,7 @@ function claimJackpotVault(db, bet = 100) {
           resolve({
             payout,
             shareRatio,
-            maxCap,
-            isCapped,
-            rawReward,
+            rawReward: payout,
             vaultBefore: vaultTotal,
             vaultAfter: newBalance,
           });
@@ -538,13 +553,39 @@ function buildGameActionRow(session, userJades = 0) {
   );
 
   // 3. 全押盲注 (Double Down) - 限首回合且非 All-in 且有足夠星瓊追加
-  const canDouble = !session.isAllIn && session.turnCount === 1 && userJades >= session.bet && session.bet * 2 <= 6400;
+  const canDouble = !session.isAllIn && session.turnCount === 1 && userJades >= session.bet && session.bet * 2 <= 100000;
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_double_${session.userId}`)
       .setLabel('🔥 全押盲注 (Double)')
       .setStyle(ButtonStyle.Danger)
       .setDisabled(!canDouble)
+  );
+
+  return row;
+}
+
+/**
+ * 構建牌局結算 (GameOver) 時的快捷按鈕 (滿注開局 50,000 / 再來一局)
+ */
+function buildGameOverActionRow(userId, lastBet = 500) {
+  const row = new ActionRowBuilder();
+
+  // 1. 滿注開局 (50,000)
+  row.addComponents(
+    new ButtonBuilder()
+      .setCustomId(`aventurine_maxbet_${userId}`)
+      .setLabel('🔥 滿注開局 (50,000)')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  // 2. 再來一局 (同注額)
+  const rebetAmount = Math.min(Math.max(lastBet, 100), 50000);
+  row.addComponents(
+    new ButtonBuilder()
+      .setCustomId(`aventurine_rebet_${userId}_${rebetAmount}`)
+      .setLabel(`🎲 再來一局 (${rebetAmount.toLocaleString()})`)
+      .setStyle(ButtonStyle.Primary)
   );
 
   return row;
@@ -711,20 +752,22 @@ async function startCasinoGame(db, interaction, user, betInput) {
     }
     bet = availableJades;
     isAllIn = true;
+  } else if (rawBet === 'max' || rawBet === '滿注' || rawBet === '50000') {
+    bet = Math.min(50000, availableJades);
   } else if (/^\d+$/.test(rawBet)) {
     bet = parseInt(rawBet, 10);
   }
 
   if (isNaN(bet) || bet < 100) {
     return interaction.reply({
-      content: '❌ **無效的下注金額！**\n最低下注額為 `100` 星瓊，最高單注上限為 `6,400` 星瓊 (若要 All-in 全押請輸入 `all` 或 `全押`)。',
+      content: '❌ **無效的下注金額！**\n最低下注額為 `100` 星瓊，最高單注上限為 `50,000` 星瓊 (滿注請輸入 `max` 或 `滿注`，全押請輸入 `all`)。',
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  // 非 All-in 模式下注上限為 6400
-  if (!isAllIn && bet > 6400) {
-    bet = 6400;
+  // 非 All-in 模式下注上限為 50,000
+  if (!isAllIn && bet > 50000) {
+    bet = 50000;
   }
 
   if (availableJades < bet) {
@@ -800,13 +843,12 @@ async function startCasinoGame(db, interaction, user, betInput) {
     if (pScore.isSuitedBlackjack) {
       const jp = await claimJackpotVault(db, bet);
       jackpotClaimed = jp.payout;
-      winProfit = isAllIn ? (bet * 2) : Math.min(bet * 2, 32000);
+      winProfit = bet * 2;
       const ratioPercent = (jp.shareRatio * 100).toFixed(1);
-      const capNotice = jp.isCapped ? ` (達下注 10 倍上限 ${jp.maxCap.toLocaleString()} 星瓊)` : '';
       extraNote = `\n👑 **觸發【同花色 Blackjack】神話大獎！**\n` +
-        `按投注 ${bet.toLocaleString()}/3,200 比例 (${ratioPercent}%) 分得 IPC 金庫：**+${jackpotClaimed.toLocaleString()}** 星瓊${capNotice}！`;
+        `按投注 ${bet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%) 分得 IPC 金庫：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
     } else {
-      winProfit = isAllIn ? (bet * 2) : Math.min(bet * 2, 32000); // 1:2 賠率
+      winProfit = bet * 2; // 1:2 賠率
     }
 
     // All-in 且獲利超過 10 萬強制徵收 15% 暴利稅 (10% 銷毀, 5% 入金庫)
@@ -852,7 +894,7 @@ async function startCasinoGame(db, interaction, user, betInput) {
       value: `獲得籌碼：**+${winAmount.toLocaleString()}** 星瓊 (原注 ${bet.toLocaleString()} + 獲利 ${(winAmount - bet).toLocaleString()})${extraNote}`,
     });
 
-    return interaction.reply({ embeds: [winEmbed] });
+    return interaction.reply({ embeds: [winEmbed], components: [buildGameOverActionRow(userId, bet)] });
   }
 
   // 正常遊戲開始
@@ -928,7 +970,7 @@ async function handlePlayerHit(db, session, interaction) {
       value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 20% 計 ${vaultShare} 星瓊已注入星際和平公司金庫)*`,
     });
 
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
   }
 
   // 2. 五龍過關 (5-Card Charlie)
@@ -937,7 +979,7 @@ async function handlePlayerHit(db, session, interaction) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    const winProfit = Math.min(session.bet * 3, 32000); // 1:3 賠率 (上限 32000)
+    const winProfit = session.bet * 3; // 1:3 奇蹟倍率
     const totalReturn = session.bet + winProfit;
 
     db.run(
@@ -968,7 +1010,7 @@ async function handlePlayerHit(db, session, interaction) {
       value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet} + 獲利 ${winProfit.toLocaleString()})`,
     });
 
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
   }
 
   // 3. 恰好 21 點自動停牌
@@ -1009,8 +1051,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     const jp = await claimJackpotVault(db, session.bet);
     jackpotShare = jp.payout;
     const ratioPercent = (jp.shareRatio * 100).toFixed(1);
-    const capNotice = jp.isCapped ? ` (達下注 10 倍上限 ${jp.maxCap.toLocaleString()} 星瓊)` : '';
-    jackpotFieldNote = `\n👑 **7-7-7 匹諾康尼頭獎**：按投注 ${session.bet.toLocaleString()}/3,200 比例 (${ratioPercent}%) 分得 IPC 金庫：**+${jackpotShare.toLocaleString()}** 星瓊${capNotice}！`;
+    jackpotFieldNote = `\n👑 **7-7-7 匹諾康尼頭獎**：按投注 ${session.bet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%) 分得 IPC 金庫：**+${jackpotShare.toLocaleString()}** 星瓊！`;
   }
 
   // 結果判定
@@ -1031,7 +1072,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
         extraNote = `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
       }
     } else {
-      winProfit = Math.min(session.bet, 32000);
+      winProfit = session.bet;
     }
 
     winProfit += jackpotShare;
@@ -1067,10 +1108,11 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 獲利 ${winProfit.toLocaleString()})${jackpotFieldNote}${extraNote}`,
     });
 
+    const row = buildGameOverActionRow(session.userId, session.bet);
     if (isTimeout) {
-      return interaction.editReply({ embeds: [embed], components: [] });
+      return interaction.editReply({ embeds: [embed], components: [row] });
     }
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [row] });
   }
 
   // 2. 玩家點數大於砂金 -> 玩家獲勝
@@ -1090,7 +1132,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
         extraNote = `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
       }
     } else {
-      winProfit = Math.min(session.bet, 32000);
+      winProfit = session.bet;
     }
 
     winProfit += jackpotShare;
@@ -1126,10 +1168,11 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 獲利 ${winProfit.toLocaleString()})${jackpotFieldNote}${extraNote}`,
     });
 
+    const row = buildGameOverActionRow(session.userId, session.bet);
     if (isTimeout) {
-      return interaction.editReply({ embeds: [embed], components: [] });
+      return interaction.editReply({ embeds: [embed], components: [row] });
     }
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [row] });
   }
 
   // 3. 玩家點數小於砂金 -> 砂金獲勝
@@ -1166,10 +1209,11 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 ${session.isAllIn ? '10% (上限10萬)' : '20%'} 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
     });
 
+    const row = buildGameOverActionRow(session.userId, session.bet);
     if (isTimeout) {
-      return interaction.editReply({ embeds: [embed], components: [] });
+      return interaction.editReply({ embeds: [embed], components: [row] });
     }
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [row] });
   }
 
   // 4. 點數相同 (Push) -> 觸發 Boss 戰「賭命轉盤」比骰子
@@ -1259,7 +1303,7 @@ async function handlePlayerDouble(db, session, interaction) {
       value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 20% 計 ${vaultShare} 星瓊已注入星際和平公司金庫)*`,
     });
 
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
   }
 
   // 未爆牌，直接進入停牌開牌結算
@@ -1309,7 +1353,7 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
         extraNote = `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
       }
     } else {
-      winProfit = Math.min(Math.floor(session.bet * 1.2), 32000); // 弱點擊破上限 32000
+      winProfit = Math.floor(session.bet * 1.2);
     }
     const totalReturn = session.bet + winProfit;
 
@@ -1342,10 +1386,11 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
       value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 擊破加成 ${winProfit.toLocaleString()})${extraNote}`,
     });
 
+    const row = buildGameOverActionRow(session.userId, session.bet);
     if (isTimeout) {
-      return interaction.editReply({ embeds: [embed], components: [] });
+      return interaction.editReply({ embeds: [embed], components: [row] });
     }
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [row] });
   } else {
     // 砂金勝利：死戰到底，吃掉一半賭注，退回一半
     const refund = Math.floor(session.bet * 0.5);
@@ -1384,10 +1429,11 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
       value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 ${session.isAllIn ? '10% (上限10萬)' : '20%'} 計 ${vaultShare.toLocaleString()} 星瓊入金庫)*`,
     });
 
+    const row = buildGameOverActionRow(session.userId, session.bet);
     if (isTimeout) {
-      return interaction.editReply({ embeds: [embed], components: [] });
+      return interaction.editReply({ embeds: [embed], components: [row] });
     }
-    return interaction.update({ embeds: [embed], components: [] });
+    return interaction.update({ embeds: [embed], components: [row] });
   }
 }
 
@@ -1432,7 +1478,7 @@ async function buildIpcVaultEmbed(db) {
     .addFields(
       {
         name: '👑 搬空金庫神話牌型',
-        value: '• **同花色 Blackjack**：起手同花 A + 10/J/Q/K\n• **7-7-7 (匹諾康尼頭獎)**：三張 7 組成 21 點\n*(防鑽漏洞機制：以 3,200 星瓊為分母按注額比例瓜分，上限為下注的 10 倍，掏空後公司補回 10,000 底金)*',
+        value: '• **同花色 Blackjack**：起手同花 A + 10/J/Q/K\n• **7-7-7 (匹諾康尼頭獎)**：三張 7 組成 21 點\n*(防鑽漏洞機制：每下注 1,000 星瓊可獲取 1% 金庫派彩，滿注 50,000 可瓜分高達 50% 金庫獎池，掏空後公司補回 10,000 底金)*',
         inline: false,
       },
       {
@@ -1482,6 +1528,21 @@ async function forceResetGame(db, userId, member, interaction) {
   }
 }
 
+/**
+ * 處理結算面板上的快捷重開局 (滿注 50,000 / 再來一局)
+ */
+async function handleCasinoQuickReplay(db, interaction, actionType, targetUserId, lastBet = 500) {
+  if (interaction.user.id !== targetUserId) {
+    return interaction.reply({
+      content: '❌ 這不是你的牌局按鈕，請使用 `/詭弈砂金` 開啟屬於你的命運對決！',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const betAmount = actionType === 'maxbet' ? '50000' : String(lastBet);
+  return await startCasinoGame(db, interaction, interaction.user, betAmount);
+}
+
 module.exports = {
   initAventurineCasino,
   startCasinoGame,
@@ -1494,6 +1555,9 @@ module.exports = {
   isUserIndebted,
   buildIpcVaultEmbed,
   forceResetGame,
+  buildGameOverActionRow,
+  handleCasinoQuickReplay,
+  claimJackpotVault,
   activeGames,
   addToIpcVault,
 };

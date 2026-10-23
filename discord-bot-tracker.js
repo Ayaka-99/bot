@@ -63,6 +63,7 @@ const {
   isUserIndebted,
   buildIpcVaultEmbed,
   forceResetGame,
+  handleCasinoQuickReplay,
   activeGames,
 } = require('./aventurineCasinoService');
 
@@ -349,7 +350,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('轉帳')
-    .setDescription('向伺服器其他成員轉帳星瓊 (單次上限 32,000，成功後雙方冷卻 2 小時)')
+    .setDescription('向伺服器其他成員轉帳星瓊 (無額度與時間冷卻限制)')
     .addUserOption(option =>
       option.setName('對象')
         .setDescription('要轉帳星瓊的目標成員')
@@ -357,10 +358,9 @@ const commands = [
     )
     .addIntegerOption(option =>
       option.setName('金額')
-        .setDescription('轉帳星瓊數量 (1 ~ 32,000)')
+        .setDescription('轉帳星瓊數量 (最少 1 星瓊，無上限)')
         .setRequired(true)
         .setMinValue(1)
-        .setMaxValue(32000)
     ),
 
   new SlashCommandBuilder()
@@ -411,7 +411,7 @@ const commands = [
     .setDescription('與砂金對決匹諾康尼 21 點豪賭（支援平局比骰決鬥、五龍過關與 IPC 金庫大獎）')
     .addStringOption(option =>
       option.setName('下注')
-        .setDescription('下注星瓊數量 (100 ~ 6400) 或輸入 all 全押 (預設 500)')
+        .setDescription('下注星瓊數量 (100 ~ 50,000) 或輸入 max 滿注 / all 全押 (預設 500)')
         .setRequired(false)
     ),
 
@@ -422,12 +422,12 @@ const commands = [
   // 匹諾康尼 PvP 21 點雙人盲抽單挑
   new SlashCommandBuilder()
     .setName('單挑21點')
-    .setDescription('匹諾康尼 21 點雙人盲抽生死單挑 (賭注 100~6,400 星瓊)')
+    .setDescription('匹諾康尼 21 點雙人盲抽生死單挑 (賭注 100~50,000 星瓊)')
     .addIntegerOption(option =>
       option.setName('賭注')
-        .setDescription('單挑下注星瓊金額 (100 ~ 6400)')
+        .setDescription('單挑下注星瓊金額 (100 ~ 50,000)')
         .setMinValue(100)
-        .setMaxValue(6400)
+        .setMaxValue(50000)
         .setRequired(true)
     )
     .addUserOption(option =>
@@ -439,12 +439,12 @@ const commands = [
   // 匹諾康尼 PvP 21 點多人大逃殺 ＋ 場外買馬
   new SlashCommandBuilder()
     .setName('大逃殺21點')
-    .setDescription('匹諾康尼 21 點多人大逃殺混戰 ＋ 場外買馬分紅 (入場費 100~6,400 星瓊)')
+    .setDescription('匹諾康尼 21 點多人大逃殺混戰 ＋ 場外買馬分紅 (入場費 100~50,000 星瓊)')
     .addIntegerOption(option =>
       option.setName('入場費')
-        .setDescription('每人上桌入場費 (100 ~ 6400)')
+        .setDescription('每人上桌入場費 (100 ~ 50,000)')
         .setMinValue(100)
-        .setMaxValue(6400)
+        .setMaxValue(50000)
         .setRequired(true)
     ),
 
@@ -1345,6 +1345,19 @@ client.on('interactionCreate', async (interaction) => {
           content: '🚫 **這不是你的牌桌！** 別亂動別人的籌碼。',
           flags: MessageFlags.Ephemeral,
         });
+      }
+
+      // 快捷開局按鈕 (滿注 50,000 / 再來一局)
+      if (action === 'maxbet' || action === 'rebet') {
+        try {
+          const lastBet = parts[3] ? parseInt(parts[3], 10) : 500;
+          return await handleCasinoQuickReplay(db, interaction, action, targetUserId, lastBet);
+        } catch (replayErr) {
+          console.error('快捷重開局失敗:', replayErr);
+          if (!interaction.replied && !interaction.deferred) {
+            return interaction.reply({ content: '❌ 快捷開局失敗，請直接輸入 `/詭弈砂金`。', flags: MessageFlags.Ephemeral });
+          }
+        }
       }
 
       // 破產高利貸簽約按鈕
