@@ -727,14 +727,32 @@ async function lockAndStartHoldem(session) {
     session.activeSeatIndex = 2;
     session.roundRaises = 0;
 
-    const consoleMsg = await thread.send({
-      embeds: [buildConsoleEmbed(session)],
-      components: buildConsoleActionRows(session),
-    });
-    session.consoleMessage = consoleMsg;
+    let consoleMsg = null;
+    try {
+      consoleMsg = await thread.send({
+        embeds: [buildConsoleEmbed(session)],
+        components: buildConsoleActionRows(session),
+      });
+      session.consoleMessage = consoleMsg;
+    } catch (sendErr) {
+      console.error('❌ 發送德州撲克主控面板 Embed 失敗:', sendErr);
+      await thread.send({
+        content: `⚠️ **牌桌主控面板渲染失敗**：\`${sendErr.message}\`\n💡 請確認機器人在該頻道/討論串中是否已被授予「**嵌入連結 (Embed Links)**」身分組權限！`,
+      }).catch(() => {});
+      throw sendErr;
+    }
 
-    // 推進第一個行動
-    await triggerNextAction(session);
+    // 啟動首位行動 (座位 2 砂金，延遲 1.8 秒決策；若為真人則啟動 30 秒逾時)
+    const firstSeat = session.seats.find((s) => s.seatIndex === session.activeSeatIndex);
+    if (firstSeat && firstSeat.isNpc) {
+      session.turnTimeout = setTimeout(async () => {
+        await executeAventurineTurn(session);
+      }, 1800);
+    } else if (firstSeat) {
+      session.turnTimeout = setTimeout(async () => {
+        await handleTurnTimeout(session, firstSeat);
+      }, 30000);
+    }
   } catch (err) {
     console.error('❌ 建立德州撲克包廂 Thread 失敗:', err);
     // 容錯回退籌碼
