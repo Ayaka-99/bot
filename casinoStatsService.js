@@ -43,6 +43,12 @@ function initCasinoStatsTable(db) {
         horseWins INTEGER DEFAULT 0,
         horseLosses INTEGER DEFAULT 0,
         horseNetJades INTEGER DEFAULT 0,
+        holdemGames INTEGER DEFAULT 0,
+        holdemWins INTEGER DEFAULT 0,
+        holdemLosses INTEGER DEFAULT 0,
+        holdemDraws INTEGER DEFAULT 0,
+        holdemBeatAventurine INTEGER DEFAULT 0,
+        holdemNetJades INTEGER DEFAULT 0,
         updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )`,
       (err) => {
@@ -50,6 +56,19 @@ function initCasinoStatsTable(db) {
           console.error('❌ 初始化 casino_user_stats 表失敗:', err);
           return reject(err);
         }
+
+        // 自動遷移：補充德州撲克欄位 (若表格已存在)
+        const holdemCols = [
+          'holdemGames INTEGER DEFAULT 0',
+          'holdemWins INTEGER DEFAULT 0',
+          'holdemLosses INTEGER DEFAULT 0',
+          'holdemDraws INTEGER DEFAULT 0',
+          'holdemBeatAventurine INTEGER DEFAULT 0',
+          'holdemNetJades INTEGER DEFAULT 0',
+        ];
+        holdemCols.forEach((colDef) => {
+          db.run(`ALTER TABLE casino_user_stats ADD COLUMN ${colDef}`, () => {});
+        });
 
         // 建立歷史訊息同步追蹤表 (保證冪等性，防重複計算)
         db.run(
@@ -428,13 +447,14 @@ function parseBattleRoyaleMessage(msg, userMap) {
  * @param {Object} data
  * @param {string} data.userId - 玩家 ID
  * @param {string} data.username - 玩家名稱
- * @param {'pve'|'duel'|'br'|'horse'} data.mode - 遊戲模式
+ * @param {'pve'|'duel'|'br'|'horse'|'holdem'} data.mode - 遊戲模式
  * @param {'WIN'|'LOSE'|'DRAW'} data.result - 輸贏結果
  * @param {number} data.bet - 下注金額
  * @param {number} data.won - 拿回總金額 (含本金)
  * @param {number} data.net - 淨損益 (won - bet)
+ * @param {boolean} [data.beatAventurine=false] - 德州撲克是否親手擊敗砂金
  */
-function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0, net = 0 }) {
+function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0, net = 0, beatAventurine = false }) {
   if (!db || !userId) return Promise.resolve();
 
   const isWin = result === 'WIN' ? 1 : 0;
@@ -465,6 +485,13 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
   const horseLoss = mode === 'horse' && isLoss ? 1 : 0;
   const horseNet = mode === 'horse' ? net : 0;
 
+  const holdemGame = mode === 'holdem' ? 1 : 0;
+  const holdemWin = mode === 'holdem' && isWin ? 1 : 0;
+  const holdemLoss = mode === 'holdem' && isLoss ? 1 : 0;
+  const holdemDraw = mode === 'holdem' && isDraw ? 1 : 0;
+  const holdemBeat = mode === 'holdem' && beatAventurine ? 1 : 0;
+  const holdemNet = mode === 'holdem' ? net : 0;
+
   const sql = `
     INSERT INTO casino_user_stats (
       userId, username,
@@ -474,6 +501,7 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
       duelGames, duelWins, duelLosses, duelDraws, duelNetJades,
       brGames, brWins, brLosses, brDraws, brNetJades,
       horseGames, horseWins, horseLosses, horseNetJades,
+      holdemGames, holdemWins, holdemLosses, holdemDraws, holdemBeatAventurine, holdemNetJades,
       updatedAt
     ) VALUES (
       ?, ?,
@@ -483,6 +511,7 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
       CURRENT_TIMESTAMP
     )
     ON CONFLICT(userId) DO UPDATE SET
@@ -513,6 +542,12 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
       horseWins = horseWins + excluded.horseWins,
       horseLosses = horseLosses + excluded.horseLosses,
       horseNetJades = horseNetJades + excluded.horseNetJades,
+      holdemGames = holdemGames + excluded.holdemGames,
+      holdemWins = holdemWins + excluded.holdemWins,
+      holdemLosses = holdemLosses + excluded.holdemLosses,
+      holdemDraws = holdemDraws + excluded.holdemDraws,
+      holdemBeatAventurine = holdemBeatAventurine + excluded.holdemBeatAventurine,
+      holdemNetJades = holdemNetJades + excluded.holdemNetJades,
       updatedAt = CURRENT_TIMESTAMP
   `;
 
@@ -547,6 +582,12 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
         horseWin,
         horseLoss,
         horseNet,
+        holdemGame,
+        holdemWin,
+        holdemLoss,
+        holdemDraw,
+        holdemBeat,
+        holdemNet,
       ],
       (err) => {
         if (err) {
@@ -593,6 +634,12 @@ function getUserCasinoStats(db, userId) {
           horseWins: 0,
           horseLosses: 0,
           horseNetJades: 0,
+          holdemGames: 0,
+          holdemWins: 0,
+          holdemLosses: 0,
+          holdemDraws: 0,
+          holdemBeatAventurine: 0,
+          holdemNetJades: 0,
         });
       }
       resolve(row);
@@ -702,6 +749,10 @@ function buildCasinoStatsEmbed(user, stats) {
     (stats.horseGames || 0) > 0
       ? (((stats.horseWins || 0) / stats.horseGames) * 100).toFixed(1) + '%'
       : '--%';
+  const holdemRate =
+    (stats.holdemGames || 0) > 0
+      ? (((stats.holdemWins || 0) / stats.holdemGames) * 100).toFixed(1) + '%'
+      : '--%';
 
   const embed = new EmbedBuilder()
     .setTitle(`🎰【匹諾康尼賭神檔案】開拓者 ${displayName}`)
@@ -727,6 +778,11 @@ function buildCasinoStatsEmbed(user, stats) {
       {
         name: '👑 大逃殺 (多人混戰)',
         value: `戰績：吃雞 **${stats.brWins || 0}** 次 / 參賽 **${stats.brGames || 0}** 場\n吃雞率：\`${brRate}\` ｜ 淨損益：**${(stats.brNetJades || 0) >= 0 ? '+' : ''}${(stats.brNetJades || 0).toLocaleString()}**`,
+        inline: true,
+      },
+      {
+        name: '🃏 德州撲克 (Hold\'em)',
+        value: `戰績：奪池 **${stats.holdemWins || 0}** 次 / 正式桌 **${stats.holdemGames || 0}** 場\n擊敗砂金：**${stats.holdemBeatAventurine || 0}** 次 ｜ 奪池率：\`${holdemRate}\`\n淨損益：**${(stats.holdemNetJades || 0) >= 0 ? '+' : ''}${(stats.holdemNetJades || 0).toLocaleString()}**`,
         inline: true,
       },
       {

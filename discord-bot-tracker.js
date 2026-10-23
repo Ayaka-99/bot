@@ -109,6 +109,23 @@ const {
   buildTransferEmbed,
 } = require('./transferService');
 
+// 引入「石心十人盲注桌：德州撲克 5+1」模組
+const {
+  startHoldemLobby,
+  handleHoldemJoin,
+  handleHoldemImmediateStart,
+  handleHoldemSpectatorBet,
+  handleHoldemHorseSelect,
+  handleHoldemHorseModalSubmit,
+  handleHoldemViewCards,
+  handleHoldemCheckCall,
+  handleHoldemRaisePrompt,
+  handleHoldemRaiseSubmit,
+  handleHoldemAllIn,
+  handleHoldemFold,
+  handleHoldemReplay,
+} = require('./texasHoldemService');
+
 // 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
 const {
   initCasinoStatsTable,
@@ -462,6 +479,18 @@ const commands = [
         .setMinValue(100)
         .setMaxValue(50000)
         .setRequired(true)
+    ),
+
+  // 匹諾康尼 德州撲克 5+1 錦標賽 (石心十人盲注桌)
+  new SlashCommandBuilder()
+    .setName('德州撲克')
+    .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (買入 1,000~25,000 星瓊，專屬包廂運作)')
+    .addIntegerOption(option =>
+      option.setName('買入上限')
+        .setDescription('每人上桌買入上限 (1,000 ~ 25,000 星瓊，預設 25,000)')
+        .setMinValue(1000)
+        .setMaxValue(25000)
+        .setRequired(false)
     ),
 
   // 匹諾康尼特權俱樂部、通緝、大亨與稱號 (v3.0 All-in 終極版)
@@ -1334,6 +1363,20 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: '❌ 更新嘲諷詞失敗。', flags: MessageFlags.Ephemeral });
       }
     }
+
+    // 處理德州撲克加注 Modal
+    if (interaction.customId.startsWith('holdem_raise_modal_')) {
+      const sessionId = interaction.customId.replace('holdem_raise_modal_', '');
+      return await handleHoldemRaiseSubmit(interaction, sessionId);
+    }
+
+    // 處理德州撲克場外買馬金額 Modal
+    if (interaction.customId.startsWith('holdem_horse_modal_')) {
+      const parts = interaction.customId.split('_');
+      const sessionId = parts[3];
+      const selectedSeatIndex = parts[4];
+      return await handleHoldemHorseModalSubmit(db, interaction, sessionId, selectedSeatIndex);
+    }
     return;
   }
 
@@ -1527,6 +1570,57 @@ client.on('interactionCreate', async (interaction) => {
       }
       return;
     }
+
+    // 處理「德州撲克 5+1」按鈕
+    if (interaction.customId.startsWith('holdem_')) {
+      const customId = interaction.customId;
+
+      if (customId.startsWith('holdem_join_')) {
+        const sessionId = customId.replace('holdem_join_', '');
+        return await handleHoldemJoin(db, interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_start_')) {
+        const sessionId = customId.replace('holdem_start_', '');
+        return await handleHoldemImmediateStart(db, interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_spectate_')) {
+        const sessionId = customId.replace('holdem_spectate_', '');
+        return await handleHoldemSpectatorBet(db, interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_cards_')) {
+        const sessionId = customId.replace('holdem_cards_', '');
+        return await handleHoldemViewCards(interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_action_check_call_')) {
+        const sessionId = customId.replace('holdem_action_check_call_', '');
+        return await handleHoldemCheckCall(interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_action_raise_')) {
+        const sessionId = customId.replace('holdem_action_raise_', '');
+        return await handleHoldemRaisePrompt(interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_action_allin_')) {
+        const sessionId = customId.replace('holdem_action_allin_', '');
+        return await handleHoldemAllIn(interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_action_fold_')) {
+        const sessionId = customId.replace('holdem_action_fold_', '');
+        return await handleHoldemFold(interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_replay_') || customId.startsWith('holdem_sub_')) {
+        const sessionId = customId.replace('holdem_replay_', '').replace('holdem_sub_', '');
+        return await handleHoldemReplay(db, interaction, sessionId);
+      }
+      return;
+    }
   }
 
   // 2. 處理選單點擊 (漫遊簽證角色選單 & 大逃殺場外買馬選單 & 稱號選單)
@@ -1565,6 +1659,13 @@ client.on('interactionCreate', async (interaction) => {
       const brId = interaction.customId.replace('pvp_br_bet_select_', '');
       const selected = interaction.values[0];
       return await handleBattleRoyaleSpectatorBet(db, interaction, brId, selected);
+    }
+
+    // 德州撲克場外買馬選單
+    if (interaction.customId.startsWith('holdem_horse_select_')) {
+      const sessionId = interaction.customId.replace('holdem_horse_select_', '');
+      const selectedSeatIndex = interaction.values[0];
+      return await handleHoldemHorseSelect(interaction, sessionId, selectedSeatIndex);
     }
     if (interaction.customId.startsWith('hsr_panel_select_')) {
       const parts = interaction.customId.split('_');
@@ -2364,6 +2465,15 @@ client.on('interactionCreate', async (interaction) => {
       case '大逃殺21點': {
         const entryFee = options.getInteger('入場費');
         await startBattleRoyale(db, interaction, entryFee);
+        break;
+      }
+
+      // ==========================================
+      // 🃏 石心十人盲注桌：德州撲克 5+1 錦標賽
+      // ==========================================
+      case '德州撲克': {
+        const hostLimit = options.getInteger('買入上限') || 25000;
+        await startHoldemLobby(db, interaction, hostLimit);
         break;
       }
 
