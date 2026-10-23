@@ -1219,6 +1219,7 @@ async function concludeUncontestedWin(session, winner) {
   }
 
   // 5. 渲染結算 Embed
+  const cleanupTimestamp = Math.floor(Date.now() / 1000) + 30;
   const embed = new EmbedBuilder()
     .setTitle('🏆【德州撲克 5+1】對決結算 —— 全場無人敢跟，孤勇者奪池！')
     .setColor(SUCCESS_COLOR)
@@ -1226,7 +1227,7 @@ async function concludeUncontestedWin(session, winner) {
       `其餘所有選手皆已棄牌蓋死，**座位 ${winner.seatIndex}：${winner.username}** 不戰而屈人之兵，獨攬全場底池！\n\n` +
       `💰 **本局總底池**：**${session.pot.toLocaleString()}** 星瓊\n` +
       `👑 **最終贏家**：**${winner.username}**${taxNote}${jackpotNote}\n` +
-      `${horseNote}`
+      `${horseNote}\n\n⏳ **包廂銷毀倒數**：若 <t:${cleanupTimestamp}:R> (30秒) 內無人點擊續局按鈕，本討論串將自動刪除！`
     )
     .setFooter({
       text: getTycoonFooter(session, '🎲 匹諾康尼家族賭場管理局 · 牌局已結束'),
@@ -1341,6 +1342,7 @@ async function concludeShowdown(session) {
   }
 
   // 6. 牌型亮牌展示
+  const cleanupTimestamp = Math.floor(Date.now() / 1000) + 30;
   const showdownList = contenders
     .map((c) => {
       return `**座位 ${c.seatIndex}：${c.username}**\n` +
@@ -1357,7 +1359,7 @@ async function concludeShowdown(session) {
       `🏆 **本局奪池贏家**：**${winnerDesc}**！\n` +
       `${taxNote}${jackpotNote}\n\n` +
       `**全體選手亮牌與最終牌型**：\n${showdownList}\n\n` +
-      `${horseNote}`
+      `${horseNote}\n\n⏳ **包廂銷毀倒數**：若 <t:${cleanupTimestamp}:R> (30秒) 內無人點擊續局按鈕，本討論串將自動刪除！`
     )
     .setFooter({
       text: getTycoonFooter(session, '🎲 匹諾康尼家族賭場管理局 · 認證對決'),
@@ -1424,10 +1426,15 @@ function startCleanupTimer(session) {
         const cleanupEmbed = new EmbedBuilder()
           .setTitle('🏁【德州撲克 5+1】包廂已閒置關閉')
           .setColor(DARK_PURPLE)
-          .setDescription(`本桌德州撲克已結算完成，專屬包廂因超過 10 分鐘閒置已自動清理銷毀。`);
+          .setDescription(`本桌德州撲克已結算完成，專屬包廂因超過 30 秒未續局已自動清理銷毀。`);
         await session.lobbyMessage.edit({ embeds: [cleanupEmbed], components: [] }).catch(() => {});
         // 刪除討論串
-        await session.thread.delete('德州撲克包廂閒置自動銷毀');
+        try {
+          await session.thread.delete('德州撲克結算 30 秒未續局自動刪除');
+        } catch (delErr) {
+          console.warn('⚠️ 刪除 Thread 失敗 (可能缺少管理討論串權限)，嘗試將討論串封存:', delErr.message);
+          await session.thread.setArchived(true, '德州撲克結算 30 秒逾時封存').catch(() => {});
+        }
       }
     } catch (err) {
       console.warn('⚠️ 清理德州撲克 Thread 失敗:', err.message);
@@ -1435,7 +1442,7 @@ function startCleanupTimer(session) {
       activeHoldemSessions.delete(session.sessionId);
       if (session.thread) threadSessions.delete(session.thread.id);
     }
-  }, 600000); // 10 分鐘
+  }, 30000); // 30 秒
 }
 
 // ==========================================================
