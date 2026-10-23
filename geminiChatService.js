@@ -16,18 +16,11 @@ const API_KEYS = envKeys.length > 0 ? envKeys : [
   'AIzaSyBFgoxJeJpBZTGA1e0bW68uRbUZLN1iXLk',
 ];
 
-// 純文字對話專用模型：嚴格採用官方極速省額度之 Flash-Lite 模型
-const TEXT_MODELS = [
-  'gemini-2.0-flash-lite',
-  'gemini-2.5-flash-lite',
-  'gemini-1.5-flash',
-];
+// 純文字對話專用模型：嚴格維持 gemini-3.5-flash-lite，絕不更動且不超 RPD
+const TEXT_MODELS = ['gemini-3.5-flash-lite'];
 
 // 圖片辨識專用模型：
-const VISION_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
-];
+const VISION_MODELS = ['gemini-3-flash-preview', 'gemini-3.5-flash'];
 
 // 圖片辨識專用獨立金鑰
 const IMAGE_API_KEY = process.env.GEMINI_IMAGE_KEY || API_KEYS[0];
