@@ -50,10 +50,376 @@ function initCasinoStatsTable(db) {
           console.error('❌ 初始化 casino_user_stats 表失敗:', err);
           return reject(err);
         }
-        resolve();
+
+        // 建立歷史訊息同步追蹤表 (保證冪等性，防重複計算)
+        db.run(
+          `CREATE TABLE IF NOT EXISTS casino_synced_messages (
+            messageId TEXT PRIMARY KEY,
+            gameMode TEXT,
+            channelId TEXT,
+            syncedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          )`,
+          (syncErr) => {
+            if (syncErr) {
+              console.error('❌ 初始化 casino_synced_messages 表失敗:', syncErr);
+              return reject(syncErr);
+            }
+            resolve();
+          }
+        );
       }
     );
   });
+}
+
+/**
+ * 檢查訊息是否已經同步過
+ */
+function isMessageSynced(db, messageId) {
+  return new Promise((resolve) => {
+    db.get('SELECT messageId FROM casino_synced_messages WHERE messageId = ?', [messageId], (err, row) => {
+      resolve(Boolean(row));
+    });
+  });
+}
+
+/**
+ * 標記訊息為已同步
+ */
+function markMessageSynced(db, messageId, gameMode = 'unknown', channelId = '') {
+  return new Promise((resolve) => {
+    db.run(
+      'INSERT OR IGNORE INTO casino_synced_messages (messageId, gameMode, channelId) VALUES (?, ?, ?)',
+      [messageId, gameMode, channelId],
+      () => resolve()
+    );
+  });
+}
+
+/**
+ * 重置所有賭場統計數據與同步快照 (供 /sync-history 模式: casino_reset 使用)
+ */
+function resetCasinoStats(db) {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run('DELETE FROM casino_user_stats', (err1) => {
+        if (err1) return reject(err1);
+        db.run('DELETE FROM casino_synced_messages', (err2) => {
+          if (err2) return reject(err2);
+          resolve();
+        });
+      });
+    });
+  });
+}
+
+/**
+ * 從資料庫建立 username -> userId 的對照表
+ */
+function buildUsernameToIdMap(db) {
+  return new Promise((resolve) => {
+    const map = new Map();
+    db.all('SELECT userId, username FROM user_currency', (err, rows) => {
+      if (!err && rows) {
+        for (const r of rows) {
+          if (r.username && r.userId) {
+            map.set(r.username.toLowerCase(), r.userId);
+            map.set(r.username, r.userId);
+          }
+        }
+      }
+      db.all('SELECT userId, username FROM user_stats', (err2, rows2) => {
+        if (!err2 && rows2) {
+          for (const r of rows2) {
+            if (r.username && r.userId) {
+              map.set(r.username.toLowerCase(), r.userId);
+              map.set(r.username, r.userId);
+            }
+          }
+        }
+        resolve(map);
+      });
+    });
+  });
+}
+
+/**
+ * 清理並格式化千分位數字 (例: "1,500" -> 1500)
+ */
+function parseNumber(str) {
+  if (!str) return 0;
+  return parseInt(str.toString().replace(/,/g, '').trim(), 10) || 0;
+}
+
+/**
+ * 解析一則 Bot 發送的歷史訊息並提取賭局結果
+ * @param {Object} msg - Discord 訊息物件
+ * @param {Map} userMap - username -> userId 對照表
+ * @returns {Array<Object>|null} 解析出的賭局結果陣列
+ */
+function parseCasinoSettlementMessage(msg, userMap) {
+  if (!msg) return null;
+
+  // 1. 嘗試解析「單挑21點」
+  const duelRes = parseDuelMessage(msg, userMap);
+  if (duelRes) return duelRes;
+
+  // 2. 嘗試解析「大逃殺21點」
+  const brRes = parseBattleRoyaleMessage(msg, userMap);
+  if (brRes) return brRes;
+
+  // 3. 嘗試解析「詭弈砂金 (PvE)」
+  const pveRes = parseAventurineMessage(msg, userMap);
+  if (pveRes) return [pveRes];
+
+  return null;
+}
+
+function parseAventurineMessage(msg, userMap) {
+  if (!msg.embeds || msg.embeds.length === 0) return null;
+  const embed = msg.embeds[0];
+  const authorName = embed.author?.name || '';
+  const title = embed.title || '';
+  const desc = embed.description || '';
+  const fields = embed.fields || [];
+
+  const isAventurine =
+    authorName.includes('「詭弈砂金」') ||
+    authorName.includes('「賭命轉盤」') ||
+    desc.includes('本局下注') ||
+    desc.includes('賭命轉盤');
+  if (!isAventurine) return null;
+
+  const winField = fields.find((f) => f.name && (f.name.includes('結算獲利') || f.name.includes('弱點擊破')));
+  const loseField = fields.find(
+    (f) => f.name && (f.name.includes('結算損失') || f.name.includes('死戰到底') || f.name.includes('結算雙倍損失'))
+  );
+
+  if (!winField && !loseField) return null;
+
+  let bet = 0;
+  const betMatch = desc.match(/本局下注[*]*[:：]\s*`?([0-9,]+)`?/);
+  if (betMatch) bet = parseNumber(betMatch[1]);
+
+  let userId = msg.interaction?.user?.id;
+  let username = msg.interaction?.user?.username;
+
+  if (!userId) {
+    const userMatch =
+      title.match(/開拓者\s+([^\s！!]+)/) ||
+      title.match(/尊貴的\s+([^\s]+)\s+蒞臨/) ||
+      title.match(/【傾家蕩產的豪賭】\s*([^\s]+)\s+將全部身家/);
+    if (userMatch) {
+      username = userMatch[1].trim();
+      userId = userMap.get(username.toLowerCase()) || userMap.get(username);
+    }
+  }
+
+  if (!userId && !username) return null;
+  if (!userId) userId = `legacy_${username}`;
+
+  if (winField) {
+    let won = 0;
+    const wonMatch = winField.value.match(/獲得籌碼[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+    if (wonMatch) won = parseNumber(wonMatch[1]);
+    if (won === 0 && bet > 0) won = bet * 2;
+    const net = won - bet;
+    return {
+      userId,
+      username: username || '未知開拓者',
+      mode: 'pve',
+      result: 'WIN',
+      bet,
+      won,
+      net,
+    };
+  } else if (loseField) {
+    let refund = 0;
+    let lost = bet;
+    const refundMatch = loseField.value.match(/退回籌碼[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+    if (refundMatch) refund = parseNumber(refundMatch[1]);
+    const lostMatch = loseField.value.match(/損失籌碼[*]*[:：]\s*[*]*\-?([0-9,]+)[*]*/);
+    if (lostMatch) lost = parseNumber(lostMatch[1]);
+    if (bet === 0 && lost > 0) bet = lost + refund;
+    return {
+      userId,
+      username: username || '未知開拓者',
+      mode: 'pve',
+      result: 'LOSE',
+      bet,
+      won: refund,
+      net: -lost,
+    };
+  }
+  return null;
+}
+
+function parseDuelMessage(msg, userMap) {
+  const content = msg.content || '';
+  const embed = msg.embeds?.[0];
+  if (!embed) return null;
+
+  const isDuel =
+    content.includes('【單挑21點 終局戰報】') ||
+    embed.author?.name?.includes('匹諾康尼死鬥 ｜ 單挑結算') ||
+    embed.author?.name?.includes('匹諾康尼死鬥 ｜ 比骰加賽結果');
+  if (!isDuel) return null;
+
+  const title = embed.title || '';
+  const desc = embed.description || '';
+
+  // 1. 雙方同時爆牌
+  if (title.includes('雙方同時爆牌')) {
+    const playerMatches = [...desc.matchAll(/👤\s+\*\*([^*]+)\*\*/g)];
+    const refundMatch = desc.match(/退還\s+50%\s+籌碼[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+    const refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
+    const bet = refund * 2;
+
+    const results = [];
+    for (const pm of playerMatches) {
+      const uName = pm[1].trim();
+      const uId = userMap.get(uName.toLowerCase()) || userMap.get(uName) || `legacy_${uName}`;
+      results.push({
+        userId: uId,
+        username: uName,
+        mode: 'duel',
+        result: 'LOSE',
+        bet,
+        won: refund,
+        net: -refund,
+      });
+    }
+    return results.length >= 2 ? results : null;
+  }
+
+  // 2. 勝負已定
+  const winnerMatch = title.match(/勝者【([^*\]]+)】/);
+  if (!winnerMatch) return null;
+  const winnerName = winnerMatch[1].trim();
+
+  const allPlayerMatches = [
+    ...desc.matchAll(/👤\s+\*\*([^*]+)\*\*/g),
+    ...desc.matchAll(/•\s+\*\*([^*]+)\*\*/g),
+  ];
+  const uniqueNames = [...new Set(allPlayerMatches.map((m) => m[1].trim()))];
+  if (uniqueNames.length < 2) return null;
+
+  const loserName = uniqueNames.find((n) => n !== winnerName) || uniqueNames[1];
+
+  let winPayout = 0;
+  let bet = 0;
+  const payoutMatch = desc.match(/勝者獲利[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+  if (payoutMatch) winPayout = parseNumber(payoutMatch[1]);
+  const betMatch = desc.match(/原注\s+([0-9,]+)/);
+  if (betMatch) bet = parseNumber(betMatch[1]);
+  if (bet === 0 && winPayout > 0) bet = Math.round(winPayout / 1.9);
+
+  const winnerId = userMap.get(winnerName.toLowerCase()) || userMap.get(winnerName) || `legacy_${winnerName}`;
+  const loserId = userMap.get(loserName.toLowerCase()) || userMap.get(loserName) || `legacy_${loserName}`;
+
+  return [
+    {
+      userId: winnerId,
+      username: winnerName,
+      mode: 'duel',
+      result: 'WIN',
+      bet,
+      won: winPayout,
+      net: winPayout - bet,
+    },
+    {
+      userId: loserId,
+      username: loserName,
+      mode: 'duel',
+      result: 'LOSE',
+      bet,
+      won: 0,
+      net: -bet,
+    },
+  ];
+}
+
+function parseBattleRoyaleMessage(msg, userMap) {
+  const content = msg.content || '';
+  const embed = msg.embeds?.[0];
+  if (!embed) return null;
+
+  const isBR =
+    content.includes('【大逃殺21點 終局戰報】') ||
+    embed.author?.name?.includes('匹諾康尼大逃殺 ｜ 冠軍出爐') ||
+    embed.author?.name?.includes('匹諾康尼大逃殺 ｜ 結算報告');
+  if (!isBR) return null;
+
+  const title = embed.title || '';
+  const desc = embed.description || '';
+  const results = [];
+
+  // 1. 全員爆牌團滅
+  if (title.includes('全員爆牌團滅')) {
+    const playerMatches = [...desc.matchAll(/•\s+\*\*([^*]+)\*\*/g)];
+    const refundMatch = desc.match(/退回\s+50%\s+入場費[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+    const refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
+    const bet = refund * 2;
+
+    for (const pm of playerMatches) {
+      const uName = pm[1].trim();
+      const uId = userMap.get(uName.toLowerCase()) || userMap.get(uName) || `legacy_${uName}`;
+      results.push({
+        userId: uId,
+        username: uName,
+        mode: 'br',
+        result: 'LOSE',
+        bet,
+        won: refund,
+        net: -refund,
+      });
+    }
+    return results;
+  }
+
+  // 2. 冠軍出爐
+  const winnerMatch = title.match(/冠軍：【([^*\]]+)】/);
+  if (!winnerMatch) return null;
+  const winnerName = winnerMatch[1].trim();
+
+  const playerMatches = [...desc.matchAll(/•\s+\*\*([^*]+)\*\*/g)];
+  const participantNames = [...new Set(playerMatches.map((m) => m[1].trim()))];
+  if (participantNames.length === 0) return null;
+
+  let winPayout = 0;
+  const payoutMatch = desc.match(/牌桌主獎池派發[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+  if (payoutMatch) winPayout = parseNumber(payoutMatch[1]);
+  const entryFee =
+    participantNames.length > 0 && winPayout > 0
+      ? Math.round(winPayout / 0.95 / participantNames.length)
+      : 1000;
+
+  for (const name of participantNames) {
+    const uId = userMap.get(name.toLowerCase()) || userMap.get(name) || `legacy_${name}`;
+    if (name === winnerName) {
+      results.push({
+        userId: uId,
+        username: name,
+        mode: 'br',
+        result: 'WIN',
+        bet: entryFee,
+        won: winPayout,
+        net: winPayout - entryFee,
+      });
+    } else {
+      results.push({
+        userId: uId,
+        username: name,
+        mode: 'br',
+        result: 'LOSE',
+        bet: entryFee,
+        won: 0,
+        net: -entryFee,
+      });
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -387,4 +753,9 @@ module.exports = {
   recordCasinoGame,
   getUserCasinoStats,
   buildCasinoStatsEmbed,
+  isMessageSynced,
+  markMessageSynced,
+  resetCasinoStats,
+  buildUsernameToIdMap,
+  parseCasinoSettlementMessage,
 };

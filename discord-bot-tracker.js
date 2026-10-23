@@ -107,11 +107,16 @@ const {
   buildTransferEmbed,
 } = require('./transferService');
 
-// 引入賭局勝率統計服務 (/勝率)
+// 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
 const {
   initCasinoStatsTable,
   getUserCasinoStats,
   buildCasinoStatsEmbed,
+  isMessageSynced,
+  markMessageSynced,
+  resetCasinoStats,
+  buildUsernameToIdMap,
+  parseCasinoSettlementMessage,
 } = require('./casinoStatsService');
 
 function buildCustomTitleModal() {
@@ -254,7 +259,17 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('sync-history')
-    .setDescription('全伺服器歷史訊息焦土掃描 (極度耗時，僅限管理員)'),
+    .setDescription('【主人專屬】全域掃描伺服器歷史訊息，統計發言量並回溯補算歷史賭局勝率')
+    .addStringOption(option =>
+      option.setName('模式')
+        .setDescription('選擇同步模式 (預設：全部同步)')
+        .setRequired(false)
+        .addChoices(
+          { name: '全部同步 (發言統計 + 賭局勝率回溯)', value: 'all' },
+          { name: '僅回溯賭局勝率 (跳過發言快速同步)', value: 'casino_only' },
+          { name: '重置並重新計算賭局勝率 (清空重算)', value: 'casino_reset' }
+        )
+    ),
 
   new SlashCommandBuilder()
     .setName('reset-stats')
@@ -1641,87 +1656,175 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({ content: '❌ 此指令只能在伺服器內使用，不能在 DM 執行。', flags: MessageFlags.Ephemeral });
         }
 
+        // 僅限唯一主人 lance_508 擁有最高執行權限
+        if (user.username !== 'lance_508') {
+          return interaction.reply({
+            content: '🚫 **權限不足！**\n歷史訊息掃描與數據回溯為最高權限指令，僅限主人 `lance_508` 執行。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+        const syncMode = options.getString('模式') || 'all';
+
+        // 若選擇重置模式，先清空賭場勝率統計與同步快照
+        if (syncMode === 'casino_reset') {
+          await resetCasinoStats(db);
+          console.log('🔄 [sync-history] 已清空賭局勝率資料表與同步快照');
+        }
+
+        const userMap = await buildUsernameToIdMap(db);
+
+        // 收集全伺服器文字頻道與所有討論串 (活躍 + 已封存公開 + 機器人所在的私人討論串)
+        const targetChannels = [];
         const textChannels = interaction.guild.channels.cache.filter(c => c.isTextBased());
+
+        for (const [channelId, channel] of textChannels) {
+          if (!channel.permissionsFor(client.user)?.has('ViewChannel')) continue;
+          targetChannels.push(channel);
+
+          try {
+            if (channel.threads) {
+              const activeThreads = await channel.threads.fetchActive().catch(() => null);
+              if (activeThreads?.threads) {
+                activeThreads.threads.forEach(t => {
+                  if (t.permissionsFor(client.user)?.has('ViewChannel')) targetChannels.push(t);
+                });
+              }
+
+              const archivedPub = await channel.threads.fetchArchived({ type: 'public' }).catch(() => null);
+              if (archivedPub?.threads) {
+                archivedPub.threads.forEach(t => {
+                  if (t.permissionsFor(client.user)?.has('ViewChannel')) targetChannels.push(t);
+                });
+              }
+
+              const archivedPriv = await channel.threads.fetchArchived({ type: 'private' }).catch(() => null);
+              if (archivedPriv?.threads) {
+                archivedPriv.threads.forEach(t => {
+                  if (t.permissionsFor(client.user)?.has('ViewChannel')) targetChannels.push(t);
+                });
+              }
+            }
+          } catch (threadErr) {
+            console.warn(`[討論串跳過] #${channel.name}:`, threadErr.message);
+          }
+        }
+
         let totalFetched = 0;
-        let scannedChannels = 0;
-        
+        let scannedTargets = 0;
         const userCounts = new Map();
         const channelCounts = new Map();
+        const casinoCounts = { pve: 0, duel: 0, br: 0, horse: 0, skipped: 0 };
 
         try {
-          for (const [channelId, channel] of textChannels) {
-            if (!channel.permissionsFor(client.user).has('ViewChannel')) continue;
-
+          for (const target of targetChannels) {
             let lastId;
-            let channelMessageCount = 0;
-            
+            let targetMsgCount = 0;
+
             while (true) {
               const fetchOptions = { limit: 100 };
               if (lastId) fetchOptions.before = lastId;
 
               let messages;
               try {
-                messages = await channel.messages.fetch(fetchOptions);
+                messages = await target.messages.fetch(fetchOptions);
               } catch (fetchErr) {
-                console.warn(`[跳過] 無法讀取頻道 ${channel.name}:`, fetchErr.message);
-                break; 
+                console.warn(`[跳過] 無法讀取通道 #${target.name}:`, fetchErr.message);
+                break;
               }
 
               if (messages.size === 0) break;
 
-              messages.forEach(msg => {
-                if (msg.author.bot) return; 
-                
-                const uid = msg.author.id;
-                const username = msg.author.username;
-                
-                if (!userCounts.has(uid)) userCounts.set(uid, { username, count: 0 });
-                userCounts.get(uid).count++;
+              for (const msg of messages.values()) {
+                if (msg.author.bot || msg.author.id === client.user.id) {
+                  // 處理 Bot 賭場歷史結算訊息
+                  const alreadySynced = await isMessageSynced(db, msg.id);
+                  if (alreadySynced) {
+                    casinoCounts.skipped++;
+                  } else {
+                    const parsedResults = parseCasinoSettlementMessage(msg, userMap);
+                    if (parsedResults && parsedResults.length > 0) {
+                      for (const g of parsedResults) {
+                        await recordCasinoGame(db, g);
+                        if (casinoCounts[g.mode] !== undefined) casinoCounts[g.mode]++;
+                      }
+                      await markMessageSynced(db, msg.id, parsedResults[0].mode, target.id);
+                    }
+                  }
+                } else if (syncMode !== 'casino_only') {
+                  // 處理一般成員發言量統計
+                  const uid = msg.author.id;
+                  const username = msg.author.username;
 
-                const chKey = `${uid}_${channel.id}`;
-                if (!channelCounts.has(chKey)) channelCounts.set(chKey, { uid, cid: channel.id, cname: channel.name, count: 0 });
-                channelCounts.get(chKey).count++;
-              });
+                  if (!userCounts.has(uid)) userCounts.set(uid, { username, count: 0 });
+                  userCounts.get(uid).count++;
+
+                  const chKey = `${uid}_${target.id}`;
+                  if (!channelCounts.has(chKey)) channelCounts.set(chKey, { uid, cid: target.id, cname: target.name, count: 0 });
+                  channelCounts.get(chKey).count++;
+                }
+              }
 
               lastId = messages.last().id;
-              channelMessageCount += messages.size;
+              targetMsgCount += messages.size;
               totalFetched += messages.size;
 
-              await new Promise(resolve => setTimeout(resolve, 500));
+              await new Promise(resolve => setTimeout(resolve, 300));
             }
-            scannedChannels++;
-            console.log(`[進度] 頻道 #${channel.name} 掃描完成，共 ${channelMessageCount} 則。`);
+            scannedTargets++;
+            console.log(`[進度] 通道/討論串 #${target.name} 掃描完成，共 ${targetMsgCount} 則。`);
           }
 
-          db.serialize(() => {
-            db.run('BEGIN TRANSACTION');
-            
-            const stmtUser = db.prepare(`
-              INSERT INTO user_stats (userId, username, messageCount) VALUES (?, ?, ?) 
-              ON CONFLICT(userId) DO UPDATE SET messageCount = messageCount + ?, lastUpdated = CURRENT_TIMESTAMP
-            `);
+          if (syncMode !== 'casino_only' && (userCounts.size > 0 || channelCounts.size > 0)) {
+            db.serialize(() => {
+              db.run('BEGIN TRANSACTION');
 
-            for (const [uid, data] of userCounts.entries()) {
-              stmtUser.run([uid, data.username, data.count, data.count]);
-            }
-            stmtUser.finalize();
+              const stmtUser = db.prepare(`
+                INSERT INTO user_stats (userId, username, messageCount) VALUES (?, ?, ?) 
+                ON CONFLICT(userId) DO UPDATE SET messageCount = messageCount + ?, lastUpdated = CURRENT_TIMESTAMP
+              `);
 
-            const stmtChannel = db.prepare(`
-              INSERT INTO channel_stats (userId, channelId, channelName, messageCount) VALUES (?, ?, ?, ?) 
-              ON CONFLICT(userId, channelId) DO UPDATE SET messageCount = messageCount + ?
-            `);
+              for (const [uid, data] of userCounts.entries()) {
+                stmtUser.run([uid, data.username, data.count, data.count]);
+              }
+              stmtUser.finalize();
 
-            for (const data of channelCounts.values()) {
-              stmtChannel.run([data.uid, data.cid, data.cname, data.count, data.count]);
-            }
-            stmtChannel.finalize();
+              const stmtChannel = db.prepare(`
+                INSERT INTO channel_stats (userId, channelId, channelName, messageCount) VALUES (?, ?, ?, ?) 
+                ON CONFLICT(userId, channelId) DO UPDATE SET messageCount = messageCount + ?
+              `);
 
-            db.run('COMMIT');
-          });
+              for (const data of channelCounts.values()) {
+                stmtChannel.run([data.uid, data.cid, data.cname, data.count, data.count]);
+              }
+              stmtChannel.finalize();
 
-          await interaction.editReply(`✅ 全伺服器歷史訊息吸乾完畢！共掃描了 ${scannedChannels} 個頻道，吸出 ${totalFetched} 則訊息。這份報告只有你看得到。`);
+              db.run('COMMIT');
+            });
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor('#ffd700')
+            .setTitle('📡【全域歷史訊息 ＆ 賭局勝率回溯報告】')
+            .setDescription(
+              `報告主人 <@${user.id}>，伺服器全域焦土掃描已順利執行完畢！\n\n` +
+              `📊 **基礎訊息掃描**：\n` +
+              `• 涵蓋頻道與討論串：**${scannedTargets}** 個通道\n` +
+              `• 讀取訊息總量：**${totalFetched.toLocaleString()}** 則訊息\n` +
+              `• 發言統計模式：\`${syncMode}\`\n\n` +
+              `🎰 **歷史賭局回溯補算戰果**：\n` +
+              `• 🎲 **詭弈砂金 (PvE)**：補回 **${casinoCounts.pve}** 場戰績\n` +
+              `• ⚔️ **雙人單挑 (PvP)**：補回 **${casinoCounts.duel}** 場戰績\n` +
+              `• 👑 **大逃殺混戰 (BR)**：補回 **${casinoCounts.br}** 場戰績\n` +
+              `• ⏭️ **防重複略過記錄**：**${casinoCounts.skipped}** 則已存在訊息\n\n` +
+              `✨ *所有成員的歷史勝率與生涯盈虧已全部無縫回填，現在輸入 \`/勝率\` 即可調取完整檔案！*`
+            )
+            .setFooter({ text: '匹諾康尼家族賭場管理局 · 數據回溯中心' })
+            .setTimestamp();
+
+          await interaction.editReply({ embeds: [embed] });
         } catch (error) {
           console.error('全域撈取發生毀滅性錯誤:', error);
           await interaction.editReply('❌ 撈取過程崩潰了，你的伺服器訊息多到讓我的記憶體吐了。');
