@@ -401,7 +401,7 @@ async function buyTitle(db, user, titleId, customTitleName = '') {
     };
   }
 
-  // 扣款並注入 20% 入 IPC 金庫，80% 回收銷毀
+  // 扣款並注入 40% 入 IPC 金庫，60% 回收銷毀
   await new Promise((resolve, reject) => {
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades - ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -409,7 +409,7 @@ async function buyTitle(db, user, titleId, customTitleName = '') {
       (err) => (err ? reject(err) : resolve())
     );
   });
-  await addToIpcVault(db, Math.floor(finalPrice * 0.20));
+  await addToIpcVault(db, Math.floor(finalPrice * 0.40));
 
   // 存入背包
   await new Promise((resolve, reject) => {

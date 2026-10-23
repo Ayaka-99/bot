@@ -943,8 +943,8 @@ async function handlePlayerHit(db, session, interaction) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    // 輸掉籌碼的 20% 注入 IPC 金庫
-    const vaultShare = Math.floor(session.bet * 0.2);
+    // 輸掉籌碼的 40% 注入 IPC 金庫
+    const vaultShare = Math.floor(session.bet * 0.4);
     await addToIpcVault(db, vaultShare);
 
     recordCasinoGame(db, {
@@ -967,7 +967,7 @@ async function handlePlayerHit(db, session, interaction) {
 
     embed.addFields({
       name: '💸 結算損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 20% 計 ${vaultShare} 星瓊已注入星際和平公司金庫)*`,
+      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
     });
 
     return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
@@ -1180,7 +1180,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    let vaultShare = Math.floor(session.bet * 0.2);
+    let vaultShare = Math.floor(session.bet * 0.4);
     if (session.isAllIn) {
       vaultShare = Math.min(Math.floor(session.bet * 0.10), 100000);
     }
@@ -1206,7 +1206,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
 
     embed.addFields({
       name: '💸 結算損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 ${session.isAllIn ? '10% (上限10萬)' : '20%'} 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
+      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 ${session.isAllIn ? '10% (上限10萬)' : '40%'} 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1277,7 +1277,7 @@ async function handlePlayerDouble(db, session, interaction) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    const vaultShare = Math.floor(session.bet * 0.2);
+    const vaultShare = Math.floor(session.bet * 0.4);
     await addToIpcVault(db, vaultShare);
 
     recordCasinoGame(db, {
@@ -1300,7 +1300,7 @@ async function handlePlayerDouble(db, session, interaction) {
 
     embed.addFields({
       name: '💸 結算雙倍損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 20% 計 ${vaultShare} 星瓊已注入星際和平公司金庫)*`,
+      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
     });
 
     return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
@@ -1395,7 +1395,7 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
     // 砂金勝利：死戰到底，吃掉一半賭注，退回一半
     const refund = Math.floor(session.bet * 0.5);
     const lostAmount = session.bet - refund;
-    let vaultShare = Math.floor(lostAmount * 0.2);
+    let vaultShare = Math.floor(lostAmount * 0.4);
     if (session.isAllIn) {
       vaultShare = Math.min(Math.floor(lostAmount * 0.10), 100000);
     }
@@ -1426,7 +1426,7 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
 
     embed.addFields({
       name: '🛡️ 死戰到底！扣除半注',
-      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 ${session.isAllIn ? '10% (上限10萬)' : '20%'} 計 ${vaultShare.toLocaleString()} 星瓊入金庫)*`,
+      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 ${session.isAllIn ? '10% (上限10萬)' : '40%'} 計 ${vaultShare.toLocaleString()} 星瓊入金庫)*`,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
