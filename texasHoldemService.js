@@ -945,6 +945,7 @@ function buildConsoleActionRows(session) {
   const needCall = activeSeat ? session.currentHighestBet - activeSeat.roundBet : 0;
   const callLabel = needCall <= 0 ? '🛡️ 過牌 (Check)' : `🛡️ 跟注 (Call: ${needCall.toLocaleString()})`;
 
+  // 第一列：核心操作與看牌
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`holdem_cards_${session.sessionId}`)
@@ -955,20 +956,24 @@ function buildConsoleActionRows(session) {
       .setLabel(callLabel)
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(`holdem_action_raise_${session.sessionId}`)
-      .setLabel('📈 自由加注 (Raise)')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`holdem_action_allin_${session.sessionId}`)
-      .setLabel('🔥 全押盲注 (All-in)')
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
       .setCustomId(`holdem_action_fold_${session.sessionId}`)
       .setLabel('🏳️ 認輸棄牌 (Fold)')
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return [row1];
+  // 第二列：籌碼進攻 (超大雙按鈕，手機版直式螢幕 100% 清晰不遮擋)
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`holdem_action_raise_${session.sessionId}`)
+      .setLabel('📈 自由加注 (Raise)')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`holdem_action_allin_${session.sessionId}`)
+      .setLabel('🔥 梭哈全押 (All-in)')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return [row1, row2];
 }
 
 /**
@@ -1673,9 +1678,9 @@ async function handleHoldemRaisePrompt(interaction, sessionId) {
 
   const amountInput = new TextInputBuilder()
     .setCustomId('raise_amount')
-    .setLabel(`加注總額 (目前最低需投入 >= ${minRaise})`)
+    .setLabel(`加注額 (最低 >= ${minRaise}，或填 allin)`)
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder(`輸入總下注額，最高不超過 ${activeSeat.chips}`)
+    .setPlaceholder(`輸入總下注額，或直接輸入 allin 全押`)
     .setRequired(true);
 
   modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
@@ -1693,22 +1698,25 @@ async function handleHoldemRaiseSubmit(interaction, sessionId) {
   const activeSeat = session.seats.find((s) => s.seatIndex === session.activeSeatIndex);
   if (!activeSeat || activeSeat.userId !== userId) return;
 
-  const inputStr = interaction.fields.getTextInputValue('raise_amount').trim();
-  const raiseTarget = parseInt(inputStr, 10);
+  const inputStr = interaction.fields.getTextInputValue('raise_amount').trim().toLowerCase();
 
+  // 支援文字 All-in 快速通道
+  if (['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿'].includes(inputStr)) {
+    return await handleHoldemAllIn(interaction, sessionId);
+  }
+
+  const raiseTarget = parseInt(inputStr, 10);
   if (isNaN(raiseTarget) || raiseTarget <= session.currentHighestBet) {
     return interaction.reply({
-      content: `❌ **加注金額無效！** 必須大於當前最高注額 (**${session.currentHighestBet}** 星瓊)。`,
+      content: '❌ **加注金額無效！** 必須大於當前最高注額 (**' + session.currentHighestBet + '** 星瓊)，或輸入 allin 梭哈。\n💡 目前桌上剩餘籌碼：**' + activeSeat.chips.toLocaleString() + '** 星瓊。\n💡 點擊牌桌下方大紅色【🔥 梭哈全押 (All-in)】按鈕可直接全押！',
       flags: MessageFlags.Ephemeral,
     });
   }
 
   const needToPay = raiseTarget - activeSeat.roundBet;
-  if (needToPay > activeSeat.chips) {
-    return interaction.reply({
-      content: `❌ **籌碼不足！** 你當前剩餘桌上籌碼為 **${activeSeat.chips.toLocaleString()}** 星瓊。`,
-      flags: MessageFlags.Ephemeral,
-    });
+  // 若加注額超過或等於手中全部桌上籌碼，自動以 All-in 執行
+  if (needToPay >= activeSeat.chips) {
+    return await handleHoldemAllIn(interaction, sessionId);
   }
 
   activeSeat.chips -= needToPay;
