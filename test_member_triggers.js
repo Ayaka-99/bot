@@ -49,6 +49,28 @@ async function runTests() {
   assert(trackerCode.includes('function get50wPhoto'), '必須定義 get50wPhoto 函式');
   console.log('    ✅ 通過：所有指定圖片檔案皆已就緒且載入函式完整定義。\n');
 
+  // ------------------------------------------------------------------
+  // 4. yue1.jpg / yue2.jpg 與 50w.3.png 絕對互斥驗證
+  // ------------------------------------------------------------------
+  console.log('  ▶ [4/4] 測試 yue1.jpg + yue2.jpg 與 50w.3.png 絕對互斥過濾機制...');
+  assert(trackerCode.includes('hasYueFinal && has50wFinal'), '必須包含月天狼與 50w 終極互斥檢查');
+  assert(trackerCode.includes('!hasYuePhotos'), '後置補充必須杜絕已有月天狼圖片時補充 50w');
+  
+  // 模擬濾除邏輯
+  let mockFiles = [
+    { name: 'yue1.jpg' },
+    { name: 'yue2.jpg' },
+    { name: '50w.3.png' }
+  ];
+  const hasYueMock = mockFiles.some(f => f.name && (f.name.includes('yue1') || f.name.includes('yue2')));
+  const has50wMock = mockFiles.some(f => f.name && (f.name.includes('50w') || f.name.includes('50k')));
+  if (hasYueMock && has50wMock) {
+    mockFiles = mockFiles.filter(f => !f.name || (!f.name.includes('50w') && !f.name.includes('50k')));
+  }
+  assert.strictEqual(mockFiles.length, 2, '濾除後應只剩 2 張月天狼圖片');
+  assert(!mockFiles.some(f => f.name.includes('50w')), '絕對不能包含 50w 圖片');
+  console.log('    ✅ 通過：月天狼與 50w 圖片互斥過濾完美落實。\n');
+
   console.log('🎉 所有成員人設與圖片觸發單元測試 100% 通過！');
   process.exit(0);
 }

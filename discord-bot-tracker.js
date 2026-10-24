@@ -1157,10 +1157,9 @@ client.on('messageCreate', async (message) => {
       cleanContent.toLowerCase().includes('icac') ||
       mentionedMembers.some(m => m.id === '852199002408484904' || m.username.toLowerCase() === 'nmsl2887' || m.displayName.toLowerCase().includes('臭甲') || m.displayName.toLowerCase().includes('50萬') || m.displayName.toLowerCase().includes('icac'));
 
-    // 🛡️ 核心約束：月天狼與 nmsl2887 完全無交集！
-    // 若為月天狼觸發，且訊息未明確主動提及 50萬/臭甲，嚴格禁止觸發 nmsl 非洲人圖片！
-    const explicitlyMentionsNmsl = cleanContent.includes('臭甲') || cleanContent.includes('50萬') || cleanContent.includes('50万') || cleanContent.toLowerCase().includes('50w') || cleanContent.toLowerCase().includes('nmsl2887');
-    if (isYueXiTriggered && !explicitlyMentionsNmsl) {
+    // 🛡️ 核心約束：月天狼 (itsyuexi) 與 nmsl2887 (50萬/臭甲) 絕對無交集！
+    // 鐵律：只要觸發月天狼，無條件禁止觸發 nmsl2887 (50w) 圖片！兩者絕對不可同框出現
+    if (isYueXiTriggered) {
       isNmslTriggered = false;
     }
 
@@ -1253,15 +1252,21 @@ client.on('messageCreate', async (message) => {
         filesToSend.push(...getDrunkerPhoto());
       }
 
-      // 若回覆內容本身提到臭甲、50萬或 ICAC，且尚未載入圖片，自動補充 50w.2 圖片
+      // 若回覆內容本身提到臭甲、50萬或 ICAC，且尚未載入圖片，自動補充 50w.3 圖片
+      // 🛡️ 鐵律：若當前訊息已觸發月天狼或已有月天狼圖片，絕對嚴禁補充 50w 圖片！
+      const hasYuePhotos = filesToSend.some(f => f.name && (f.name.includes('yue1') || f.name.includes('yue2')));
       const isNmslInReply =
-        replyMessage.includes('臭甲') ||
-        replyMessage.includes('甲甲') ||
-        replyMessage.includes('50萬') ||
-        replyMessage.includes('50万') ||
-        replyMessage.toLowerCase().includes('50w') ||
-        replyMessage.toLowerCase().includes('50k') ||
-        replyMessage.toLowerCase().includes('icac');
+        !isYueXiTriggered &&
+        !hasYuePhotos &&
+        (
+          replyMessage.includes('臭甲') ||
+          replyMessage.includes('甲甲') ||
+          replyMessage.includes('50萬') ||
+          replyMessage.includes('50万') ||
+          replyMessage.toLowerCase().includes('50w') ||
+          replyMessage.toLowerCase().includes('50k') ||
+          replyMessage.toLowerCase().includes('icac')
+        );
 
       if (isNmslInReply && !filesToSend.some(f => f.name && (f.name.includes('50w') || f.name.includes('50k')))) {
         filesToSend.push(...get50wPhoto());
@@ -1299,6 +1304,17 @@ client.on('messageCreate', async (message) => {
           repliedUser: false // 回覆時也不發送 Ping 鈴鐺通知
         }
       };
+
+      // 🛡️ 鐵律守衛：絕對嚴禁 yue1.jpg + yue2.jpg 與 50w.3.png (及任何 50w 圖片) 同時出現在同一條回覆中！
+      const hasYueFinal = filesToSend.some(f => f.name && (f.name.includes('yue1') || f.name.includes('yue2')));
+      const has50wFinal = filesToSend.some(f => f.name && (f.name.includes('50w') || f.name.includes('50k')));
+      if (hasYueFinal && has50wFinal) {
+        if (isYueXiTriggered) {
+          filesToSend = filesToSend.filter(f => !f.name || (!f.name.includes('50w') && !f.name.includes('50k')));
+        } else {
+          filesToSend = filesToSend.filter(f => !f.name || (!f.name.includes('yue1') && !f.name.includes('yue2')));
+        }
+      }
 
       if (filesToSend.length > 0) {
         replyOptions.files = filesToSend;
