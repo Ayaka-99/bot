@@ -174,19 +174,11 @@ function claimHoldemJackpot(db, personalTotalBet, handTier) {
 /**
  * 發起德州撲克牌局招募
  */
-async function startHoldemLobby(db, interaction, hostLimit = 50000) {
+async function startHoldemLobby(db, interaction, hostLimit = 50000, isAllIn = false) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
-  // 1. 買入限制檢核 (1,000 ~ 25,000)
-  if (hostLimit < 1000 || hostLimit > 50000) {
-    return interaction.reply({
-      content: '❌ **德州撲克買入上限限制為 1,000 ～ 50,000 星瓊**！請重新指定合法額度。',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  // 2. 併發防呆
+  // 1. 併發防呆
   if (activeHoldemPlayers.has(userId)) {
     return interaction.reply({
       content: '⚠️ **你目前已在一張德州撲克牌桌或對決中！** 請先完成現有牌局。',
@@ -194,13 +186,31 @@ async function startHoldemLobby(db, interaction, hostLimit = 50000) {
     });
   }
 
-  // 3. 檢查身家是否滿足最低上桌門檻 1,000
+  // 2. 檢查身家是否滿足最低上桌門檻 1,000
   const balance = await getUserJades(db, userId);
   if (balance < 1000) {
     return interaction.reply({
       content: `❌ **你的星瓊不足以支付最低上桌門檻 (1,000 星瓊)！** 目前餘額：**${balance.toLocaleString()}** 星瓊。`,
       flags: MessageFlags.Ephemeral,
     });
+  }
+
+  // 3. 買入限制檢核 (All-in 時拿出玩家全部身家，不設 50,000 上限)
+  if (isAllIn) {
+    hostLimit = balance;
+  } else {
+    if (hostLimit < 1000) {
+      return interaction.reply({
+        content: '❌ **德州撲克最低買入門檻為 1,000 星瓊**！請重新指定合法額度。',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    if (hostLimit > balance) {
+      return interaction.reply({
+        content: `❌ **你的星瓊餘額不足以支付所設定的買入上限！**\n目前餘額：**${balance.toLocaleString()}** 星瓊，設定買入：**${hostLimit.toLocaleString()}** 星瓊。\n*(若欲押上全部身家，可直接指定 'allin')*`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   }
 
   const sessionId = `holdem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -214,6 +224,7 @@ async function startHoldemLobby(db, interaction, hostLimit = 50000) {
     hostUserId: userId,
     hostUsername: username,
     hostLimit,
+    isAllIn: !!isAllIn,
     tycoon,
     stage: 'LOBBY', // LOBBY, PRE_FLOP, FLOP, TURN, RIVER, SHOWDOWN, FINISHED
     deck: [],
@@ -302,14 +313,22 @@ function buildLobbyEmbed(session) {
     ? `<t:${session.lockTimestamp}:R> (預計 <t:${session.lockTimestamp}:T> 鎖桌)`
     : '即將開局';
 
+  const buyInDesc = session.isAllIn
+    ? `🔥 **房主買入模式**：【身家梭哈全押 (All-in)】\n💰 **押入全額星瓊**：**${session.hostLimit.toLocaleString()}** 星瓊 (無 50,000 上限，拿出全部身家！)`
+    : `💰 **房主設定買入上限**：**${session.hostLimit.toLocaleString()}** 星瓊`;
+
   return new EmbedBuilder()
-    .setTitle('🃏【石心十人盲注桌】德州撲克 5+1 錦標賽正在招募！')
-    .setColor(GOLD_COLOR)
+    .setTitle(
+      session.isAllIn
+        ? '🔥【石心十人盲注桌】德州撲克・身家全押豪賭桌 (All-in)！'
+        : '🃏【石心十人盲注桌】德州撲克 5+1 錦標賽正在招募！'
+    )
+    .setColor(session.isAllIn ? 0xE74C3C : GOLD_COLOR)
     .setThumbnail(AVENTURINE_AVATAR)
     .setDescription(
-      `房主 **${session.hostUsername}** 開設了高規格德州撲克牌桌！\n` +
+      `房主 **${session.hostUsername}** 開設了${session.isAllIn ? '🔥 **破釜沉舟身家全押 (All-in)** ' : '高規格'}德州撲克牌桌！\n` +
       `固定坐鎮第 2 號位的莊家 **詭弈砂金** 正在撫平籌碼，等候開拓者入局。\n\n` +
-      `💰 **房主設定買入上限**：**${session.hostLimit.toLocaleString()}** 星瓊\n` +
+      `${buyInDesc}\n` +
       `⚖️ **木桶法則平齊機制**：鎖桌時自動取全場最低身家與上限之較小值作為統一籌碼！\n` +
       `⏳ **開局倒數**：${timeDisplay} (房主亦可隨時點擊【🔥 馬上開始】)\n\n` +
       `**當前牌桌入座名冊**：\n${seatsDesc}${emptyDesc}`
@@ -324,7 +343,7 @@ function buildLobbyEmbed(session) {
  * 構建招募按鈕行
  */
 function buildLobbyActionRow(session) {
-  return new ActionRowBuilder().addComponents(
+  const components = [
     new ButtonBuilder()
       .setCustomId(`holdem_join_${session.sessionId}`)
       .setLabel('🪑 上桌參賽')
@@ -334,11 +353,25 @@ function buildLobbyActionRow(session) {
       .setCustomId(`holdem_start_${session.sessionId}`)
       .setLabel('🔥 馬上開始 (房主專屬)')
       .setStyle(ButtonStyle.Primary),
+  ];
+
+  if (!session.isAllIn) {
+    components.push(
+      new ButtonBuilder()
+        .setCustomId(`holdem_allin_lobby_${session.sessionId}`)
+        .setLabel('💥 房主身家全押 (All-in)')
+        .setStyle(ButtonStyle.Danger)
+    );
+  }
+
+  components.push(
     new ButtonBuilder()
       .setCustomId(`holdem_spectate_${session.sessionId}`)
       .setLabel('🐎 場外買馬')
       .setStyle(ButtonStyle.Secondary)
   );
+
+  return new ActionRowBuilder().addComponents(components);
 }
 
 /**
@@ -378,11 +411,20 @@ async function handleHoldemJoin(db, interaction, sessionId) {
   }
 
   const balance = await getUserJades(db, userId);
-  if (balance < 1000) {
-    return interaction.reply({
-      content: `❌ **你的星瓊不足以支付最低上桌門檻 (1,000 星瓊)！** 目前餘額：**${balance.toLocaleString()}** 星瓊。`,
-      flags: MessageFlags.Ephemeral,
-    });
+  if (session.isAllIn) {
+    if (balance < session.hostLimit) {
+      return interaction.reply({
+        content: `❌ **此牌桌為房主身家全押桌 (All-in)！**\n入場需具備至少 **${session.hostLimit.toLocaleString()}** 星瓊以匹配籌碼！目前餘額：**${balance.toLocaleString()}** 星瓊。\n請等待下一局或參與場外買馬。`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  } else {
+    if (balance < 1000) {
+      return interaction.reply({
+        content: `❌ **你的星瓊不足以支付最低上桌門檻 (1,000 星瓊)！** 目前餘額：**${balance.toLocaleString()}** 星瓊。`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   }
 
   const newSeatIndex = session.seats.length + 1;
@@ -1897,8 +1939,57 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
   return { success: true, sessionFound: !!session, refundedCount };
 }
 
+
+/**
+ * 處理房主在招募大廳點擊【💥 房主身家全押 (All-in)】
+ */
+async function handleHoldemLobbyAllIn(db, interaction, sessionId) {
+  const session = activeHoldemSessions.get(sessionId);
+  if (!session || session.stage !== 'LOBBY') {
+    return interaction.reply({
+      content: '❌ **此德州撲克牌桌已開局或已結束！**',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const userId = interaction.user.id;
+  if (userId !== session.hostUserId) {
+    return interaction.reply({
+      content: '⚠️ **只有房主可以在開桌前將牌桌切換為身家全押 (All-in) 模式！**',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const balance = await getUserJades(db, userId);
+  if (balance < 1000) {
+    return interaction.reply({
+      content: `❌ **你的星瓊不足以支付最低上桌門檻 (1,000 星瓊)！** 目前餘額：**${balance.toLocaleString()}** 星瓊。`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  session.isAllIn = true;
+  session.hostLimit = balance;
+  session.tableCap = balance;
+
+  await interaction.reply({
+    content: `🔥 **房主已押上全部身家！牌桌正式轉為【身家全押豪賭桌 (All-in)】！**\n已拿出你所有的 **${balance.toLocaleString()}** 星瓊，不設 50,000 上限！全部，或一無所有！`,
+    flags: MessageFlags.Ephemeral,
+  });
+
+  const updateEmbed = buildLobbyEmbed(session);
+  const row = buildLobbyActionRow(session);
+  const targetMsg = interaction.message || session.lobbyMessage;
+  if (targetMsg) {
+    await targetMsg.edit({ embeds: [updateEmbed], components: [row] }).catch((err) => {
+      console.warn('⚠️ 刷新身家全押大廳失敗:', err.message);
+    });
+  }
+}
+
 module.exports = {
   startHoldemLobby,
+  handleHoldemLobbyAllIn,
   claimHoldemJackpot,
   handleHoldemJoin,
   handleHoldemImmediateStart,

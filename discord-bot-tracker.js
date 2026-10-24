@@ -154,6 +154,7 @@ const {
 // 引入「石心十人盲注桌：德州撲克 5+1」模組
 const {
   startHoldemLobby,
+  handleHoldemLobbyAllIn,
   handleHoldemJoin,
   handleHoldemImmediateStart,
   handleHoldemSpectatorBet,
@@ -536,10 +537,10 @@ const commands = [
   // 匹諾康尼 德州撲克 5+1 錦標賽 (石心十人盲注桌)
   new SlashCommandBuilder()
     .setName('德州撲克')
-    .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (買入 1,000~50,000 星瓊，專屬包廂運作)')
+    .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (可自訂買入或 allin 全押身家，專屬包廂運作)')
     .addStringOption(option =>
       option.setName('買入上限')
-        .setDescription('每人上桌買入上限 (1,000 ~ 50,000 星瓊，可填數字或 allin 全押，預設 50,000)')
+        .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 50,000)')
         .setRequired(false)
     ),
 
@@ -1804,6 +1805,11 @@ client.on('interactionCreate', async (interaction) => {
         return await handleHoldemImmediateStart(db, interaction, sessionId);
       }
 
+      if (customId.startsWith('holdem_allin_lobby_')) {
+        const sessionId = customId.replace('holdem_allin_lobby_', '');
+        return await handleHoldemLobbyAllIn(db, interaction, sessionId);
+      }
+
       if (customId.startsWith('holdem_spectate_')) {
         const sessionId = customId.replace('holdem_spectate_', '');
         return await handleHoldemSpectatorBet(db, interaction, sessionId);
@@ -2701,22 +2707,45 @@ client.on('interactionCreate', async (interaction) => {
           const intLimit = options.getInteger('買入上限');
           if (intLimit) rawLimit = String(intLimit);
         }
-        if (!rawLimit) rawLimit = '50000';
-        let hostLimit = 50000;
-        const normalized = rawLimit.toLowerCase().trim();
+        const normalized = (rawLimit || '').toLowerCase().trim();
+        const isAllIn = ['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿'].includes(normalized);
 
-        if (['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿'].includes(normalized)) {
-          // 支援發起時直接全押自身星瓊上桌 (最高封頂 50,000)
-          const myJades = await new Promise((r) => {
-            db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [user.id], (_, row) => r(row ? row.stellarJades : 0));
+        const myJades = await new Promise((r) => {
+          db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [user.id], (_, row) => r(row ? row.stellarJades : 0));
+        });
+
+        if (myJades < 1000) {
+          return interaction.reply({
+            content: `❌ **你的星瓊不足以支付最低上桌門檻 (1,000 星瓊)！** 目前餘額：**${myJades.toLocaleString()}** 星瓊。`,
+            flags: MessageFlags.Ephemeral,
           });
-          hostLimit = Math.max(1000, Math.min(myJades, 50000));
-        } else {
-          const parsed = parseInt(rawLimit.trim(), 10);
-          hostLimit = isNaN(parsed) ? 50000 : parsed;
         }
 
-        await startHoldemLobby(db, interaction, hostLimit);
+        let hostLimit = 50000;
+        if (isAllIn) {
+          // 拿出玩家的所有星瓊，不設 50,000 封頂！
+          hostLimit = myJades;
+        } else if (rawLimit) {
+          const parsed = parseInt(rawLimit.trim(), 10);
+          if (isNaN(parsed) || parsed < 1000) {
+            return interaction.reply({
+              content: '❌ **德州撲克買入上限最低為 1,000 星瓊**！請重新指定合法額度（或填 allin 身家全押）。',
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          if (parsed > myJades) {
+            return interaction.reply({
+              content: `❌ **你的星瓊餘額不足以支付所設定的買入上限！**\n目前餘額：**${myJades.toLocaleString()}** 星瓊，設定買入：**${parsed.toLocaleString()}** 星瓊。\n*(若欲押上全部身家，可直接填寫 'allin')*`,
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          hostLimit = parsed;
+        } else {
+          // 預設 50,000（若玩家餘額小於 50,000 則取其餘額）
+          hostLimit = Math.min(50000, myJades);
+        }
+
+        await startHoldemLobby(db, interaction, hostLimit, isAllIn);
         break;
       }
 

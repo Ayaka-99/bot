@@ -48,6 +48,18 @@ async function runComprehensiveTests() {
         )
       `);
       db.run('INSERT INTO ipc_vault (id, currentJades) VALUES (1, 100000)');
+      db.run(`
+        CREATE TABLE IF NOT EXISTS casino_tycoon (
+          id INTEGER PRIMARY KEY,
+          userId TEXT,
+          username TEXT,
+          bidAmount INTEGER,
+          tauntMessage TEXT,
+          updatedDate TEXT,
+          updatedAt DATETIME
+        )
+      `);
+      db.run("INSERT INTO casino_tycoon (id, userId, username, bidAmount, tauntMessage) VALUES (1, NULL, 'IPC', 30000, 'test')");
       res();
     });
   });
@@ -188,6 +200,39 @@ async function runComprehensiveTests() {
   assert.strictEqual(claims.length, 2);
   const totalClaimed = claims.reduce((s, c) => s + c.amount, 0);
   assert.strictEqual(totalClaimed, 50000, '兩位玩家領取總和嚴格等於 50,000');
+
+  // -----------------------------------------------------------------
+  // 5. 德州撲克未開桌身家全押 (All-in) 拿出玩家所有星瓊 (無 50,000 上限)
+  // -----------------------------------------------------------------
+  console.log('  ▶ [5/5] 測試德州撲克未開桌身家全押 (All-in) 拿出全部身家且無 50,000 限制...');
+  const userRichJades = 380000;
+  await new Promise((r) => db.run('INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)', ['rich_player', 'RichPlayer', userRichJades], () => r()));
+
+  let lobbyCreated = null;
+  const mockAllInInteraction = {
+    user: { id: 'rich_player', username: 'RichPlayer' },
+    channelId: 'test_channel',
+    reply: async (payload) => {
+      lobbyCreated = payload;
+      return { id: 'lobby_msg_1', edit: async () => {} };
+    },
+  };
+
+  const { startHoldemLobby, activeHoldemSessions, activeHoldemPlayers } = require('./texasHoldemService');
+  await startHoldemLobby(db, mockAllInInteraction, userRichJades, true);
+
+  const activeSessions = Array.from(activeHoldemSessions.values());
+  const mySession = activeSessions.find((s) => s.hostUserId === 'rich_player');
+  assert.ok(mySession, '牌桌應成功建立');
+  assert.strictEqual(mySession.isAllIn, true, '牌桌應標記為 All-in 豪賭桌');
+  assert.strictEqual(mySession.hostLimit, userRichJades, '買入上限應嚴格等於玩家全部身家 380,000，無 50,000 限制');
+  assert.strictEqual(mySession.tableCap, userRichJades, '初始 TableCap 應等於身家 380,000');
+
+  // 清理測試 session
+  if (mySession.lobbyTimeout) clearTimeout(mySession.lobbyTimeout);
+  activeHoldemSessions.delete(mySession.sessionId);
+  activeHoldemPlayers.delete('rich_player');
+  console.log('    ✅ 通過：未開桌身家全押成功帶上全部 380,000 星瓊，無 50,000 限制！');
 
   console.log('🎉 德州撲克升級與紅包系統全面整合測試 100% 通過！');
 }
