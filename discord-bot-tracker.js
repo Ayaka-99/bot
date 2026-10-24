@@ -957,84 +957,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // ==========================================
-  // 📸 免 @ 關鍵字自動監聽：當訊息包含特定成員關鍵字時，自動回覆專屬梗圖 (無需 @閉嘴)
-  // ==========================================
-  if (!isMentioned && !isReplyToBot) {
-    const rawLower = (message.content || '').toLowerCase();
-    let autoFiles = [];
-
-    // 1. 雪糕貓 (popsicle_cat.)：肉多多、小萱、一陽指、醫生、雪糕貓
-    if (
-      ['popsicle_cat.', 'popsicle_cat'].includes(message.author.username.toLowerCase()) ||
-      rawLower.includes('雪糕貓') ||
-      rawLower.includes('雪糕') ||
-      rawLower.includes('肉多多') ||
-      rawLower.includes('小萱') ||
-      rawLower.includes('一陽指') ||
-      rawLower.includes('醫生') ||
-      rawLower.includes('服兵役')
-    ) {
-      autoFiles.push(...getSnowCatPhoto());
-    }
-
-    // 2. 月天狼 (itsyuexi)：月天狼、天狼、itsyuexi
-    if (
-      message.author.username.toLowerCase() === 'itsyuexi' ||
-      rawLower.includes('月天狼') ||
-      rawLower.includes('天狼') ||
-      rawLower.includes('itsyuexi')
-    ) {
-      autoFiles.push(...getYueXiPhotos());
-    }
-
-    // 3. 臭甲 (nmsl2887)：50萬、50万、50w、臭甲、甲甲、icac
-    // 🛡️ 隔離原則：若為月天狼且未主動提 50萬/臭甲，不發 50w 圖
-    const mentionsNmsl = rawLower.includes('臭甲') || rawLower.includes('甲甲') || rawLower.includes('50萬') || rawLower.includes('50万') || rawLower.includes('50w') || rawLower.includes('icac');
-    const isYueUser = message.author.username.toLowerCase() === 'itsyuexi' || rawLower.includes('月天狼');
-    if (mentionsNmsl && (!isYueUser || rawLower.includes('臭甲') || rawLower.includes('50萬'))) {
-      autoFiles.push(...get50wPhoto());
-    }
-
-    // 4. 酒鬼 (xuan_05 / xuan_0503)
-    if (
-      ['xuan_05', 'xuan_0503'].includes(message.author.username.toLowerCase()) ||
-      rawLower.includes('酒鬼')
-    ) {
-      autoFiles.push(...getDrunkerPhoto());
-    }
-
-    // 5. 牢大 (yuuki960401)：牢大、曼巴、科比、想你了牢大
-    if (
-      message.author.username.toLowerCase() === 'yuuki960401' ||
-      rawLower.includes('牢大') ||
-      rawLower.includes('想你了牢大') ||
-      rawLower.includes('曼巴')
-    ) {
-      autoFiles.push(...getLaodaPhoto());
-    }
-
-    // 6. 警務處長 (shirasakia)：野獸先生、mrbeast
-    if (
-      message.author.id === '933347800886956052' ||
-      rawLower.includes('野獸先生') ||
-      rawLower.includes('mrbeast')
-    ) {
-      autoFiles.push(...getAntiScamPhotos());
-    }
-
-    if (autoFiles.length > 0) {
-      try {
-        await message.reply({
-          files: autoFiles,
-          allowedMentions: { repliedUser: false },
-        });
-      } catch (err) {
-        console.warn('⚠️ 自動回覆關鍵字圖片失敗:', err.message);
-      }
-    }
-  }
-
   if (isMentioned || isReplyToBot) {
     // 移除訊息中 @機器人 的 tag 取得純文字
     const cleanContent = message.content.replace(botMentionRegex, '').trim();
@@ -1337,6 +1259,22 @@ client.on('messageCreate', async (message) => {
       }
     } catch (err) {
       console.error('發送機器人對話回覆失敗:', err);
+      try {
+        let fallbackMsg = '在下剛才連線星際網絡時稍微恍神了一下，請您稍後再試一次。';
+        if (isSashaUser(message.author) && (isReplyToBot || isUsingReply)) {
+          fallbackMsg = '在下剛才連線星際網絡時稍微恍神了一下，請稍後再試一次 喵';
+        }
+        const fallbackOptions = {
+          content: fallbackMsg,
+          allowedMentions: { parse: [], repliedUser: false }
+        };
+        if (filesToSend.length > 0) {
+          fallbackOptions.files = filesToSend;
+        }
+        await message.reply(fallbackOptions);
+      } catch (innerErr) {
+        console.error('發送降級回覆亦失敗:', innerErr.message);
+      }
     }
   }
 });
