@@ -146,6 +146,9 @@ function claimHoldemJackpot(db, personalTotalBet, handTier) {
       } else if (handTier === HAND_TIERS.FOUR_OF_A_KIND) {
         ratio = Math.min(0.125, (personalTotalBet / 1000) * 0.005);
         handLabel = '四條 / 鐵支';
+      } else if (handTier === HAND_TIERS.FULL_HOUSE) {
+        ratio = Math.min(0.05, (personalTotalBet / 1000) * 0.002);
+        handLabel = '葫蘆 / 滿堂紅';
       }
 
       if (ratio <= 0) return resolve({ payout: 0, ratio: 0, handLabel: '' });
@@ -1888,6 +1891,7 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
 
 module.exports = {
   startHoldemLobby,
+  claimHoldemJackpot,
   handleHoldemJoin,
   handleHoldemImmediateStart,
   handleHoldemSpectatorBet,

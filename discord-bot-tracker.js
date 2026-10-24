@@ -169,6 +169,13 @@ const {
   forceCloseHoldemSession,
 } = require('./texasHoldemService');
 
+// 引入拼手氣星瓊紅包服務 (/紅包)
+const {
+  initRedPacketDb,
+  handleSendRedPacket,
+  handleGrabRedPacket,
+} = require('./redPacketService');
+
 // 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
 const {
   initCasinoStatsTable,
@@ -250,6 +257,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
     initTransferTable(db).catch(console.error);
     // 初始化賭局勝率統計資料表
     initCasinoStatsTable(db).catch(console.error);
+    // 初始化拼手氣星瓊紅包資料表
+    initRedPacketDb(db).catch(console.error);
   }
 });
 
@@ -527,12 +536,36 @@ const commands = [
   // 匹諾康尼 德州撲克 5+1 錦標賽 (石心十人盲注桌)
   new SlashCommandBuilder()
     .setName('德州撲克')
-    .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (買入 1,000~25,000 星瓊，專屬包廂運作)')
+    .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (買入 1,000~50,000 星瓊，專屬包廂運作)')
     .addIntegerOption(option =>
       option.setName('買入上限')
-        .setDescription('每人上桌買入上限 (1,000 ~ 25,000 星瓊，預設 25,000)')
+        .setDescription('每人上桌買入上限 (1,000 ~ 50,000 星瓊，預設 50,000)')
         .setMinValue(1000)
-        .setMaxValue(25000)
+        .setMaxValue(50000)
+        .setRequired(false)
+    ),
+
+  // 🧧 拼手氣星瓊紅包
+  new SlashCommandBuilder()
+    .setName('紅包')
+    .setDescription('🧧 塞入無上限星瓊發送拼手氣群紅包，群友依隨機機率瓜分！')
+    .addIntegerOption(option =>
+      option.setName('總星瓊')
+        .setDescription('紅包內的總星瓊金額 (無上限，需自身餘額足夠)')
+        .setMinValue(1)
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option.setName('份數')
+        .setDescription('瓜分紅包的人數份數 (最少 1 份，最多 100 份)')
+        .setMinValue(1)
+        .setMaxValue(100)
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('祝福語')
+        .setDescription('紅包祝福語 (可選，預設：恭喜發財，大吉大利！)')
+        .setMaxLength(50)
         .setRequired(false)
     ),
 
@@ -1799,6 +1832,11 @@ client.on('interactionCreate', async (interaction) => {
         const sessionId = customId.replace('holdem_replay_', '').replace('holdem_sub_', '');
         return await handleHoldemReplay(db, interaction, sessionId);
       }
+
+      if (customId.startsWith('redpacket_grab_')) {
+        const packetId = customId.replace('redpacket_grab_', '');
+        return await handleGrabRedPacket(db, interaction, packetId);
+      }
       return;
     }
   }
@@ -2652,8 +2690,16 @@ client.on('interactionCreate', async (interaction) => {
       // 🃏 石心十人盲注桌：德州撲克 5+1 錦標賽
       // ==========================================
       case '德州撲克': {
-        const hostLimit = options.getInteger('買入上限') || 25000;
+        const hostLimit = options.getInteger('買入上限') || 50000;
         await startHoldemLobby(db, interaction, hostLimit);
+        break;
+      }
+
+      // ==========================================
+      // 🧧 拼手氣星瓊紅包
+      // ==========================================
+      case '紅包': {
+        await handleSendRedPacket(db, interaction);
         break;
       }
 
