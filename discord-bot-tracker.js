@@ -783,47 +783,34 @@ function getDrunkerPhoto() {
 }
 
 // ==========================================
-// 💩 臭甲 / ICAC (nmsl2887) 專屬 50w.2 圖片獲取函式
+// 💩 臭甲 / ICAC (nmsl2887) 專屬 50w.3 圖片獲取函式 (絕對優先 50w.3.png)
 // ==========================================
 function get50wPhoto() {
   const candidatePaths = [
+    path.join(__dirname, '50w.3.png'),
+    path.join(process.cwd(), '50w.3.png'),
+    path.join(process.env.HOME || '', 'bot', '50w.3.png'),
+    path.join(process.env.HOME || '', '50w.3.png'),
+    path.join(process.env.USERPROFILE || '', 'bot', '50w.3.png'),
+    'C:\\Users\\ayaka\\bot\\50w.3.png',
     path.join(__dirname, '50w.2.png'),
     path.join(process.cwd(), '50w.2.png'),
     path.join(process.env.HOME || '', 'bot', '50w.2.png'),
-    path.join(process.env.HOME || '', '50w.2.png'),
-    path.join(process.env.USERPROFILE || '', 'bot', '50w.2.png'),
     'C:\\Users\\ayaka\\bot\\50w.2.png',
-    path.join(__dirname, 'w.250w.png'),
-    path.join(process.cwd(), 'w.250w.png'),
-    path.join(process.env.HOME || '', 'bot', 'w.250w.png'),
-    path.join(process.env.HOME || '', 'w.250w.png'),
-    path.join(process.env.USERPROFILE || '', 'bot', 'w.250w.png'),
-    'C:\\Users\\ayaka\\bot\\w.250w.png',
     path.join(__dirname, '50w.png'),
     path.join(process.cwd(), '50w.png'),
-    path.join(process.env.HOME || '', 'bot', '50w.png'),
-    path.join(process.env.HOME || '', '50w.png'),
-    path.join(process.env.USERPROFILE || '', 'bot', '50w.png'),
     'C:\\Users\\ayaka\\bot\\50w.png',
-    path.join(__dirname, '50w.webp'),
-    path.join(__dirname, '50k.jpg'),
-    path.join(__dirname, '50.jpg'),
-    path.join(process.cwd(), '50w.webp'),
-    path.join(process.env.HOME || '', 'bot', '50w.webp'),
-    'C:\\Users\\ayaka\\bot\\50w.webp',
-    'C:\\Users\\ayaka\\bot\\50k.jpg',
-    'D:\\下載\\50.jpg',
   ];
 
   for (const p of candidatePaths) {
     try {
       if (p && fs.existsSync(p)) {
         const buffer = fs.readFileSync(p);
-        const fileName = path.basename(p) || '50w.2.png';
+        const fileName = path.basename(p) || '50w.3.png';
         return [new AttachmentBuilder(buffer, { name: fileName })];
       }
     } catch (err) {
-      console.error(`讀取 50w.2 圖片失敗 (${p}):`, err.message);
+      console.error(`讀取 50w 圖片失敗 (${p}):`, err.message);
     }
   }
   return [];
@@ -967,6 +954,84 @@ client.on('messageCreate', async (message) => {
       }
     } catch (e) {
       // 忽視 fetch 錯誤 (可能訊息已被刪除或權限限制)
+    }
+  }
+
+  // ==========================================
+  // 📸 免 @ 關鍵字自動監聽：當訊息包含特定成員關鍵字時，自動回覆專屬梗圖 (無需 @閉嘴)
+  // ==========================================
+  if (!isMentioned && !isReplyToBot) {
+    const rawLower = (message.content || '').toLowerCase();
+    let autoFiles = [];
+
+    // 1. 雪糕貓 (popsicle_cat.)：肉多多、小萱、一陽指、醫生、雪糕貓
+    if (
+      ['popsicle_cat.', 'popsicle_cat'].includes(message.author.username.toLowerCase()) ||
+      rawLower.includes('雪糕貓') ||
+      rawLower.includes('雪糕') ||
+      rawLower.includes('肉多多') ||
+      rawLower.includes('小萱') ||
+      rawLower.includes('一陽指') ||
+      rawLower.includes('醫生') ||
+      rawLower.includes('服兵役')
+    ) {
+      autoFiles.push(...getSnowCatPhoto());
+    }
+
+    // 2. 月天狼 (itsyuexi)：月天狼、天狼、itsyuexi
+    if (
+      message.author.username.toLowerCase() === 'itsyuexi' ||
+      rawLower.includes('月天狼') ||
+      rawLower.includes('天狼') ||
+      rawLower.includes('itsyuexi')
+    ) {
+      autoFiles.push(...getYueXiPhotos());
+    }
+
+    // 3. 臭甲 (nmsl2887)：50萬、50万、50w、臭甲、甲甲、icac
+    // 🛡️ 隔離原則：若為月天狼且未主動提 50萬/臭甲，不發 50w 圖
+    const mentionsNmsl = rawLower.includes('臭甲') || rawLower.includes('甲甲') || rawLower.includes('50萬') || rawLower.includes('50万') || rawLower.includes('50w') || rawLower.includes('icac');
+    const isYueUser = message.author.username.toLowerCase() === 'itsyuexi' || rawLower.includes('月天狼');
+    if (mentionsNmsl && (!isYueUser || rawLower.includes('臭甲') || rawLower.includes('50萬'))) {
+      autoFiles.push(...get50wPhoto());
+    }
+
+    // 4. 酒鬼 (xuan_05 / xuan_0503)
+    if (
+      ['xuan_05', 'xuan_0503'].includes(message.author.username.toLowerCase()) ||
+      rawLower.includes('酒鬼')
+    ) {
+      autoFiles.push(...getDrunkerPhoto());
+    }
+
+    // 5. 牢大 (yuuki960401)：牢大、曼巴、科比、想你了牢大
+    if (
+      message.author.username.toLowerCase() === 'yuuki960401' ||
+      rawLower.includes('牢大') ||
+      rawLower.includes('想你了牢大') ||
+      rawLower.includes('曼巴')
+    ) {
+      autoFiles.push(...getLaodaPhoto());
+    }
+
+    // 6. 警務處長 (shirasakia)：野獸先生、mrbeast
+    if (
+      message.author.id === '933347800886956052' ||
+      rawLower.includes('野獸先生') ||
+      rawLower.includes('mrbeast')
+    ) {
+      autoFiles.push(...getAntiScamPhotos());
+    }
+
+    if (autoFiles.length > 0) {
+      try {
+        await message.reply({
+          files: autoFiles,
+          allowedMentions: { repliedUser: false },
+        });
+      } catch (err) {
+        console.warn('⚠️ 自動回覆關鍵字圖片失敗:', err.message);
+      }
     }
   }
 
