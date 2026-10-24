@@ -1071,8 +1071,29 @@ client.on('messageCreate', async (message) => {
       cleanContent.toLowerCase().includes('xuan_0503') ||
       mentionedMembers.some(m => m.id === '764354671367946252' || ['xuan_05', 'xuan_0503'].includes(m.username.toLowerCase()));
 
-    // 檢查是否觸發臭甲 (nmsl2887) 或 50w.2 圖片 (含 ICAC 觸發詞)
-    const isNmslTriggered =
+    // 檢查是否觸發月天狼 (itsyuexi) 或 yue1.jpg / yue2.jpg
+    const isYueXiTriggered =
+      message.author.username.toLowerCase() === 'itsyuexi' ||
+      cleanContent.includes('月天狼') ||
+      cleanContent.includes('天狼') ||
+      cleanContent.toLowerCase().includes('itsyuexi') ||
+      mentionedMembers.some(m => m.username.toLowerCase() === 'itsyuexi' || m.displayName.toLowerCase().includes('月天狼'));
+
+    // 檢查是否觸發雪糕貓 (popsicle_cat.) 或 cat1.png (含服兵役/肉多多/小萱/一陽指/醫生)
+    const isSnowCatTriggered =
+      ['popsicle_cat.', 'popsicle_cat'].includes(message.author.username.toLowerCase()) ||
+      cleanContent.includes('雪糕貓') ||
+      cleanContent.includes('雪糕') ||
+      cleanContent.toLowerCase().includes('popsicle_cat') ||
+      cleanContent.includes('肉多多') ||
+      cleanContent.includes('小萱') ||
+      cleanContent.includes('一陽指') ||
+      cleanContent.includes('醫生') ||
+      cleanContent.includes('服兵役') ||
+      mentionedMembers.some(m => ['popsicle_cat.', 'popsicle_cat'].includes(m.username.toLowerCase()) || m.displayName.toLowerCase().includes('雪糕貓'));
+
+    // 檢查是否觸發臭甲 (nmsl2887) 或 50w.3 圖片 (含 ICAC 觸發詞)
+    let isNmslTriggered =
       message.author.id === '852199002408484904' ||
       message.author.username.toLowerCase() === 'nmsl2887' ||
       cleanContent.includes('臭甲') ||
@@ -1084,6 +1105,13 @@ client.on('messageCreate', async (message) => {
       cleanContent.toLowerCase().includes('nmsl') ||
       cleanContent.toLowerCase().includes('icac') ||
       mentionedMembers.some(m => m.id === '852199002408484904' || m.username.toLowerCase() === 'nmsl2887' || m.displayName.toLowerCase().includes('臭甲') || m.displayName.toLowerCase().includes('50萬') || m.displayName.toLowerCase().includes('icac'));
+
+    // 🛡️ 核心約束：月天狼與 nmsl2887 完全無交集！
+    // 若為月天狼觸發，且訊息未明確主動提及 50萬/臭甲，嚴格禁止觸發 nmsl 非洲人圖片！
+    const explicitlyMentionsNmsl = cleanContent.includes('臭甲') || cleanContent.includes('50萬') || cleanContent.includes('50万') || cleanContent.toLowerCase().includes('50w') || cleanContent.toLowerCase().includes('nmsl2887');
+    if (isYueXiTriggered && !explicitlyMentionsNmsl) {
+      isNmslTriggered = false;
+    }
 
     // 檢查是否觸發牢大 (yuuki960401) 或 laoda 圖片
     const isLaodaTriggered =
@@ -1106,6 +1134,12 @@ client.on('messageCreate', async (message) => {
     }
     if (isDrunkerTriggered) {
       filesToSend.push(...getDrunkerPhoto());
+    }
+    if (isYueXiTriggered) {
+      filesToSend.push(...getYueXiPhotos());
+    }
+    if (isSnowCatTriggered) {
+      filesToSend.push(...getSnowCatPhoto());
     }
     if (isNmslTriggered) {
       filesToSend.push(...get50wPhoto());
