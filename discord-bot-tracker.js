@@ -105,6 +105,7 @@ const {
   checkAndRedeemDebt,
   isUserIndebted,
   buildIpcVaultEmbed,
+  adjustIpcVault,
   forceResetGame,
   handleCasinoQuickReplay,
   activeGames,
@@ -418,6 +419,31 @@ const commands = [
     .setDescription('查詢個人或伺服器成員的星瓊餘額、抽卡次數與保底進度')
     .addUserOption(option =>
       option.setName('成員').setDescription('要查詢的目標成員 (預設為自己)').setRequired(false)
+    ),
+
+  // 【主理人專屬】做帳功能：調整公司金庫底池
+  new SlashCommandBuilder()
+    .setName('做帳')
+    .setDescription('【主理人專屬】調整星際和平公司 (IPC) 金庫底池星瓊金額')
+    .addIntegerOption(option =>
+      option.setName('金額')
+        .setDescription('調整後的公司底池星瓊總額 (或增減數量)')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('操作')
+        .setDescription('調整方式：直接設定 (預設) / 注入底池 / 提領底池')
+        .setRequired(false)
+        .addChoices(
+          { name: '🎯 直接設定為此金額', value: 'set' },
+          { name: '➕ 注入底池 (增加)', value: 'add' },
+          { name: '➖ 提領底池 (減少)', value: 'sub' }
+        )
+    )
+    .addBooleanOption(option =>
+      option.setName('公開')
+        .setDescription('是否將做帳結果公開在頻道中 (預設為否，僅自己可見)')
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
@@ -964,8 +990,56 @@ function getSnowCatPhoto() {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  // 支援文字指令快速撤回未領完的紅包 (!退紅包 或 退紅包)
   const trimmedContent = (message.content || '').trim();
+
+  // 支援主理人文字快速做帳 (!做帳 或 做帳)
+  if (trimmedContent.startsWith('!做帳') || trimmedContent.startsWith('做帳')) {
+    if (message.author.username !== 'lance_508') {
+      return message.reply("🚫 **權限不足！** 公司金庫做帳權限僅限主理人 lance_508 使用。");
+    }
+
+    const parts = trimmedContent.replace(/^!*做帳\s*/, '').trim().split(/\s+/);
+    let mode = 'set';
+    let targetNum = 0;
+
+    if (parts.length === 1 && parts[0] !== '') {
+      const raw = parts[0];
+      if (raw.startsWith('+')) {
+        mode = 'add';
+        targetNum = parseInt(raw.substring(1), 10);
+      } else if (raw.startsWith('-')) {
+        mode = 'sub';
+        targetNum = parseInt(raw.substring(1), 10);
+      } else {
+        targetNum = parseInt(raw, 10);
+      }
+    } else if (parts.length >= 2) {
+      const op = parts[0].toLowerCase();
+      if (['add', '+', '加', '增'].includes(op)) mode = 'add';
+      else if (['sub', '-', '減', '降'].includes(op)) mode = 'sub';
+      else mode = 'set';
+      targetNum = parseInt(parts[1], 10);
+    }
+
+    if (isNaN(targetNum) || targetNum < 0 || parts[0] === '') {
+      return message.reply(
+        '❌ **格式錯誤！**\n用法範例：\n• `!做帳 10000000` (直接設定為 1,000 萬)\n• `!做帳 +500000` 或 `!做帳 add 500000` (注入 50 萬)\n• `!做帳 -200000` 或 `!做帳 sub 200000` (提領 20 萬)'
+      );
+    }
+
+    const res = await adjustIpcVault(db, targetNum, mode);
+    const diffSign = res.difference >= 0 ? `+${res.difference.toLocaleString()}` : `${res.difference.toLocaleString()}`;
+
+    return message.reply(
+      `📊 **【公司金庫做帳完成】**\n` +
+      `• 經辦主管：lance_508\n` +
+      `• 變動前底池：**${res.previousAmount.toLocaleString()}** 星瓊\n` +
+      `• 變動後底池：**${res.newAmount.toLocaleString()}** 星瓊 (${diffSign})\n` +
+      `• 累計已派彩：**${res.totalPaidOut.toLocaleString()}** 星瓊`
+    );
+  }
+
+  // 支援文字指令快速撤回未領完的紅包 (!退紅包 或 退紅包)
   if (trimmedContent === '!退紅包' || trimmedContent === '退紅包') {
     return await handleRefundRedPacket(db, message);
   } 
@@ -2043,7 +2117,7 @@ client.on('interactionCreate', async (interaction) => {
         // 僅限唯一主人 lance_508 擁有最高執行權限
         if (user.username !== 'lance_508') {
           return interaction.reply({
-            content: '🚫 **權限不足！**\n歷史訊息掃描與數據回溯為最高權限指令，僅限主人 `lance_508` 執行。',
+            content: '🚫 **權限不足！**\n歷史訊息掃描與數據回溯為最高權限指令，僅限主人 lance_508 執行。',
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -2502,11 +2576,64 @@ client.on('interactionCreate', async (interaction) => {
         break;
       }
 
+      case '做帳': {
+        // 僅限唯一主人 lance_508 擁有最高執行權限
+        if (user.username !== 'lance_508') {
+          return interaction.reply({
+            content: '🚫 **權限不足！**\n星際和平公司 (IPC) 最高機密財務帳目僅限主理人 lance_508 調閱與做帳。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const amount = options.getInteger('金額');
+        const mode = options.getString('操作') || 'set';
+        const isPublic = options.getBoolean('公開') || false;
+
+        if (isNaN(amount) || amount < 0) {
+          return interaction.reply({
+            content: '❌ **做帳金額必須大於等於 0！**',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const res = await adjustIpcVault(db, amount, mode);
+
+        const modeLabels = {
+          set: '🎯 直接設定覆蓋',
+          add: '➕ 資金注入 (增資)',
+          sub: '➖ 資金提領 (平帳)',
+        };
+
+        const diffSign = res.difference >= 0 ? `+${res.difference.toLocaleString()}` : `${res.difference.toLocaleString()}`;
+
+        const embed = new EmbedBuilder()
+          .setTitle('📊【星際和平公司 · 戰略投資部做帳結案】')
+          .setColor(0xf1c40f)
+          .setDescription(
+            `公司金庫帳目已由主理人 <@${user.id}> 審計完畢並完成調帳手續！\n` +
+            `*「每一筆星瓊的流向，都在公司的掌握之中。」*\n\n` +
+            `🏢 **執行部門**：星際和平公司 (IPC) 戰略投資部\n` +
+            `👤 **特批主管**：lance_508 (最高常務顧問)\n` +
+            `🔄 **調帳模式**：**${modeLabels[mode] || mode}**\n\n` +
+            `💰 **做帳前底池**：**${res.previousAmount.toLocaleString()}** 星瓊\n` +
+            `📈 **做帳後底池**：**${res.newAmount.toLocaleString()}** 星瓊\n` +
+            `⚖️ **底池淨變動**：**${diffSign}** 星瓊\n` +
+            `🏦 **金庫累計派彩**：**${res.totalPaidOut.toLocaleString()}** 星瓊`
+          )
+          .setFooter({ text: '🎲 匹諾康尼星際和平公司 · 財務清算完成' })
+          .setTimestamp();
+
+        return interaction.reply({
+          embeds: [embed],
+          flags: isPublic ? undefined : MessageFlags.Ephemeral,
+        });
+      }
+
       case '發星瓊': {
         // 僅限唯一主人 lance_508 擁有最高執行權限
         if (user.username !== 'lance_508') {
           return interaction.reply({
-            content: '🚫 **權限不足！**\n星際和平公司金庫鑄幣權限為最高機密，僅限主人 `lance_508` 使用。',
+            content: '🚫 **權限不足！**\n星際和平公司金庫鑄幣權限為最高機密，僅限主人 lance_508 使用。',
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -2787,7 +2914,7 @@ client.on('interactionCreate', async (interaction) => {
         // 僅限唯一主人 lance_508 擁有最高執行權限
         if (user.username !== 'lance_508' && !['lance_508', 'lance_0508', '508_forever'].includes(user.username)) {
           return interaction.reply({
-            content: '🚫 **權限不足！**\n強制刪除賭間為最高管理指令，僅限主人 `lance_508` 執行。',
+            content: '🚫 **權限不足！**\n強制刪除賭間為最高管理指令，僅限主人 lance_508 執行。',
             flags: MessageFlags.Ephemeral,
           });
         }

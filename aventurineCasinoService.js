@@ -1543,6 +1543,56 @@ async function handleCasinoQuickReplay(db, interaction, actionType, targetUserId
   return await startCasinoGame(db, interaction, interaction.user, betAmount);
 }
 
+
+/**
+ * 調整星際和平公司 (IPC) 底池金庫金額 (主理人專屬做帳功能)
+ * @param {sqlite3.Database} db
+ * @param {number} amount
+ * @param {'set' | 'add' | 'sub'} mode
+ */
+async function adjustIpcVault(db, amount, mode = 'set') {
+  // 確保 row 1 存在
+  await new Promise((resolve) => {
+    db.run(
+      'INSERT OR IGNORE INTO ipc_vault (id, currentJades, totalPaidOut) VALUES (1, 1000000, 0)',
+      () => resolve()
+    );
+  });
+
+  const vault = await getIpcVault(db);
+  const previousAmount = vault.currentJades || 0;
+  const totalPaidOut = vault.totalPaidOut || 0;
+
+  let newAmount = previousAmount;
+  if (mode === 'add') {
+    newAmount = Math.max(0, previousAmount + amount);
+  } else if (mode === 'sub') {
+    newAmount = Math.max(0, previousAmount - amount);
+  } else {
+    newAmount = Math.max(0, amount);
+  }
+
+  const difference = newAmount - previousAmount;
+
+  await new Promise((resolve, reject) => {
+    db.run(
+      'UPDATE ipc_vault SET currentJades = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
+      [newAmount],
+      (err) => {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+
+  return {
+    previousAmount,
+    newAmount,
+    difference,
+    totalPaidOut,
+  };
+}
+
 module.exports = {
   initAventurineCasino,
   startCasinoGame,
@@ -1554,6 +1604,7 @@ module.exports = {
   checkAndRedeemDebt,
   isUserIndebted,
   buildIpcVaultEmbed,
+  adjustIpcVault,
   forceResetGame,
   buildGameOverActionRow,
   handleCasinoQuickReplay,
