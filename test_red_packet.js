@@ -42,7 +42,70 @@ async function testRedPacket() {
   assert.ok(tables.includes('red_packets'), 'red_packets 資料表應存在');
   assert.ok(tables.includes('red_packet_claims'), 'red_packet_claims 資料表應存在');
 
-  console.log('✅ 紅包服務單元測試 100% 通過！');
+  // 5. 紅包發送與全額撤回 (退紅包) 邏輯測試
+  console.log('  ▶ [5/5] 測試紅包發送與全額退款 (退紅包) 流程...');
+  const { handleSendRedPacket, handleRefundRedPacket } = require('./redPacketService');
+
+  // 初始化玩家幣帳戶
+  await new Promise((res) => {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS user_currency (
+        userId TEXT PRIMARY KEY,
+        username TEXT,
+        stellarJades INTEGER DEFAULT 10000000,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, () => res());
+  });
+
+  const senderId = 'lance_508';
+  const initialJades = 10000000;
+  const redPacketJades = 6000000;
+  await new Promise((res) => {
+    db.run('INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)', [senderId, 'lance_508', initialJades], () => res());
+  });
+
+  // 發送 6,000,000 紅包
+  let replyPayload = null;
+  const mockSendInteraction = {
+    user: { id: senderId, username: 'lance_508' },
+    options: {
+      getInteger: (name) => (name === '總星瓊' ? redPacketJades : 7),
+      getString: () => '測試 600 萬大紅包',
+    },
+    reply: async (p) => {
+      replyPayload = p;
+      return { id: 'msg_rp_6m', edit: async () => {} };
+    },
+  };
+
+  await handleSendRedPacket(db, mockSendInteraction);
+
+  // 驗證扣款：餘額應為 10,000,000 - 6,000,000 = 4,000,000
+  const afterSendRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [senderId], (_, row) => res(row)));
+  assert.strictEqual(afterSendRow.stellarJades, 4000000, '發紅包應扣除 6,000,000 星瓊');
+
+  // 執行撤回退款
+  let refundReply = '';
+  const mockRefundInteraction = {
+    user: { id: senderId, username: 'lance_508' },
+    message: { edit: async () => {} },
+    reply: async (p) => { refundReply = p.content; },
+  };
+
+  await handleRefundRedPacket(db, mockRefundInteraction);
+  assert.ok(refundReply.includes('成功撤回紅包') && refundReply.includes('6,000,000'), '應提示成功退款 6,000,000');
+
+  // 驗證餘額完全復原為 10,000,000
+  const afterRefundRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [senderId], (_, row) => res(row)));
+  assert.strictEqual(afterRefundRow.stellarJades, 10000000, '撤回後星瓊應 100% 全額復原');
+
+  // 驗證資料庫狀態為 REFUNDED
+  const packetDbRow = await new Promise((res) => db.get("SELECT * FROM red_packets WHERE sender_id = ? ORDER BY created_at DESC LIMIT 1", [senderId], (_, row) => res(row)));
+  assert.strictEqual(packetDbRow.status, 'REFUNDED');
+  assert.strictEqual(packetDbRow.remaining_jades, 0);
+
+  console.log('✅ 紅包服務單元測試（含 600 萬退款全生命週期）100% 通過！');
 }
 
 testRedPacket().catch((err) => {

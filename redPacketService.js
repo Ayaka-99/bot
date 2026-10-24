@@ -204,6 +204,11 @@ function buildRedPacketRow(packet) {
       .setCustomId(`redpacket_grab_${packet.id}`)
       .setLabel(isFinished ? '🧧 紅包已全數搶完' : '🧧 搶紅包')
       .setStyle(isFinished ? ButtonStyle.Secondary : ButtonStyle.Danger)
+      .setDisabled(isFinished),
+    new ButtonBuilder()
+      .setCustomId(`redpacket_refund_${packet.id}`)
+      .setLabel('↩️ 撤回紅包')
+      .setStyle(ButtonStyle.Secondary)
       .setDisabled(isFinished)
   );
 }
@@ -323,6 +328,15 @@ async function handleGrabRedPacket(db, interaction, packetId) {
       return sendResponse('❌ **該紅包已經全數被瓜分完畢或已結束！**');
     }
 
+    // 查詢歷史已領取記錄
+    const existingClaims = await new Promise((resolve) => {
+      db.all(
+        'SELECT user_id as userId, username, amount, strftime("%s", claimed_at) * 1000 as claimedAt FROM red_packet_claims WHERE packet_id = ? ORDER BY id ASC',
+        [packetId],
+        (err, rows) => resolve(rows || [])
+      );
+    });
+
     // 還原記憶體物件
     packet = {
       id: dbPacket.id,
@@ -333,7 +347,7 @@ async function handleGrabRedPacket(db, interaction, packetId) {
       remainingJades: dbPacket.remaining_jades,
       remainingCount: dbPacket.remaining_count,
       blessing: dbPacket.blessing,
-      claims: [],
+      claims: existingClaims,
       allocatedAmounts: generateRandomShares(dbPacket.remaining_jades, dbPacket.remaining_count),
       lock: false,
       message: interaction.message,
@@ -438,9 +452,104 @@ async function handleGrabRedPacket(db, interaction, packetId) {
   }
 }
 
+
+/**
+ * 處理撤回/退回紅包 (支援 Slash Command、文字指令與按鈕回退)
+ */
+async function handleRefundRedPacket(db, interaction, targetPacketId = null) {
+  const userId = interaction.user ? interaction.user.id : interaction.author.id;
+  const username = interaction.user ? interaction.user.username : interaction.author.username;
+
+  let packetRow;
+  if (targetPacketId) {
+    packetRow = await new Promise((resolve) => {
+      db.get('SELECT * FROM red_packets WHERE id = ?', [targetPacketId], (_, row) => resolve(row));
+    });
+  } else {
+    // 查詢該使用者最近發送且狀態為 ACTIVE 的紅包
+    packetRow = await new Promise((resolve) => {
+      db.get(
+        "SELECT * FROM red_packets WHERE sender_id = ? AND status = 'ACTIVE' ORDER BY created_at DESC LIMIT 1",
+        [userId],
+        (_, row) => resolve(row)
+      );
+    });
+  }
+
+  const sendResp = async (content, ephemeral = true) => {
+    if (interaction.reply && typeof interaction.reply === 'function') {
+      if (interaction.deferred || interaction.replied) {
+        return interaction.editReply({ content }).catch(() => {});
+      }
+      return interaction.reply({ content, flags: ephemeral ? MessageFlags.Ephemeral : undefined }).catch(() => {});
+    }
+    if (interaction.channel && typeof interaction.channel.send === 'function') {
+      return interaction.channel.send(content).catch(() => {});
+    }
+  };
+
+  if (!packetRow) {
+    return sendResp('❌ **找不到進行中可撤回的星瓊紅包！** (可能已被搶完或已撤回)');
+  }
+
+  if (packetRow.sender_id !== userId && username !== 'lance_508') {
+    return sendResp('❌ **只有紅包發起人（或主理人 lance_508）才能撤回此紅包！**');
+  }
+
+  if (packetRow.status !== 'ACTIVE' || packetRow.remaining_jades <= 0) {
+    return sendResp('❌ **該紅包已結束或已被全額領取完畢，無法撤回！**');
+  }
+
+  const refundJades = packetRow.remaining_jades;
+  const senderId = packetRow.sender_id;
+
+  // 1. 將剩餘星瓊原路退回發送者帳戶
+  await awardJades(db, senderId, refundJades);
+
+  // 2. 更新資料庫狀態
+  await new Promise((resolve) => {
+    db.run(
+      "UPDATE red_packets SET status = 'REFUNDED', remaining_jades = 0, remaining_count = 0 WHERE id = ?",
+      [packetRow.id],
+      () => resolve()
+    );
+  });
+
+  // 3. 移除記憶體快取
+  const memPacket = activeRedPackets.get(packetRow.id);
+  activeRedPackets.delete(packetRow.id);
+
+  // 4. 更新 Discord 上的紅包訊息
+  const targetMsg = (memPacket && memPacket.message) || interaction.message;
+  if (targetMsg && typeof targetMsg.edit === 'function') {
+    const refundEmbed = new EmbedBuilder()
+      .setTitle(`↩️【紅包已撤回】${packetRow.sender_name} 已撤回該星瓊紅包`)
+      .setColor(0x95a5a6)
+      .setDescription(
+        `💬 **「${packetRow.blessing}」**\n\n` +
+        `💰 **原紅包總額**：**${packetRow.total_jades.toLocaleString()}** 星瓊\n` +
+        `↩️ **已退回星瓊**：**${refundJades.toLocaleString()}** 星瓊 (全額退回至發起人帳戶)\n` +
+        `👥 **發放份數**：原 ${packetRow.total_count} 份 (已發出 ${packetRow.total_count - packetRow.remaining_count} 份)`
+      )
+      .setFooter({ text: '🧧 匹諾康尼星際紅包局 · 紅包已撤回結案' })
+      .setTimestamp();
+
+    await targetMsg.edit({
+      embeds: [refundEmbed],
+      components: [],
+    }).catch(() => {});
+  }
+
+  return sendResp(
+    `✅ **已成功撤回紅包！**\n💰 剩餘的 **${refundJades.toLocaleString()}** 星瓊已全額原路退還至發起人帳戶！目前狀態已結案。`
+  );
+}
+
 module.exports = {
   initRedPacketDb,
   generateRandomShares,
   handleSendRedPacket,
   handleGrabRedPacket,
+  handleRefundRedPacket,
+  activeRedPackets,
 };

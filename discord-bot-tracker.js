@@ -175,6 +175,7 @@ const {
   initRedPacketDb,
   handleSendRedPacket,
   handleGrabRedPacket,
+  handleRefundRedPacket,
 } = require('./redPacketService');
 
 // 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
@@ -543,6 +544,11 @@ const commands = [
         .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 50,000)')
         .setRequired(false)
     ),
+
+  // 撤回未領完的星瓊紅包
+  new SlashCommandBuilder()
+    .setName('退紅包')
+    .setDescription('撤回自己尚未被領取完畢的星瓊紅包，將剩餘星瓊全額原路退回'),
 
   // 🧧 拼手氣星瓊紅包
   new SlashCommandBuilder()
@@ -956,7 +962,13 @@ function getSnowCatPhoto() {
 // 📡 訊息監聽器 (即時統計)
 // ==========================================
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return; 
+  if (message.author.bot) return;
+
+  // 支援文字指令快速撤回未領完的紅包 (!退紅包 或 退紅包)
+  const trimmedContent = (message.content || '').trim();
+  if (trimmedContent === '!退紅包' || trimmedContent === '退紅包') {
+    return await handleRefundRedPacket(db, message);
+  } 
 
   // 終端機吵鬧模式，不想看就把下面這行註解掉
   console.log(`[💬 新訊息] ${message.channel.name || 'DM'} | ${message.author.username}: ${message.content}`);
@@ -1844,12 +1856,18 @@ client.on('interactionCreate', async (interaction) => {
         const sessionId = customId.replace('holdem_replay_', '').replace('holdem_sub_', '');
         return await handleHoldemReplay(db, interaction, sessionId);
       }
-
-      if (customId.startsWith('redpacket_grab_')) {
-        const packetId = customId.replace('redpacket_grab_', '');
-        return await handleGrabRedPacket(db, interaction, packetId);
-      }
       return;
+    }
+
+    // 處理「拼手氣星瓊紅包」按鈕 (搶紅包 / 撤回紅包)
+    if (interaction.customId.startsWith('redpacket_grab_')) {
+      const packetId = interaction.customId.replace('redpacket_grab_', '');
+      return await handleGrabRedPacket(db, interaction, packetId);
+    }
+
+    if (interaction.customId.startsWith('redpacket_refund_')) {
+      const packetId = interaction.customId.replace('redpacket_refund_', '');
+      return await handleRefundRedPacket(db, interaction, packetId);
     }
   }
 
@@ -2754,6 +2772,11 @@ client.on('interactionCreate', async (interaction) => {
       // ==========================================
       case '紅包': {
         await handleSendRedPacket(db, interaction);
+        break;
+      }
+
+      case '退紅包': {
+        await handleRefundRedPacket(db, interaction);
         break;
       }
 
