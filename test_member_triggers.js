@@ -41,7 +41,13 @@ async function runTests() {
   assert(fs.existsSync(path.join(__dirname, 'yue2.jpg')), 'yue2.jpg 必須存在');
   assert(fs.existsSync(path.join(__dirname, 'cat1.png')), 'cat1.png 必須存在');
   assert(fs.existsSync(path.join(__dirname, '50w.3.png')), '50w.3.png 必須存在');
-  console.log('    ✅ 通過：所有指定圖片檔案皆已就緒。\n');
+
+  // 動態驗證 discord-bot-tracker.js 中的函式實體
+  const trackerCode = fs.readFileSync(path.join(__dirname, 'discord-bot-tracker.js'), 'utf8');
+  assert(trackerCode.includes('function getYueXiPhotos'), '必須定義 getYueXiPhotos 函式');
+  assert(trackerCode.includes('function getSnowCatPhoto'), '必須定義 getSnowCatPhoto 函式');
+  assert(trackerCode.includes('function get50wPhoto'), '必須定義 get50wPhoto 函式');
+  console.log('    ✅ 通過：所有指定圖片檔案皆已就緒且載入函式完整定義。\n');
 
   console.log('🎉 所有成員人設與圖片觸發單元測試 100% 通過！');
   process.exit(0);

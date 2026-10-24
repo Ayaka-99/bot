@@ -849,6 +849,70 @@ function getLaPhoto() {
 }
 
 // ==========================================
+// 🐺 月天狼 (itsyuexi) 專屬圖片獲取函式 (yue1.jpg, yue2.jpg)
+// ==========================================
+function getYueXiPhotos() {
+  const results = [];
+  const targetFiles = ['yue1.jpg', 'yue2.jpg'];
+
+  for (const fileName of targetFiles) {
+    const candidatePaths = [
+      path.join(__dirname, fileName),
+      path.join(process.cwd(), fileName),
+      path.join(process.env.HOME || '', 'bot', fileName),
+      path.join(process.env.HOME || '', fileName),
+      path.join(process.env.USERPROFILE || '', 'bot', fileName),
+      `C:\\Users\\ayaka\\bot\\${fileName}`,
+    ];
+
+    for (const p of candidatePaths) {
+      try {
+        if (p && fs.existsSync(p)) {
+          const buffer = fs.readFileSync(p);
+          results.push(new AttachmentBuilder(buffer, { name: fileName }));
+          break; // 找到該張圖片就繼續找下一張
+        }
+      } catch (err) {
+        console.error(`讀取月天狼圖片失敗 (${p}):`, err.message);
+      }
+    }
+  }
+
+  return results;
+}
+
+// ==========================================
+// 🐱 雪糕貓 (popsicle_cat.) 專屬圖片獲取函式 (cat1.png)
+// ==========================================
+function getSnowCatPhoto() {
+  const candidatePaths = [
+    path.join(__dirname, 'cat1.png'),
+    path.join(__dirname, 'cat1image.png'),
+    path.join(process.cwd(), 'cat1.png'),
+    path.join(process.cwd(), 'cat1image.png'),
+    path.join(process.env.HOME || '', 'bot', 'cat1.png'),
+    path.join(process.env.HOME || '', 'bot', 'cat1image.png'),
+    path.join(process.env.HOME || '', 'cat1.png'),
+    path.join(process.env.USERPROFILE || '', 'bot', 'cat1.png'),
+    'C:\\Users\\ayaka\\bot\\cat1.png',
+    'C:\\Users\\ayaka\\bot\\cat1image.png',
+  ];
+
+  for (const p of candidatePaths) {
+    try {
+      if (p && fs.existsSync(p)) {
+        const buffer = fs.readFileSync(p);
+        return [new AttachmentBuilder(buffer, { name: 'cat1.png' })];
+      }
+    } catch (err) {
+      console.error(`讀取雪糕貓圖片失敗 (${p}):`, err.message);
+    }
+  }
+
+  return [];
+}
+
+// ==========================================
 // 📡 訊息監聽器 (即時統計)
 // ==========================================
 client.on('messageCreate', async (message) => {
