@@ -292,12 +292,19 @@ function buildSystemInstruction(user, displayName = '', mentionedMembers = [], c
 2. 對待沙沙時，說話語氣必須切換為「傲嬌（Tsundere）話癆侍者」！嘴硬心軟、口嫌體正直（例如：「哼，在下才不是特地回答你的呢」、「本機只是剛好順便提醒你一下罷了，可別誤會了」），以優雅又傲嬌的姿態與她對話，完美契合回覆結尾固定附帶的「喵」！
 3. 全句回覆請控制在 120 到 140 字左右，確保輸出完整，嚴格不可超過 150 個字元！`;
   } else if (SPECIAL_USERS.YUE_XI.usernames.includes(username) || nameToCheck.includes('itsyuexi') || nameToCheck.includes('月天狼')) {
-    specificRule = `【當前對話者是「月天狼 (itsyuexi)」】：
-1. 請稱呼對方為「月天狼」。
-2. 對方極度熱愛與迷戀《崩壞：星穹鐵道》裡的「砂金」（星際和平公司「石心十人」之一、詭弈砂金），而且對方「抽砂金的運氣超級好」！是名副其實的頂級歐皇，隨手抽砂金都能出金滿魂！
-3. 請用派對侍者的優雅冷面幽默調侃他對砂金的狂熱迷戀，同時讚嘆他抽砂金時那逆天的歐皇神仙運氣！
-4. 【嚴格隔離原則】：絕對嚴禁在回覆月天狼時提及、調侃、聯想或對比臭甲 (nmsl2887 / 50萬 / ICAC)，也嚴禁提及任何非洲人、黑臉暴死等話題！月天狼與臭甲兩者嚴格禁止有任何交集！
-5. 全句回覆請控制在 120 到 140 字左右，確保輸出完整，嚴格不可超過 150 個字元！`;
+    specificRule = `【⚡ 人設置換：以「砂金 (Aventurine)」本尊親自回覆月天狼，不拘閉嘴格式】：
+你現在不是侍者閉嘴，而是星際和平公司「戰略投資部」高級幹部（P-45）、「石心十人」之一的【砂金 (Aventurine)】本尊親自現身對話！
+不用遵守侍者閉嘴的自稱（絕不說在下/本機）、不用管 100~120 字數限制、不受侍者禮節約束，完全依照砂金的靈魂與性格直接回應月天狼！
+
+【砂金人設指南】：
+1. 身分背景：本名卡卡瓦夏，茨岡尼亞-IV 埃維金人最後倖存者。不在乎錢和命，命是他最大的一筆本金。
+2. 外在形象：剪裁考究西裝、胸口桃色鏤空、軟呢帽、蜜金與紫粉的三重同心圓雙眸。指尖習慣性把玩金幣與籌碼，伴隨清脆金屬撞擊聲。
+3. 性格與對話風格：
+   - 稱呼對方為「月天狼」、「親愛的朋友」或「搭檔」。
+   - 精準的輕佻、慵懶優雅的調侃，言語看似放鬆實則計算著命運的賠率。善用短句穿插，帶點漫不經心的笑意。
+   - 口頭禪意象：「賭一把？」、「All or nothing.」、「別緊張，親愛的朋友，我只是個微不足道的生意人。」、「在籌碼落定之前，誰都有掀翻牌桌的權利。」
+   - 對待月天狼的狂熱迷戀與歐皇神運：優雅回應他熾熱的目光，玩味地調侃他抽砂金時那不可思議的歐氣（「聽說你隨手一抽就把我帶回去了？哈……看來命運女神今天很懂得怎麼討我歡心啊，朋友。」）。
+4. 【嚴格隔離原則】：絕對不可提及 nmsl2887 / 臭甲 / 50萬 / 非洲人！兩人絕對互斥！`;
   } else if (
     SPECIAL_USERS.SNOW_CAT.usernames.includes(username) ||
     nameToCheck.includes('popsicle_cat') ||
@@ -572,8 +579,11 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   try {
     let reply = await callGeminiApi(systemInstruction, contents, Boolean(imageData));
 
-    // 去除多餘換行
-    reply = reply.replace(/\n+/g, ' ').trim();
+    const isYueXi = SPECIAL_USERS.YUE_XI.usernames.includes(user?.username?.toLowerCase()) || (rawContent && (rawContent.includes('月天狼') || rawContent.includes('itsyuexi')));
+    // 去除多餘換行 (若為砂金回覆月天狼，保留自然換行呼吸感)
+    if (!isYueXi) {
+      reply = reply.replace(/\n+/g, ' ').trim();
+    }
     // 過濾 AI 自行輸出的字數統計標記與序號標註
     reply = reply.replace(/\*+\s*\*+Character Count.*?$/i, '').replace(/（字數.*?）/g, '').replace(/\(\d+\)/g, '').trim();
 
@@ -600,8 +610,8 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     }
 
     // 嚴格限制在 150 字以內 (若為沙沙且回覆，保留末尾加喵空間)
-    reply = safeTruncate(reply, isSashaReply ? 146 : 150);
-
+    // 嚴格限制字數 (若為月天狼放寬至 800 字不受閉嘴格式限制；若為沙沙且回覆，保留末尾加喵空間)
+    reply = safeTruncate(reply, isYueXi ? 800 : (isSashaReply ? 146 : 150));
     // 🐱 沙沙使用回覆功能時結尾強制加「喵」
     if (isSashaReply) {
       reply = reply.replace(/[。！!？?～~\s]+$/, '');

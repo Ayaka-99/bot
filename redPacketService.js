@@ -7,7 +7,8 @@
  * 2. 經典二倍均值隨機演算法 (Double-Average Algorithm)，每人金額隨機不相等
  * 3. 金額 100% 精準無誤差，每人保底至少 1 星瓊
  * 4. 搶完自動揭曉【👑 手氣最佳 (運氣王)】榜單
- * 5. 記憶體 + SQLite 雙層安全鎖，防併發超發與重複領取
+ * 5. 立即 deferReply 杜絕 Discord 3 秒逾時「未即時回應」
+ * 6. 記憶體 + SQLite 雙層安全鎖，防併發超發與重複領取
  */
 
 const {
@@ -299,6 +300,17 @@ async function handleSendRedPacket(db, interaction) {
  * 處理群友點擊【🧧 搶紅包】
  */
 async function handleGrabRedPacket(db, interaction, packetId) {
+  // ⚡ 核心修復：第一時間 deferReply 立即向 Discord 回應 ACK，杜絕 3 秒逾時與「未即時回應」
+  if (typeof interaction.deferReply === 'function') await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+
+  const sendResponse = async (text) => {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content: text }).catch(() => {});
+    } else {
+      await interaction.reply({ content: text, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+  };
+
   let packet = activeRedPackets.get(packetId);
 
   // 若記憶體中無資料，嘗試從資料庫還原
@@ -308,10 +320,7 @@ async function handleGrabRedPacket(db, interaction, packetId) {
     });
 
     if (!dbPacket || dbPacket.status !== 'ACTIVE' || dbPacket.remaining_count <= 0) {
-      return interaction.reply({
-        content: '❌ **該紅包已經全數被瓜分完畢或已結束！**',
-        flags: MessageFlags.Ephemeral,
-      });
+      return sendResponse('❌ **該紅包已經全數被瓜分完畢或已結束！**');
     }
 
     // 還原記憶體物件
@@ -338,10 +347,7 @@ async function handleGrabRedPacket(db, interaction, packetId) {
   // 1. 檢查是否已經搶過
   const alreadyClaimed = packet.claims.find((c) => c.userId === userId);
   if (alreadyClaimed) {
-    return interaction.reply({
-      content: `⚠️ **你已經搶過這個紅包囉！** 搶到了 **${alreadyClaimed.amount.toLocaleString()}** 星瓊。`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return sendResponse(`⚠️ **你已經搶過這個紅包囉！** 搶到了 **${alreadyClaimed.amount.toLocaleString()}** 星瓊。`);
   }
 
   // 雙重檢查資料庫是否已領過
@@ -349,26 +355,17 @@ async function handleGrabRedPacket(db, interaction, packetId) {
     db.get('SELECT amount FROM red_packet_claims WHERE packet_id = ? AND user_id = ?', [packetId, userId], (err, row) => resolve(row));
   });
   if (dbClaim) {
-    return interaction.reply({
-      content: `⚠️ **你已經搶過這個紅包囉！** 搶到了 **${dbClaim.amount.toLocaleString()}** 星瓊。`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return sendResponse(`⚠️ **你已經搶過這個紅包囉！** 搶到了 **${dbClaim.amount.toLocaleString()}** 星瓊。`);
   }
 
   // 2. 檢查紅包是否已搶完
   if (packet.remainingCount <= 0 || packet.allocatedAmounts.length === 0) {
-    return interaction.reply({
-      content: '😢 **手慢了一步！紅包已經被全數瓜分完畢囉～**',
-      flags: MessageFlags.Ephemeral,
-    });
+    return sendResponse('😢 **手慢了一步！紅包已經被全數瓜分完畢囉～**');
   }
 
   // 3. 併發防刷保護 (簡易鎖)
   if (packet.lock) {
-    return interaction.reply({
-      content: '⏳ **伺服器正在處理前一位開拓者的紅包，請再點一次！**',
-      flags: MessageFlags.Ephemeral,
-    });
+    return sendResponse('⏳ **伺服器正在處理前一位開拓者的紅包，請稍候再點一次！**');
   }
   packet.lock = true;
 
@@ -405,11 +402,8 @@ async function handleGrabRedPacket(db, interaction, packetId) {
       [packet.remainingJades, packet.remainingCount, newStatus, packetId]
     );
 
-    // 5. Ephemeral 回覆搶到者
-    await interaction.reply({
-      content: `🎉 **手氣爆棚！** 恭喜你搶到了 **${grabAmount.toLocaleString()}** 星瓊！已即時存入你的帳戶。`,
-      flags: MessageFlags.Ephemeral,
-    });
+    // 5. 回覆搶到者
+    await sendResponse(`🎉 **手氣爆棚！** 恭喜你搶到了 **${grabAmount.toLocaleString()}** 星瓊！已即時存入你的帳戶。`);
 
     // 6. 更新紅包主訊息 Embed
     const targetMsg = packet.message || interaction.message;
@@ -435,6 +429,7 @@ async function handleGrabRedPacket(db, interaction, packetId) {
     }
   } catch (err) {
     console.error('❌ 處理搶紅包流程異常:', err);
+    await sendResponse('⚠️ 處理搶紅包過程遭遇微小網絡波動，請稍後重試。');
   } finally {
     packet.lock = false;
   }
