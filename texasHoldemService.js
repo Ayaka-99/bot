@@ -174,14 +174,14 @@ function claimHoldemJackpot(db, personalTotalBet, handTier) {
 /**
  * 發起德州撲克牌局招募
  */
-async function startHoldemLobby(db, interaction, hostLimit = 25000) {
+async function startHoldemLobby(db, interaction, hostLimit = 50000) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
   // 1. 買入限制檢核 (1,000 ~ 25,000)
-  if (hostLimit < 1000 || hostLimit > 25000) {
+  if (hostLimit < 1000 || hostLimit > 50000) {
     return interaction.reply({
-      content: '❌ **德州撲克買入上限限制為 1,000 ～ 25,000 星瓊**！請重新指定合法額度。',
+      content: '❌ **德州撲克買入上限限制為 1,000 ～ 50,000 星瓊**！請重新指定合法額度。',
       flags: MessageFlags.Ephemeral,
     });
   }

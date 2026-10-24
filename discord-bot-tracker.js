@@ -537,11 +537,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName('德州撲克')
     .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (買入 1,000~50,000 星瓊，專屬包廂運作)')
-    .addIntegerOption(option =>
+    .addStringOption(option =>
       option.setName('買入上限')
-        .setDescription('每人上桌買入上限 (1,000 ~ 50,000 星瓊，預設 50,000)')
-        .setMinValue(1000)
-        .setMaxValue(50000)
+        .setDescription('每人上桌買入上限 (1,000 ~ 50,000 星瓊，可填數字或 allin 全押，預設 50,000)')
         .setRequired(false)
     ),
 
@@ -2698,7 +2696,26 @@ client.on('interactionCreate', async (interaction) => {
       // 🃏 石心十人盲注桌：德州撲克 5+1 錦標賽
       // ==========================================
       case '德州撲克': {
-        const hostLimit = options.getInteger('買入上限') || 50000;
+        let rawLimit = options.getString('買入上限');
+        if (!rawLimit && typeof options.getInteger === 'function') {
+          const intLimit = options.getInteger('買入上限');
+          if (intLimit) rawLimit = String(intLimit);
+        }
+        if (!rawLimit) rawLimit = '50000';
+        let hostLimit = 50000;
+        const normalized = rawLimit.toLowerCase().trim();
+
+        if (['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿'].includes(normalized)) {
+          // 支援發起時直接全押自身星瓊上桌 (最高封頂 50,000)
+          const myJades = await new Promise((r) => {
+            db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [user.id], (_, row) => r(row ? row.stellarJades : 0));
+          });
+          hostLimit = Math.max(1000, Math.min(myJades, 50000));
+        } else {
+          const parsed = parseInt(rawLimit.trim(), 10);
+          hostLimit = isNaN(parsed) ? 50000 : parsed;
+        }
+
         await startHoldemLobby(db, interaction, hostLimit);
         break;
       }
