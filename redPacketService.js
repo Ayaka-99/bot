@@ -397,10 +397,13 @@ async function handleGrabRedPacket(db, interaction, packetId) {
 
     const isFinished = packet.remainingCount <= 0;
     const newStatus = isFinished ? 'FINISHED' : 'ACTIVE';
-    db.run(
-      'UPDATE red_packets SET remaining_jades = ?, remaining_count = ?, status = ? WHERE id = ?',
-      [packet.remainingJades, packet.remainingCount, newStatus, packetId]
-    );
+    await new Promise((resolve) => {
+      db.run(
+        'UPDATE red_packets SET remaining_jades = ?, remaining_count = ?, status = ? WHERE id = ?',
+        [packet.remainingJades, packet.remainingCount, newStatus, packetId],
+        () => resolve()
+      );
+    });
 
     // 5. 回覆搶到者
     await sendResponse(`🎉 **手氣爆棚！** 恭喜你搶到了 **${grabAmount.toLocaleString()}** 星瓊！已即時存入你的帳戶。`);

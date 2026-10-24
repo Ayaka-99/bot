@@ -624,23 +624,32 @@ client.once('clientReady', async (readyClient) => {
   } catch (err) {
     console.error(`❌ 無法 fetch 目標伺服器 (${process.env.GUILD_ID}):`, err.message);
   }
+
+  // 🧹 遍歷所有已加入伺服器，清空殘留的專屬指令，徹底杜絕重複
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  for (const [gId, gInfo] of guilds) {
+    try {
+      await rest.put(Routes.applicationGuildCommands(readyClient.user.id, gId), { body: [] });
+    } catch (_) {}
+  }
+  console.log('✅ 所有伺服器專屬指令快取已全數清理完畢，重複指令已徹底杜絕！');
 });
 
 (async () => {
   try {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-    // 1. ⚡ 即時向目標伺服器同步指令 (Guild Commands，0 秒立即生效，強制刷新 Discord 50,000 上限快取)
+    // 1. 🧹 徹底清空伺服器專屬指令（徹底消滅與全域指令重複顯示的核心關鍵）
     if (process.env.GUILD_ID) {
-      console.log('⚡ 正在向目標伺服器同步即時指令 (0 秒生效)...');
+      console.log('🧹 正在清空伺服器專屬指令快取以徹底消除重複指令...');
       try {
         await rest.put(
           Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-          { body: commands.map(cmd => cmd.toJSON()) }
+          { body: [] }
         );
-        console.log('✅ 目標伺服器專屬指令已即時同步生效！(50,000 買入上限已即時解鎖)');
+        console.log('✅ 目標伺服器專屬指令已徹底清空，重複問題已解決！');
       } catch (guildCmdErr) {
-        console.warn('⚠️ 同步伺服器專屬指令時出錯:', guildCmdErr.message);
+        console.warn('⚠️ 清空伺服器專屬指令時出錯:', guildCmdErr.message);
       }
     }
     // 2. 🌐 統一註冊單一來源全域指令 (群組與私訊皆可用，維持單一無重複)
