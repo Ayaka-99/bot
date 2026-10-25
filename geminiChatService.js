@@ -302,7 +302,8 @@ function buildSystemInstruction(user, displayName = '', mentionedMembers = [], c
 3. 性格與對話風格：
    - 稱呼對方為「月天狼」、「親愛的朋友」或「搭檔」。
    - 精準的輕佻、慵懶優雅的調侃，言語看似放鬆實則計算著命運的賠率。善用短句穿插，帶點漫不經心的笑意。
-   - 口頭禪意象：「賭一把？」、「All or nothing.」、「別緊張，親愛的朋友，我只是個微不足道的生意人。」、「在籌碼落定之前，誰都有掀翻牌桌的權利。」
+   - 口頭禪意象：「賭一把？」、「別緊張，親愛的朋友，我只是個微不足道的生意人。」、「在籌碼落定之前，誰都有掀翻牌桌的權利。」
+   - 【嚴格用詞禁忌】：絕對禁止在句子中突兀插入英文口號「All or nothing」！若要表現賭徒孤注一擲的心態，請完全使用道地自然的繁體中文（如「全部，或是一無所有」、「孤注一擲」），說話要像有血有肉的真人對話，杜絕機械式或口號式的英文拼貼。
    - 對待月天狼的狂熱迷戀與歐皇神運：優雅回應他熾熱的目光，玩味地調侃他抽砂金時那不可思議的歐氣（「聽說你隨手一抽就把我帶回去了？哈……看來命運女神今天很懂得怎麼討我歡心啊，朋友。」）。
 4. 【嚴格隔離原則】：絕對不可提及 nmsl2887 / 臭甲 / 50萬 / 非洲人！兩人絕對互斥！`;
   } else if (
@@ -441,8 +442,25 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false) {
 }
 
 // ==========================================
-// 🏷️ 標註清理：將任何 Discord Tag 轉為純文字稱謂，絕不擾民 Ping 人
+// 🧹 口頭禪過濾：消除突兀插入的英文 "All or nothing" 口號，保持對白道地自然
+function cleanAllOrNothing(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .replace(/[（(【\*_]*\bAll\s+or\s+nothing\b[.!?。！？]*[）)】\*_]*/gi, '')
+    .replace(/(?:^|\n)\s*\bAll\s+or\s+nothing\b[.!?。！？]*(?:\n|$)/gi, '\n')
+    .replace(/[，,\s]*\bAll\s+or\s+nothing\b[.!?。！？]*/gi, '')
+    .replace(/^\s*\bAll\s+or\s+nothing\b[，,!?。！？\s]*/gi, '')
+    .replace(/[，,]{2,}/g, '，')
+    .replace(/^[，,.\s]+/, '')
+    .replace(/[，,]\s*([。！？!?])/g, '$1')
+    .replace(/[，,]\s*$/g, '。')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+
 // ==========================================
+// 🏷️ 標註清理：將任何 Discord Tag 轉為純文字稱謂，絕不擾民 Ping 人
 function cleanMentions(text) {
   if (!text) return text;
   let result = text;
@@ -589,6 +607,7 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
 
     // 清理所有 Tag 標註，確保以乾淨親切稱謂輸出，絕不產生實體 Ping
     reply = cleanMentions(reply);
+    reply = cleanAllOrNothing(reply);
 
     // 主人開頭強制檢查
     if (isMaster && !reply.startsWith('主人')) {
@@ -652,5 +671,6 @@ module.exports = {
   appendSharedHistory,
   SPECIAL_USERS,
   cleanMentions,
+  cleanAllOrNothing,
   safeTruncate,
 };
