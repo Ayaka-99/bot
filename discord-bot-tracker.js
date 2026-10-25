@@ -177,6 +177,7 @@ const {
   handleSendRedPacket,
   handleGrabRedPacket,
   handleRefundRedPacket,
+  startRedPacketAutoRefundScheduler,
 } = require('./redPacketService');
 
 // 引入賭局勝率統計服務 (/勝率、歷史訊息回溯補算)
@@ -641,6 +642,9 @@ client.once('clientReady', async (readyClient) => {
 
   // 啟動星鐵每日自動簽到排程 (每日 07:00)
   startDailyScheduler(readyClient, db);
+
+  // 啟動紅包 24 小時逾期自動退回排程
+  startRedPacketAutoRefundScheduler(readyClient, db);
 
   // 強制預載所有伺服器資料，避免 interaction.guild 為 null
   const guilds = await readyClient.guilds.fetch();
