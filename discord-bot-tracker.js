@@ -1504,7 +1504,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!cleanCookie) {
           return interaction.editReply({
             content:
-              '❌ **無效的 Cookie 格式！**\n請確認你的 Cookie 包含 `ltoken_v2` (或 `ltoken`) 與 `ltuid_v2` (或 `ltuid`)。\n\n💡 **取得教學**：在電腦瀏覽器登入 [HoYoLAB](https://www.hoyolab.com/)，按 F12 開啟開發者工具 → 切換至「Application (應用程式)」→「Cookies」→ 複製 `ltoken_v2` 與 `ltuid_v2`。',
+              '❌ **無效的 Cookie 格式！**\n請確認輸入包含 `ltoken_v2` 與 `ltuid_v2`。\n\n💡 **最快解決方式（二選一）**：\n• **方式 A【最推薦・免找 Cookie】**：直接在頻道輸入 `/星鐵帳密綁定`，由系統自動代登換取憑證（30 秒完成）。\n• **方式 B【電腦端一鍵複製】**：在 HoYoLAB 按 F12 → 切換到「Network (網路)」→ 按 F5 重新整理 → 點第一個請求 → 複製「Request Headers」裡的 `Cookie` 整串貼上（包含所有 HttpOnly Token）。',
           });
         }
 
@@ -2492,39 +2492,38 @@ client.on('interactionCreate', async (interaction) => {
               ].join('\n'),
             },
             {
-              name: '⚡ 方案一：/星鐵帳密綁定（手機端 30 秒全自動）',
+              name: '⚡ 方案一：/星鐵帳密綁定（手機 / 電腦最推薦，30 秒全自動）',
               value: [
                 '**1.** 在頻道輸入 `/星鐵帳密綁定`，彈出專屬私密視窗。',
                 '**2.** 填寫 HoYoLAB 的 **信箱** 與 **密碼**。',
-                '**3.** 若官方觸發雙重驗證，系統會跳出按鈕讓您填寫 **信箱 6 位數驗證碼**。',
-                '**4.** 驗證完成後立即綁定成功！密碼於換取憑證後即刻自記憶體銷毀。',
+                '**3.** 若官方觸發信箱雙重驗證，點擊按鈕填寫 **信箱 6 位數驗證碼**。',
+                '**4.** 驗證完成後立即綁定成功！密碼於換取憑證後即刻自記憶體銷毀，**完全免開 F12 或手動提取 Cookie**。',
               ].join('\n'),
             },
             {
-              name: '📱 方案二：手機端獲取 Cookie 綁定（免電腦、免 F12）',
-              value: [
-                '**1.** 手機開啟瀏覽器（Safari 或 Chrome），將任意網頁加入書籤。',
-                '**2.** 編輯該書籤：',
-                '   • 名稱改為：`獲取Cookie`',
-                '   • 網址改為：`javascript:(function(){prompt(\'請全選複製Cookie:\',document.cookie);})();`',
-                '**3.** 前往 [HoYoLAB 官方網站](https://www.hoyolab.com/) 並登入星鐵帳號。',
-                '**4.** 登入後點擊網址列，搜尋並點擊 `獲取Cookie` 書籤。',
-                '**5.** 畫面上會跳出彈窗，**全選並複製**整串文字。',
-                '**6.** 回到 Discord 輸入 `/星鐵綁定`，貼上並送出即可！',
-              ].join('\n'),
-            },
-            {
-              name: '💻 方案三：電腦端 F12 獲取 Cookie',
+              name: '🌐 方案二：電腦端 Network 網路一鍵複製（手動抓取最完整）',
               value: [
                 '**1.** 電腦瀏覽器前往 [HoYoLAB 官方網站](https://www.hoyolab.com/) 並登入帳號。',
-                '**2.** 按鍵盤 **`F12`**（或右鍵點「檢查」），切換到上方 **`Console (主控台)`**。',
-                '**3.** 貼上代碼並按 Enter：`copy(document.cookie)`',
-                '**4.** 回到 Discord 輸入 `/星鐵綁定`，直接 `Ctrl + V` 貼上送出！',
+                '**2.** 按鍵盤 **`F12`**（或右鍵點「檢查」），切換到上方 **`Network (網路)`** 分頁。',
+                '**3.** 按 **`F5`** 重新整理網頁。',
+                '**4.** 點選左側任意一個請求（例如最上方的請求）→ 點右側 **`Headers`** 分頁。',
+                '**5.** 找到 **`Request Headers`** 區塊內的 `Cookie`，**右鍵點擊選擇「Copy value」**。',
+                '**6.** 回到 Discord 輸入 `/星鐵綁定`，直接 `Ctrl + V` 整段貼上送出！',
               ].join('\n'),
             },
             {
-              name: '🔒 安全與隱私說明',
+              name: '💻 方案三：電腦端 Application 儲存空間複製（備用方案）',
               value: [
+                '**1.** 電腦按 **`F12`** → 切換至 **`Application (應用程式)`** 分頁。',
+                '**2.** 左側展開 **`Cookies`** → 點選 `https://www.hoyolab.com`。',
+                '**3.** 在右側表格找到 **`ltoken_v2`** 與 **`ltuid_v2`**。',
+                '**4.** 複製兩者數值並填入 `/星鐵綁定`（系統支援任意格式：多行、分號或空格皆可自動解析）。',
+              ].join('\n'),
+            },
+            {
+              name: '🔒 安全與技術說明（為什麼不能用 Console 代碼？）',
+              value: [
+                '• **為什麼不能用 `document.cookie` 代碼？**：米哈遊官方將 `ltoken_v2` 設有 **`HttpOnly`** 隱私防護，瀏覽器強制禁止網頁 JavaScript 存取，因此 Console 代碼與手機書籤抓出的 Cookie 必定缺少 `ltoken_v2`。請一律使用 **`/星鐵帳密綁定`** 或 **Network 一鍵複製**。',
                 '• `/星鐵帳密綁定` 僅在記憶體中單次轉拋至官方 API 換取簽到 Token，**絕不儲存密碼**。',
                 '• `/星鐵綁定` 使用 Discord 官方 Modal 私密視窗，輸入內容其他成員完全看不到。',
                 '• 系統僅提取簽到必備的社群 Token（`ltoken_v2` / `ltuid_v2`），無法用於變更密碼或登入遊戲本體。',

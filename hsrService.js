@@ -79,15 +79,39 @@ function initHsrTable(db) {
 function parseCookie(cookieStr) {
   if (!cookieStr || typeof cookieStr !== 'string') return null;
 
-  const pairs = cookieStr.split(';').map((s) => s.trim());
+  // 1. 支援多種分隔符：分號 (;)、換行符 (\n, \r)、& 符號、Tab (\t)
+  const pairs = cookieStr.split(/[;\r\n&]+/).map((s) => s.trim()).filter(Boolean);
   const cookieMap = {};
 
   for (const pair of pairs) {
-    const idx = pair.indexOf('=');
-    if (idx > 0) {
-      const key = pair.slice(0, idx).trim();
-      const val = pair.slice(idx + 1).trim();
+    // 支援 key=value 或 key: value (DevTools 常見格式) 或 key\tvalue
+    const match = pair.match(/^([a-zA-Z0-9_]+)\s*[:=\t]\s*(.+)$/);
+    if (match) {
+      const key = match[1].trim();
+      const val = match[2].trim().replace(/^['"]|['"]$/g, '');
       cookieMap[key] = val;
+    } else {
+      const idx = pair.indexOf('=');
+      if (idx > 0) {
+        const key = pair.slice(0, idx).trim();
+        const val = pair.slice(idx + 1).trim();
+        cookieMap[key] = val;
+      }
+    }
+  }
+
+  // 2. 若標準切割未命中，使用正則兜底（適用於從 DevTools 表格多欄位複製或連續文字）
+  if (!cookieMap['ltoken_v2'] && !cookieMap['ltoken']) {
+    const ltokenMatch = cookieStr.match(/(?:ltoken_v2|ltoken)\s*[:=\t\s]\s*([^\s;,\r\n]+)/i);
+    if (ltokenMatch) {
+      cookieMap['ltoken_v2'] = ltokenMatch[1].trim().replace(/^['"]|['"]$/g, '');
+    }
+  }
+
+  if (!cookieMap['ltuid_v2'] && !cookieMap['ltuid'] && !cookieMap['account_id_v2'] && !cookieMap['account_id']) {
+    const ltuidMatch = cookieStr.match(/(?:ltuid_v2|ltuid|account_id_v2|account_id)\s*[:=\t\s]\s*([^\s;,\r\n]+)/i);
+    if (ltuidMatch) {
+      cookieMap['ltuid_v2'] = ltuidMatch[1].trim().replace(/^['"]|['"]$/g, '');
     }
   }
 
@@ -101,8 +125,13 @@ function parseCookie(cookieStr) {
 
   // 重新組成乾淨的 Cookie 格式
   const cleanParts = [];
+  const validKeys = [
+    'ltoken', 'ltoken_v2', 'ltuid', 'ltuid_v2',
+    'account_id', 'account_id_v2', 'account_mid_v2', 'ltmid_v2',
+    'cookie_token', 'cookie_token_v2'
+  ];
   for (const [k, v] of Object.entries(cookieMap)) {
-    if (['ltoken', 'ltoken_v2', 'ltuid', 'ltuid_v2', 'account_id', 'account_id_v2', 'account_mid_v2', 'ltmid_v2'].includes(k)) {
+    if (validKeys.includes(k)) {
       cleanParts.push(`${k}=${v}`);
     }
   }
