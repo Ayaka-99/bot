@@ -1432,6 +1432,8 @@ async function concludeShowdown(session) {
   let jackpotNote = '';
 
   const splitPot = Math.floor(session.pot / winners.length);
+  const winnerPotWonMap = new Map(); // seatIndex -> netWin from pot
+  const winnerJackpotMap = new Map(); // seatIndex -> jackpot payout
 
   for (const w of winners) {
     if (w.isNpc) {
@@ -1443,18 +1445,31 @@ async function concludeShowdown(session) {
       await addToIpcVault(db, vaultShare);
       taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入 IPC 金庫)*`;
     } else {
-      // 玩家獲勝
-      const tax = Math.floor(splitPot * 0.05);
+      // 玩家獲勝或平局瓜分
+      const profit = splitPot - w.totalBet;
+      // 平局時若未賺取額外籌碼（profit <= 0），則免徵手續費；若有額外利潤則僅針對利潤抽 5%
+      const tax = isSplit
+        ? (profit > 0 ? Math.floor(profit * 0.05) : 0)
+        : Math.floor(splitPot * 0.05);
       const netWin = splitPot - tax;
-      await addToIpcVault(db, tax);
+      if (tax > 0) {
+        await addToIpcVault(db, tax);
+      }
       await awardJades(db, w.userId, netWin);
-      taxNote += `\n*(${w.username} 獨得底池，扣除 5% 營運稅 ${tax.toLocaleString()} 星瓊入金庫)*`;
+      winnerPotWonMap.set(w.seatIndex, netWin);
 
-      // 檢查神話牌型派彩 (TableCap >= 3000)
-      if (!session.isCasualTable && w.bestHand.tier >= HAND_TIERS.FOUR_OF_A_KIND) {
+      if (isSplit) {
+        taxNote += `\n*(${w.username} 平局瓜分底池 ${splitPot.toLocaleString()}，${tax > 0 ? `扣除利潤抽稅 ${tax.toLocaleString()} 星瓊入金庫` : '免手續費全額保本返還'}，實得 ${netWin.toLocaleString()} 星瓊)*`;
+      } else {
+        taxNote += `\n*(${w.username} 獨得底池，扣除 5% 營運稅 ${tax.toLocaleString()} 星瓊入金庫)*`;
+      }
+
+      // 檢查神話牌型派彩 (TableCap >= 3000，支援葫蘆、四條、同花順、皇家同花順)
+      if (!session.isCasualTable && w.bestHand.tier >= HAND_TIERS.FULL_HOUSE) {
         const jp = await claimHoldemJackpot(db, w.totalBet, w.bestHand.tier);
         if (jp.payout > 0) {
           await awardJades(db, w.userId, jp.payout);
+          winnerJackpotMap.set(w.seatIndex, (winnerJackpotMap.get(w.seatIndex) || 0) + jp.payout);
           const ratioPercent = (jp.ratio * 100).toFixed(1);
           jackpotNote += `\n👑 **神話誕生！開拓者 ${w.username} 打出【${jp.handLabel}】！**\n` +
             `按個人投注 ${w.totalBet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%) 搬走金庫派彩：**+${jp.payout.toLocaleString()}** 星瓊！`;
@@ -1473,17 +1488,18 @@ async function concludeShowdown(session) {
       if (!s.isNpc) {
         const isWinner = winners.some((w) => w.seatIndex === s.seatIndex);
         const beatAventurine = isWinner && contenders.some((c) => c.isNpc);
-        const netJades = isWinner
-          ? Math.floor(splitPot * 0.95) - s.totalBet
-          : -s.totalBet;
+        const potWon = isWinner ? (winnerPotWonMap.get(s.seatIndex) ?? 0) : 0;
+        const jpWon = winnerJackpotMap.get(s.seatIndex) || 0;
+        const totalWon = potWon + jpWon;
+        const netJades = totalWon - s.totalBet;
 
         await recordCasinoGame(db, {
           userId: s.userId,
           username: s.username,
           mode: 'holdem',
-          result: isWinner ? 'WIN' : 'LOSE',
+          result: isWinner ? (isSplit && netJades === 0 ? 'DRAW' : 'WIN') : 'LOSE',
           bet: s.totalBet,
-          won: isWinner ? Math.floor(splitPot * 0.95) : 0,
+          won: totalWon,
           net: netJades,
           beatAventurine,
         }).catch(() => {});
@@ -1991,6 +2007,7 @@ module.exports = {
   startHoldemLobby,
   handleHoldemLobbyAllIn,
   claimHoldemJackpot,
+  concludeShowdown,
   handleHoldemJoin,
   handleHoldemImmediateStart,
   handleHoldemSpectatorBet,

@@ -78,14 +78,68 @@ function initCasinoStatsTable(db) {
             channelId TEXT,
             syncedAt DATETIME DEFAULT CURRENT_TIMESTAMP
           )`,
-          (syncErr) => {
+          async (syncErr) => {
             if (syncErr) {
               console.error('❌ 初始化 casino_synced_messages 表失敗:', syncErr);
               return reject(syncErr);
             }
+            try {
+              await applyStatsMigrations(db);
+            } catch (err) {
+              console.error('❌ 執行 stats migration 失敗:', err);
+            }
             resolve();
           }
         );
+      }
+    );
+  });
+}
+
+/**
+ * 執行生涯戰績單次 Migration 補正 (保證冪等性)
+ */
+function applyStatsMigrations(db) {
+  return new Promise((resolve) => {
+    db.run(
+      `CREATE TABLE IF NOT EXISTS system_migrations (
+        migrationName TEXT PRIMARY KEY,
+        executedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      (tblErr) => {
+        if (tblErr) return resolve();
+        const migrationKey = 'migration_fix_itsyuexi_holdem_jackpot_stats_20261025';
+        db.get('SELECT migrationName FROM system_migrations WHERE migrationName = ?', [migrationKey], (mErr, row) => {
+          if (mErr || row) return resolve();
+          db.get(
+            "SELECT userId FROM casino_user_stats WHERE userId = '827495671031660555' OR username = 'itsyuexi'",
+            (uErr, userRow) => {
+              if (userRow) {
+                // 補正 14:19 (+197,116) 與 18:08 (+106,387) 兩場四條神話派彩漏記之 303,503 星瓊
+                db.run(
+                  `UPDATE casino_user_stats 
+                   SET totalWonJades = totalWonJades + 303503,
+                       netJades = netJades + 303503,
+                       holdemNetJades = holdemNetJades + 303503,
+                       updatedAt = CURRENT_TIMESTAMP
+                   WHERE userId = '827495671031660555' OR username = 'itsyuexi'`,
+                  (updateErr) => {
+                    if (!updateErr) {
+                      db.run('INSERT OR IGNORE INTO system_migrations (migrationName) VALUES (?)', [migrationKey], () => {
+                        console.log('✅ [Migration] 成功為開拓者 itsyuexi 補正德州撲克金庫神話派彩戰績 +303,503 星瓊！');
+                        resolve();
+                      });
+                    } else {
+                      resolve();
+                    }
+                  }
+                );
+              } else {
+                resolve();
+              }
+            }
+          );
+        });
       }
     );
   });
@@ -602,7 +656,10 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
 /**
  * 查詢玩家個人賭場統計
  */
-function getUserCasinoStats(db, userId) {
+async function getUserCasinoStats(db, userId) {
+  if (userId === '827495671031660555') {
+    await applyStatsMigrations(db).catch(() => {});
+  }
   return new Promise((resolve) => {
     db.get('SELECT * FROM casino_user_stats WHERE userId = ?', [userId], (err, row) => {
       if (err || !row) {
@@ -806,6 +863,7 @@ function buildCasinoStatsEmbed(user, stats) {
 
 module.exports = {
   initCasinoStatsTable,
+  applyStatsMigrations,
   recordCasinoGame,
   getUserCasinoStats,
   buildCasinoStatsEmbed,
