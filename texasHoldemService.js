@@ -1713,7 +1713,7 @@ async function handleHoldemCheckCall(interaction, sessionId) {
 }
 
 /**
- * 彈出加注視窗 Modal
+ * 彈出加注視窗 Modal (引導輸入剩餘籌碼百分比，亦相容輸入金額)
  */
 async function handleHoldemRaisePrompt(interaction, sessionId) {
   const session = activeHoldemSessions.get(sessionId);
@@ -1729,16 +1729,15 @@ async function handleHoldemRaisePrompt(interaction, sessionId) {
     });
   }
 
-  const minRaise = session.currentHighestBet > 0 ? session.currentHighestBet * 2 : 100;
   const modal = new ModalBuilder()
     .setCustomId(`holdem_raise_modal_${sessionId}`)
-    .setTitle('📈 自由加注 (Raise)');
+    .setTitle('📈 德州撲克籌碼加注 (Raise)');
 
   const amountInput = new TextInputBuilder()
     .setCustomId('raise_amount')
-    .setLabel(`加注額 (最低 >= ${minRaise}，或填 allin)`)
+    .setLabel(`加注比例 (剩餘 ${activeSeat.chips.toLocaleString()}，填 1-100%)`)
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder(`輸入總下注額，或直接輸入 allin 全押`)
+    .setPlaceholder(`輸入百分比 (例: 50% 或 50)，亦可輸入 allin 或金額`)
     .setRequired(true);
 
   modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
@@ -1746,7 +1745,84 @@ async function handleHoldemRaisePrompt(interaction, sessionId) {
 }
 
 /**
- * 處理 Modal 提交加注額
+ * 解析玩家輸入的加注指令 (支援剩餘籌碼百分比與具體金額)
+ */
+function parseHoldemRaiseInput(inputStr, remainingChips, roundBet, currentHighestBet) {
+  if (!inputStr || typeof inputStr !== 'string') {
+    return { error: '請輸入有效的加注比例或金額' };
+  }
+  const clean = inputStr.trim().toLowerCase();
+
+  // 1. 文字 All-in 快速通道
+  if (['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿', '100%', '100'].includes(clean)) {
+    return { isAllIn: true, needToPay: remainingChips, percentUsed: 100, newRoundBet: roundBet + remainingChips };
+  }
+
+  let needToPay = 0;
+  let percentUsed = null;
+
+  // 2. 判斷是否為百分比輸入 (例如 50%, 25%, 33.3%, 或 1~99 的純數字)
+  const percentMatch = clean.match(/^(\d+(?:\.\d+)?)\s*%?$/);
+  if (percentMatch) {
+    const val = parseFloat(percentMatch[1]);
+    // 若帶有 % 或數值在 1 到 100 之間，優先視為剩餘籌碼百分比
+    if (clean.includes('%') || (val >= 1 && val <= 100)) {
+      if (val >= 100) {
+        return { isAllIn: true, needToPay: remainingChips, percentUsed: 100, newRoundBet: roundBet + remainingChips };
+      }
+      if (val <= 0) {
+        return { error: '加注百分比無效，請輸入 1% 到 100% 之間的數字。' };
+      }
+      percentUsed = val;
+      needToPay = Math.floor(remainingChips * (val / 100));
+    }
+  }
+
+  // 3. 若非百分比，相容解析為具體星瓊金額 (例如 15000, 20k, 5w)
+  if (needToPay === 0 && !percentUsed) {
+    let cleanNumStr = clean.replace(/[,，]/g, '');
+    let multiplier = 1;
+    if (cleanNumStr.endsWith('k')) {
+      multiplier = 1000;
+      cleanNumStr = cleanNumStr.slice(0, -1);
+    } else if (cleanNumStr.endsWith('w') || cleanNumStr.endsWith('萬') || cleanNumStr.endsWith('万')) {
+      multiplier = 10000;
+      cleanNumStr = cleanNumStr.slice(0, -1);
+    }
+
+    const rawNum = parseFloat(cleanNumStr);
+    if (!isNaN(rawNum) && rawNum > 0) {
+      const rawTarget = Math.floor(rawNum * multiplier);
+      if (rawTarget > currentHighestBet) {
+        needToPay = rawTarget - roundBet;
+      } else if (roundBet + rawTarget > currentHighestBet) {
+        needToPay = rawTarget;
+      }
+    }
+  }
+
+  // 4. 檢驗加注額度是否合法
+  const newRoundBet = roundBet + needToPay;
+  if (needToPay <= 0 || newRoundBet <= currentHighestBet) {
+    const minPayToRaise = Math.max(1, currentHighestBet - roundBet + 1);
+    const minPercent = Math.min(100, Math.ceil((minPayToRaise / remainingChips) * 100));
+    return {
+      error: `加注額度不足！本輪當前最高注為 **${currentHighestBet.toLocaleString()}** 星瓊。\n您選擇下注 **${needToPay.toLocaleString()}** 星瓊，總注額 (${newRoundBet.toLocaleString()}) 未能超越當前最高注。\n💡 建議輸入至少 **${minPercent}%** (約 ${Math.floor(remainingChips * (minPercent / 100)).toLocaleString()} 星瓊)，或輸入 **allin** / **100%** 梭哈全押！`,
+      minPercent,
+      minPayToRaise,
+    };
+  }
+
+  // 5. 若加注額超過或等於手中全部桌上籌碼，自動以 All-in 執行
+  if (needToPay >= remainingChips) {
+    return { isAllIn: true, needToPay: remainingChips, percentUsed: 100, newRoundBet: roundBet + remainingChips };
+  }
+
+  return { isAllIn: false, needToPay, percentUsed, newRoundBet };
+}
+
+/**
+ * 處理 Modal 提交加注額 (支援剩餘籌碼百分比與具體金額)
  */
 async function handleHoldemRaiseSubmit(interaction, sessionId) {
   const session = activeHoldemSessions.get(sessionId);
@@ -1756,27 +1832,28 @@ async function handleHoldemRaiseSubmit(interaction, sessionId) {
   const activeSeat = session.seats.find((s) => s.seatIndex === session.activeSeatIndex);
   if (!activeSeat || activeSeat.userId !== userId) return;
 
-  const inputStr = interaction.fields.getTextInputValue('raise_amount').trim().toLowerCase();
+  const inputStr = interaction.fields.getTextInputValue('raise_amount');
+  const result = parseHoldemRaiseInput(
+    inputStr,
+    activeSeat.chips,
+    activeSeat.roundBet,
+    session.currentHighestBet
+  );
 
-  // 支援文字 All-in 快速通道
-  if (['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿'].includes(inputStr)) {
-    return await handleHoldemAllIn(interaction, sessionId);
-  }
-
-  const raiseTarget = parseInt(inputStr, 10);
-  if (isNaN(raiseTarget) || raiseTarget <= session.currentHighestBet) {
+  if (result.error) {
     return interaction.reply({
-      content: '❌ **加注金額無效！** 必須大於當前最高注額 (**' + session.currentHighestBet + '** 星瓊)，或輸入 allin 梭哈。\n💡 目前桌上剩餘籌碼：**' + activeSeat.chips.toLocaleString() + '** 星瓊。\n💡 點擊牌桌下方大紅色【🔥 梭哈全押 (All-in)】按鈕可直接全押！',
+      content: `❌ **加注失敗！**\n${result.error}`,
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  const needToPay = raiseTarget - activeSeat.roundBet;
-  // 若加注額超過或等於手中全部桌上籌碼，自動以 All-in 執行
-  if (needToPay >= activeSeat.chips) {
+  if (result.isAllIn) {
     return await handleHoldemAllIn(interaction, sessionId);
   }
 
+  const { needToPay, percentUsed } = result;
+
+  // 扣除籌碼並更新牌桌狀態
   activeSeat.chips -= needToPay;
   activeSeat.roundBet += needToPay;
   activeSeat.totalBet += needToPay;
@@ -1787,7 +1864,8 @@ async function handleHoldemRaiseSubmit(interaction, sessionId) {
   activeSeat.hasActedThisRound = true;
 
   await interaction.deferUpdate();
-  const actionText = `📈 **${activeSeat.username}** 強勢加注至 **${activeSeat.roundBet.toLocaleString()}** 星瓊！`;
+  const percentText = percentUsed ? ` (${percentUsed}% 剩餘籌碼)` : '';
+  const actionText = `📈 **${activeSeat.username}** 加注${percentText}，總注額提升至 **${activeSeat.roundBet.toLocaleString()}** 星瓊！`;
   await triggerNextAction(session, actionText);
 }
 
@@ -2017,6 +2095,7 @@ module.exports = {
   handleHoldemCheckCall,
   handleHoldemRaisePrompt,
   handleHoldemRaiseSubmit,
+  parseHoldemRaiseInput,
   handleHoldemAllIn,
   handleHoldemFold,
   handleHoldemReplay,
