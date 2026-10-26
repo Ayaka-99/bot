@@ -1,7 +1,7 @@
 const assert = require('assert');
 const { cleanAllOrNothing, cleanGreasyPhrases, buildSystemInstruction } = require('./geminiChatService');
 
-console.log('🧪 開始測試砂金風格語言淨化機制（去突兀英文、去油膩調情）...');
+console.log('🧪 開始測試砂金風格語言淨化機制（去突兀英文、微油孔雀魅力控制）...');
 
 // 1. 測試各類突兀插入情境
 console.log('  ▶ [1/5] 測試各類句子位置突兀插入的過濾...');
@@ -47,25 +47,26 @@ assert.ok(prompt.includes('絕對禁止在句子中突兀插入英文口號「Al
 
 console.log('    ✅ 通過：提示詞已徹底剔除生硬口頭禪並加入嚴格禁令！');
 
-// 4. 測試去油去膩過濾機制 cleanGreasyPhrases
-console.log('  ▶ [4/5] 測試去油去膩後處理函式 cleanGreasyPhrases...');
+// 4. 測試去油去膩後處理函式 cleanGreasyPhrases（微油保留、逾矩過濾）
+console.log('  ▶ [4/5] 測試後處理函式 cleanGreasyPhrases（保留微油孔雀魅力、過濾逾矩霸總台詞）...');
 const g1 = cleanGreasyPhrases('親愛的月天狼，今天想玩點什麼？');
-assert.strictEqual(g1, '月天狼，今天想玩點什麼？', '親愛的月天狼 應被淨化為 月天狼');
+assert.strictEqual(g1, '親愛的月天狼，今天想玩點什麼？', '親愛的月天狼 自然親暱稱呼應予保留');
 
 const g2 = cleanGreasyPhrases('親愛的朋友，別緊張，這只是一場遊戲。');
-assert.strictEqual(g2, '朋友，別緊張，這只是一場遊戲。', '親愛的朋友 應被淨化為 朋友');
+assert.strictEqual(g2, '親愛的朋友，別緊張，這只是一場遊戲。', '親愛的朋友 原作自然稱謂應予保留');
 
-const g3 = cleanGreasyPhrases('怎麼，被我的魅力迷住了嗎？小東西。');
-assert.strictEqual(g3, '怎麼，覺得有趣嗎？朋友。', '油膩霸總詞應被淨化為清爽台詞');
+const g3 = cleanGreasyPhrases('怎麼，你在玩火嗎？小東西。');
+assert.strictEqual(g3, '怎麼，挺有膽量的嗎？朋友。', '逾矩的土味霸總詞彙應被淨化');
 
-console.log('    ✅ 通過：油膩詞彙被有效過濾消除！');
+console.log('    ✅ 通過：微油魅力保留，真正逾矩詞彙被有效過濾！');
 
-// 5. 測試 Prompt 提示詞層的去油規範
-console.log('  ▶ [5/5] 測試 Prompt 提示詞層核心去油原則...');
-assert.ok(prompt.includes('【核心去油原則（極度重要）】'), 'Prompt 必須包含核心去油原則');
-assert.ok(prompt.includes('嚴禁濫用肉麻黏膩的「親愛的」等稱謂'), 'Prompt 必須明確禁止肉麻稱謂');
-assert.ok(prompt.includes('合拍的牌桌搭檔'), 'Prompt 必須將月天狼定位為合拍牌桌搭檔');
+// 5. 測試 Prompt 提示詞層的孔雀魅力與不可逾矩規範
+console.log('  ▶ [5/5] 測試 Prompt 提示詞層微油與不可逾矩原則...');
+assert.ok(prompt.includes('【孔雀魅力與分寸感（可微帶油膩，但絕不可逾矩）】'), 'Prompt 必須包含微油與分寸感規範');
+assert.ok(prompt.includes('允許微油'), 'Prompt 必須明確允許微油');
+assert.ok(prompt.includes('嚴格不可逾矩'), 'Prompt 必須明確不可逾矩');
+assert.ok(prompt.includes('合拍牌桌搭檔'), 'Prompt 必須將月天狼定位為合拍牌桌搭檔');
 
-console.log('    ✅ 通過：Prompt 提示詞層去油規範完備！');
+console.log('    ✅ 通過：Prompt 提示詞層微油與分寸感規範完備！');
 
-console.log('🎉 砂金「All or nothing」與去油清爽化單元測試 100% 通過！');
+console.log('🎉 砂金「All or nothing」與微油分寸感單元測試 100% 通過！');
