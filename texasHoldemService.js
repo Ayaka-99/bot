@@ -76,6 +76,19 @@ const AVENTURINE_QUOTES = {
     '「所有的籌碼，都早已在命運中標好了代價！這把，我全押了。」',
     '「願母神為我合上雙眼……既然都走到河牌了，那就賭上一切吧！」',
   ],
+  probeBet: [
+    '「既然沒人說話，那就由我來開這個頭。」',
+    '「沈默可不能替你贏走籌碼，讓我來替底池加點溫。」',
+  ],
+  heroCall: [
+    '「我賭你的槍裡沒有子彈。」',
+    '「抓個雞看看，朋友。」',
+    '「你的微表情出賣了你，開拓者。」',
+  ],
+  semiBluff: [
+    '「牌面很有意思，讓我看看你敢不敢跟。」',
+    '「勝率從不取決於現在，而是取決於下一張發牌。」',
+  ],
   win: [
     '「看來今晚幸運之母依然眷顧著我。多謝各位款待了。」',
     '「籌碼堆過來的聲音，真是匹諾康尼最美妙的交響樂。」',
@@ -1145,12 +1158,24 @@ async function executeAventurineTurn(session) {
     const isPair = c1.rank === c2.rank;
     const isSuitedConn = c1.suit === c2.suit && Math.abs(c1.value - c2.value) <= 2;
     const hasHighCard = c1.value >= 12 || c2.value >= 12;
+    const isPremium = (isPair && c1.value >= 10) || (c1.value >= 13 && c2.value >= 13); // AA, KK, QQ, JJ, TT, AK
 
     const isGoodHand = isPair || isSuitedConn || hasHighCard;
 
-    // 好牌且尚未過度加注時，50% 機率加注底池 20%
-    if (isGoodHand && session.roundRaises < 2 && Math.random() < 0.50) {
-      const raiseAmount = Math.max(10, Math.floor(session.pot * 0.20));
+    // 混合策略 (Mixed Strategy)：
+    // A. 頂級好牌 (AA/KK/AK 等)：70% 主動加注，30%「慢玩 (Slow Play)」埋伏
+    // B. 優質手牌：45% 機率加注
+    // C. 輕度 3-Bet：遭遇加注時，中等牌也有 20% 機率反加注試探
+    const shouldRaise = isPremium
+      ? Math.random() < 0.70
+      : isGoodHand
+      ? (session.roundRaises < 2 && Math.random() < 0.45)
+      : (session.roundRaises === 1 && Math.random() < 0.20);
+
+    if (shouldRaise && session.roundRaises < 2) {
+      // 動態加注比例 (20% ~ 45% 底池浮動，打破固定 20%)
+      const dynamicPct = 0.20 + Math.random() * 0.25;
+      const raiseAmount = Math.max(10, Math.floor(session.pot * dynamicPct));
       const totalToPut = Math.min(aventurine.chips, callAmount + raiseAmount);
 
       aventurine.chips -= totalToPut;
@@ -1161,10 +1186,10 @@ async function executeAventurineTurn(session) {
       session.roundRaises++;
       aventurine.hasActedThisRound = true;
 
-      const quote = getRandomQuote('preFlopRaise');
-      actionText = `💎 **砂金** 主動加注 **+${totalToPut.toLocaleString()}** 星瓊！\n> *${quote}*`;
+      const quote = isPremium ? '「手氣正熱，把底池炒大點如何？」' : getRandomQuote('preFlopRaise');
+      actionText = `💎 **砂金** 眼神微亮，動態加注 **+${totalToPut.toLocaleString()}** 星瓊！\n> *${quote}*`;
     } else {
-      // 穩健跟注
+      // 穩健跟注或過牌
       const pay = Math.min(aventurine.chips, callAmount);
       aventurine.chips -= pay;
       aventurine.roundBet += pay;
@@ -1173,8 +1198,9 @@ async function executeAventurineTurn(session) {
       if (aventurine.chips === 0) aventurine.isAllIn = true;
       aventurine.hasActedThisRound = true;
 
+      const isSlowPlaying = isPremium && callAmount === 0;
       actionText = pay === 0
-        ? '💎 **砂金** 敲桌 **過牌 (Check)**。'
+        ? (isSlowPlaying ? '💎 **砂金** 嘴角掛著神秘笑意，敲桌 **過牌 (Check)**。' : '💎 **砂金** 敲桌 **過牌 (Check)**。')
         : `💎 **砂金** 瀟灑推入 **${pay.toLocaleString()}** 星瓊 **跟注 (Call)**。`;
     }
 
@@ -1191,39 +1217,59 @@ async function executeAventurineTurn(session) {
   const isMadeHand = bestSoFar.tier >= HAND_TIERS.ONE_PAIR;
   const isStrongHand = bestSoFar.tier >= HAND_TIERS.TWO_PAIR;
 
-  // 河牌圈專屬「存護的盲注 (Bluff 詐唬)」機制
-  if (session.stage === 'RIVER' && !isMadeHand) {
-    // 檢查公牌是否有 3 張同花或順子聽牌面
-    const suitCounts = {};
-    for (const c of session.communityCards) {
-      suitCounts[c.suit] = (suitCounts[c.suit] || 0) + 1;
-    }
-    const hasFlushBoard = Object.values(suitCounts).some((cnt) => cnt >= 3);
+  // 牌面濕潤度判定 (同花/順子聽牌面)
+  const suitCounts = {};
+  for (const c of session.communityCards) {
+    suitCounts[c.suit] = (suitCounts[c.suit] || 0) + 1;
+  }
+  const hasFlushDrawBoard = Object.values(suitCounts).some((cnt) => cnt >= 3);
 
-    if (hasFlushBoard && Math.random() < 0.25) {
-      // 觸發 25% 全押詐唬！
-      const allInAmount = aventurine.chips;
-      aventurine.chips = 0;
-      aventurine.roundBet += allInAmount;
-      aventurine.totalBet += allInAmount;
-      session.pot += allInAmount;
-      aventurine.isAllIn = true;
-      aventurine.hasActedThisRound = true;
-      if (aventurine.roundBet > session.currentHighestBet) {
-        session.currentHighestBet = aventurine.roundBet;
+  // 河牌圈專屬決策：薄價值下注或全押詐唬
+  if (session.stage === 'RIVER') {
+    if (!isMadeHand) {
+      // 空氣牌：若公牌有威脅或底池龐大，發動 25%~35% 存護的盲注全押詐唬
+      const bluffProb = hasFlushDrawBoard || session.pot >= 25000 ? 0.35 : 0.20;
+      if (Math.random() < bluffProb) {
+        const allInAmount = aventurine.chips;
+        aventurine.chips = 0;
+        aventurine.roundBet += allInAmount;
+        aventurine.totalBet += allInAmount;
+        session.pot += allInAmount;
+        aventurine.isAllIn = true;
+        aventurine.hasActedThisRound = true;
+        if (aventurine.roundBet > session.currentHighestBet) {
+          session.currentHighestBet = aventurine.roundBet;
+        }
+
+        const bluffQuote = getRandomQuote('riverBluff');
+        actionText = `🔥 **【存護的盲注】砂金發動 ALL OR NOTHING 全押詐唬！**\n推入全副身家 **+${allInAmount.toLocaleString()}** 星瓊！\n> 🩸 **砂金**：*「${bluffQuote}」*`;
+        return await triggerNextAction(session, actionText);
       }
+    } else if (isMadeHand && callAmount === 0 && Math.random() < 0.45 && session.roundRaises < 2) {
+      // 薄價值下注 (Thin Value Bet)：成牌無人下注時，以 25%~35% 浮動底池搜刮利潤
+      const valueBetPct = 0.25 + Math.random() * 0.12;
+      const raiseAmount = Math.max(10, Math.floor(session.pot * valueBetPct));
+      const pay = Math.min(aventurine.chips, raiseAmount);
 
-      const bluffQuote = getRandomQuote('riverBluff');
-      actionText = `🔥 **【存護的盲注】砂金發動 ALL OR NOTHING 全押詐唬！**\n推入全副身家 **+${allInAmount.toLocaleString()}** 星瓊！\n> 🩸 **砂金**：*「${bluffQuote}」*`;
+      aventurine.chips -= pay;
+      aventurine.roundBet += pay;
+      aventurine.totalBet += pay;
+      session.pot += pay;
+      session.currentHighestBet = aventurine.roundBet;
+      session.roundRaises++;
+      aventurine.hasActedThisRound = true;
+
+      actionText = `💎 **砂金** 輕敲桌面打出價值注 **+${pay.toLocaleString()}** 星瓊！\n> *「看牌可不是免費的，朋友。」*`;
       return await triggerNextAction(session, actionText);
     }
   }
 
-  // 常規輪次決策
+  // 常規輪次決策 (Flop / Turn)
   if (isStrongHand) {
-    // 強牌：兩對以上加注 50% 底池
-    if (session.roundRaises < 2 && Math.random() < 0.70) {
-      const raiseAmount = Math.max(10, Math.floor(session.pot * 0.50));
+    // 兩對以上強牌：60% 浮動加注 (35%~65% 底池)，30% 設陷阱慢玩，10% 平跟
+    if (session.roundRaises < 2 && Math.random() < 0.65) {
+      const dynamicPct = 0.35 + Math.random() * 0.30;
+      const raiseAmount = Math.max(10, Math.floor(session.pot * dynamicPct));
       const pay = Math.min(aventurine.chips, callAmount + raiseAmount);
 
       aventurine.chips -= pay;
@@ -1235,9 +1281,9 @@ async function executeAventurineTurn(session) {
       aventurine.hasActedThisRound = true;
 
       const quote = getRandomQuote('midRoundRaise');
-      actionText = `💎 **砂金** 眼神一凜，重注加碼 **+${pay.toLocaleString()}** 星瓊！\n> *${quote}*`;
+      actionText = `💎 **砂金** 眼神一凜，動態重注加碼 **+${pay.toLocaleString()}** 星瓊！\n> *${quote}*`;
     } else {
-      // 跟注
+      // 慢玩跟注 / 過牌
       const pay = Math.min(aventurine.chips, callAmount);
       aventurine.chips -= pay;
       aventurine.roundBet += pay;
@@ -1247,34 +1293,28 @@ async function executeAventurineTurn(session) {
       aventurine.hasActedThisRound = true;
 
       actionText = pay === 0
-        ? '💎 **砂金** 穩健 **過牌 (Check)**。'
+        ? '💎 **砂金** 眼神游移，平靜 **過牌 (Check)**。'
         : `💎 **砂金** 補齊 **${pay.toLocaleString()}** 星瓊 **跟注 (Call)**。`;
     }
   } else if (isMadeHand) {
-    // 一對：穩健跟注
-    const pay = Math.min(aventurine.chips, callAmount);
-    aventurine.chips -= pay;
-    aventurine.roundBet += pay;
-    aventurine.totalBet += pay;
-    session.pot += pay;
-    if (aventurine.chips === 0) aventurine.isAllIn = true;
-    aventurine.hasActedThisRound = true;
+    // 一對成牌
+    if (callAmount === 0 && Math.random() < 0.35 && session.roundRaises < 2) {
+      // 試探性下注 (Probe Bet: 25%~35% 底池)
+      const probePct = 0.25 + Math.random() * 0.10;
+      const raiseAmount = Math.max(10, Math.floor(session.pot * probePct));
+      const pay = Math.min(aventurine.chips, raiseAmount);
 
-    actionText = pay === 0
-      ? '💎 **砂金** 敲桌 **過牌 (Check)**。'
-      : `💎 **砂金** 投入 **${pay.toLocaleString()}** 星瓊 **跟注 (Call)**。`;
-  } else {
-    // 空氣牌
-    if (callAmount === 0) {
+      aventurine.chips -= pay;
+      aventurine.roundBet += pay;
+      aventurine.totalBet += pay;
+      session.pot += pay;
+      session.currentHighestBet = aventurine.roundBet;
+      session.roundRaises++;
       aventurine.hasActedThisRound = true;
-      actionText = '💎 **砂金** 輕輕敲桌 **過牌 (Check)**。';
-    } else if (callAmount > aventurine.chips * 0.30 && Math.random() < 0.70) {
-      // 遭遇重注，及時止損棄牌
-      aventurine.isFolded = true;
-      aventurine.hasActedThisRound = true;
-      actionText = '💎 **砂金** 優雅地合上底牌：*「這把牌不值得我冒險，蓋牌了。」* **(Fold)**';
+
+      const probeQ = getRandomQuote('probeBet');
+      actionText = `💎 **砂金** 推入 **+${pay.toLocaleString()}** 星瓊主動試探下注！\n> *${probeQ}*`;
     } else {
-      // 抓雞跟注
       const pay = Math.min(aventurine.chips, callAmount);
       aventurine.chips -= pay;
       aventurine.roundBet += pay;
@@ -1283,7 +1323,50 @@ async function executeAventurineTurn(session) {
       if (aventurine.chips === 0) aventurine.isAllIn = true;
       aventurine.hasActedThisRound = true;
 
-      actionText = `💎 **砂金** 嘴角揚起：*「抓個雞看看。」* **跟注 ${pay.toLocaleString()} 星瓊**。`;
+      actionText = pay === 0
+        ? '💎 **砂金** 敲桌 **過牌 (Check)**。'
+        : `💎 **砂金** 投入 **${pay.toLocaleString()}** 星瓊 **跟注 (Call)**。`;
+    }
+  } else {
+    // 空氣牌 / 聽牌
+    if (callAmount === 0) {
+      // 無人下注時，若牌面有同花/順子聽牌，發動 30% 半詐唬
+      if (hasFlushDrawBoard && Math.random() < 0.30 && session.roundRaises < 2) {
+        const bluffPct = 0.25 + Math.random() * 0.15;
+        const raiseAmount = Math.max(10, Math.floor(session.pot * bluffPct));
+        const pay = Math.min(aventurine.chips, raiseAmount);
+
+        aventurine.chips -= pay;
+        aventurine.roundBet += pay;
+        aventurine.totalBet += pay;
+        session.pot += pay;
+        session.currentHighestBet = aventurine.roundBet;
+        session.roundRaises++;
+        aventurine.hasActedThisRound = true;
+
+        const semiQ = getRandomQuote('semiBluff');
+        actionText = `💎 **砂金** 微笑著推入 **+${pay.toLocaleString()}** 星瓊發動半詐唬試探！\n> *${semiQ}*`;
+      } else {
+        aventurine.hasActedThisRound = true;
+        actionText = '💎 **砂金** 輕輕敲桌 **過牌 (Check)**。';
+      }
+    } else if (callAmount > aventurine.chips * 0.35 && Math.random() < 0.60) {
+      // 遭遇超大注，60% 棄牌
+      aventurine.isFolded = true;
+      aventurine.hasActedThisRound = true;
+      actionText = '💎 **砂金** 優雅地合上底牌：*「這把牌不值得我冒險，蓋牌了。」* **(Fold)**';
+    } else {
+      // 頑強抓雞跟注
+      const pay = Math.min(aventurine.chips, callAmount);
+      aventurine.chips -= pay;
+      aventurine.roundBet += pay;
+      aventurine.totalBet += pay;
+      session.pot += pay;
+      if (aventurine.chips === 0) aventurine.isAllIn = true;
+      aventurine.hasActedThisRound = true;
+
+      const heroQ = getRandomQuote('heroCall');
+      actionText = `💎 **砂金** 嘴角揚起：*${heroQ}* **跟注 ${pay.toLocaleString()} 星瓊**。`;
     }
   }
 

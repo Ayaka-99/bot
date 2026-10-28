@@ -108,6 +108,15 @@ const QUOTES = {
     '「連最後一枚籌碼都輸光了？別急著下牌桌，我們來簽份契約吧。」',
     '「在匹諾康尼，沒有籌碼可寸步難行。想不想重返賭桌？這份高利貸契約正等著你簽字呢。」',
   ],
+  dealerH17: [
+    '「Soft 17 還想讓我停手？頂級牌桌的規則可沒這麼溫柔，開拓者！」',
+    '「手握一張靈活的王牌，不博下去豈不是辜負了幸運女神？」',
+  ],
+  dealerDesperateGamble: [
+    '「明知道點數落後還要我停牌認輸？這可不是我的風格——賭上一切，看看命運站在誰那邊！」',
+    '「既然退無可退，那不如把命押在下一張牌上！All or nothing！」',
+    '「被你逼入死角了嗎？哈哈……那我就親手翻開這張絕命之牌！」',
+  ],
 };
 
 function getRandomQuote(category) {
@@ -305,10 +314,12 @@ function calculateHandScore(cards) {
   const isSuitedBlackjack = isBlackjack && cards[0].suit === cards[1].suit;
   const is777 = cards.length === 3 && cards.every((c) => c.rank === '7') && total === 21;
   const isFiveDragon = cards.length >= 5 && total <= 21;
+  const isSoft = total <= 21 && aceCount > 0;
 
   return {
     total,
     isBust: total > 21,
+    isSoft,
     isBlackjack,
     isSuitedBlackjack,
     is777,
@@ -1138,6 +1149,70 @@ async function handlePlayerHit(db, session, interaction) {
   startTimeoutTimer(db, session, interaction);
 }
 
+/**
+ * 砂金 21 點動態出牌決策引擎
+ * 核心特性：
+ * 1. 嚴格遵循頂級賭場 H17 規則 (Soft 17 必補牌)
+ * 2. 根據注額高低動態切換心態 (小注隨興試探、大注精密算計、All-in 絕境搏命)
+ * 3. 劣勢絕命博弈 (Desperate Gamble)：當玩家停牌在 18~20 點且砂金點數落後時，拒絕坐以待斃，冒險搏抽最後一張牌
+ */
+function shouldAventurineHit(dScore, pScore, session, hitCount) {
+  if (dScore.isBust || dScore.total >= 21) return false;
+  if (hitCount >= 5) return false; // 安全閥防止抽穿
+
+  // 1. 基礎門檻：未滿 17 點必補
+  if (dScore.total < 17) {
+    return true;
+  }
+
+  // 2. 頂級賭場 H17 規則：Soft 17 (包含活 A 的 17 點) 必補牌
+  if (dScore.total === 17 && dScore.isSoft) {
+    if (session) session.aventurineH17Triggered = true;
+    return true;
+  }
+
+  const isHighStakes = (session && session.isAllIn) || (session && session.bet >= 5000);
+  const isAllIn = (session && session.isAllIn) || (session && session.bet >= 25000);
+
+  // 3. 靈活軟牌進攻 (Soft 18，如 A+7)：
+  // 補牌絕不會直接爆牌 (A 可轉 1 點)，在落後或高注額局有極高進攻慾望
+  if (dScore.total === 18 && dScore.isSoft && pScore) {
+    if (pScore.total > dScore.total) {
+      // 點數落後玩家 (玩家 19~20 點)：大注局 80% 搏牌，常規局 50% 搏牌
+      const hitProb = isHighStakes ? 0.80 : 0.50;
+      if (Math.random() < hitProb) {
+        return true;
+      }
+    } else if (pScore.total === dScore.total && isHighStakes) {
+      // 玩家也是 18 點，砂金在大注局有 35% 機率主動搏牌求勝
+      if (Math.random() < 0.35) {
+        return true;
+      }
+    }
+  }
+
+  // 4. 絕境搏命博弈 (Desperate Gamble)：
+  // 砂金握有 Hard 17 或 Hard 18，但玩家停牌點數更高 (玩家 18, 19, 20)
+  // 若照常規停牌則 100% 必輸無疑，賭徒人格觸發絕命搏牌
+  if (pScore && dScore.total >= 17 && dScore.total < pScore.total && pScore.total <= 20) {
+    if (isAllIn && Math.random() < 0.55) {
+      if (session) session.aventurineDesperateGamble = true;
+      return true;
+    }
+    if (isHighStakes && Math.random() < 0.35) {
+      if (session) session.aventurineDesperateGamble = true;
+      return true;
+    }
+    // 小注局 (Bet < 5,000)：15% 輕浮試探
+    if (Math.random() < 0.15) {
+      if (session) session.aventurineDesperateGamble = true;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // ==========================================
 // 🛡️ 按鈕邏輯：穩健停牌 (Stand)
 // ==========================================
@@ -1146,10 +1221,15 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
 
   const pScore = calculateHandScore(session.playerCards);
 
-  // 砂金補牌邏輯：點數未滿 17 強制補牌
+  // 砂金全新動態出牌決策引擎 (H17 頂級賭場守則 + 依注額動態心態 + 絕境搏命博弈)
   let dScore = calculateHandScore(session.dealerCards);
-  while (dScore.total < 17) {
+  let dealerHitCount = 0;
+  session.aventurineH17Triggered = false;
+  session.aventurineDesperateGamble = false;
+
+  while (shouldAventurineHit(dScore, pScore, session, dealerHitCount)) {
     session.dealerCards.push(session.deck.pop());
+    dealerHitCount++;
     dScore = calculateHandScore(session.dealerCards);
   }
 
@@ -1214,11 +1294,17 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       ? '🎉 砂金爆牌！開拓者獲勝！'
       : '🎉 點數壓制！開拓者拿下勝局！';
 
-    const winQuote = specialHand
+    let winQuote = specialHand
       ? getRandomQuote('jackpotVault')
       : dScore.isBust
-      ? getRandomQuote('dealerBust')
+      ? (session.aventurineDesperateGamble ? getRandomQuote('dealerDesperateGamble') : getRandomQuote('dealerBust'))
       : getRandomQuote('playerWin');
+
+    if (session.aventurineDesperateGamble && dScore.isBust) {
+      extraNote += '\n🎲 **【砂金的絕境博弈】**：點數落後之際，砂金選擇賭上性命強行要牌，最終光榮爆牌！';
+    } else if (session.aventurineH17Triggered) {
+      extraNote += '\n✨ **【頂級賭場 H17 規則】**：砂金觸發 Soft 17 積極加抽！';
+    }
 
     const embed = buildGameEmbed(session, {
       title: winTitle,
@@ -1292,9 +1378,17 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
     }
 
+    let dealerWinQuote = getRandomQuote('dealerWin');
+    if (session.aventurineDesperateGamble) {
+      dealerWinQuote = '「哈哈！看來命運女神最終還是站在了我這邊！這就是把命押上去的回報！」';
+      lossNote += '\n🎲 **【砂金的絕境博弈】**：砂金在必輸劣勢下發動狂徒要牌，奇蹟般抽中逆轉勝局！';
+    } else if (session.aventurineH17Triggered) {
+      lossNote += '\n✨ **【頂級賭場 H17 規則】**：砂金觸發 Soft 17 積極加抽並壓制點數！';
+    }
+
     const embed = buildGameEmbed(session, {
       title: '🃏 點數不及！砂金技高一籌',
-      quote: getRandomQuote('dealerWin'),
+      quote: dealerWinQuote,
       color: DANGER_COLOR,
       gameOver: true,
       showDealerCards: true,
@@ -1745,4 +1839,6 @@ module.exports = {
   claimJackpotVault,
   activeGames,
   addToIpcVault,
+  calculateHandScore,
+  shouldAventurineHit,
 };
