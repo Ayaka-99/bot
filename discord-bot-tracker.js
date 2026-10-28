@@ -371,7 +371,7 @@ const commands = [
   // 星穹鐵道簽到相關指令
   new SlashCommandBuilder()
     .setName('簽到')
-    .setDescription('崩壞：星穹鐵道 HoYoLAB 每日簽到領取星瓊與素材')
+    .setDescription('每日簽到領取 1,500~2,500 星瓊津貼與 HoYoLAB 遊戲官方簽到獎勵')
     .addBooleanOption(option =>
       option.setName('私密顯示').setDescription('是否僅自己可見 (預設公開顯示)').setRequired(false)
     ),
@@ -476,7 +476,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('轉帳')
-    .setDescription('向伺服器其他成員轉帳星瓊 (無額度與時間冷卻限制)')
+    .setDescription('向伺服器其他成員轉帳星瓊 (單次上限 5,000，同對象冷卻 4 小時)')
     .addUserOption(option =>
       option.setName('對象')
         .setDescription('要轉帳星瓊的目標成員')
@@ -484,14 +484,15 @@ const commands = [
     )
     .addIntegerOption(option =>
       option.setName('金額')
-        .setDescription('轉帳星瓊數量 (最少 1 星瓊，無上限)')
+        .setDescription('轉帳星瓊數量 (最少 1 星瓊，上限 5,000 星瓊)')
         .setRequired(true)
         .setMinValue(1)
+        .setMaxValue(5000)
     ),
 
   new SlashCommandBuilder()
     .setName('勝率')
-    .setDescription('查詢個人或伺服器成員在匹諾康尼各賭局（砂金、單挑、大逃殺、買馬）的勝率與戰績')
+    .setDescription('查詢個人或伺服器成員在匹諾康尼各賭局（砂金、單挑、大逃殺、德州撲克、買馬）的生涯戰績與勝率')
     .addUserOption(option =>
       option.setName('成員')
         .setDescription('要查詢戰績的目標成員 (留空預設為自己)')
@@ -534,7 +535,7 @@ const commands = [
   // 「詭弈砂金」星際賭場相關指令
   new SlashCommandBuilder()
     .setName('詭弈砂金')
-    .setDescription('與砂金對決匹諾康尼 21 點豪賭（支援平局比骰決鬥、五龍過關與雙金庫大獎）')
+    .setDescription('與砂金對決匹諾康尼 21 點（支援特殊牌型神話派彩、平手手動比骰與全押截斷保護）')
     .addStringOption(option =>
       option.setName('下注')
         .setDescription('下注星瓊數量 (100 ~ 5,000) 或輸入 max 滿注 / all 全押 (預設 500)')
@@ -543,12 +544,12 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('公司金庫')
-    .setDescription('查看星際和平公司 (IPC) 金庫累積總獎池與匹諾康尼富豪/天台榜單'),
+    .setDescription('查看 21 點與德州撲克雙軌金庫累積總額、歷史派彩與系統銷毀統計'),
 
   // 匹諾康尼 PvP 21 點雙人盲抽單挑
   new SlashCommandBuilder()
     .setName('單挑21點')
-    .setDescription('匹諾康尼 21 點雙人盲抽生死單挑 (賭注 100~5,000 星瓊)')
+    .setDescription('匹諾康尼 21 點雙人盲抽單挑 (賭注 100~5,000，贏家抽稅 10% 銷毀，同點爆牌退本)')
     .addIntegerOption(option =>
       option.setName('賭注')
         .setDescription('單挑下注星瓊金額 (100 ~ 5,000)')
@@ -565,7 +566,7 @@ const commands = [
   // 匹諾康尼 PvP 21 點多人大逃殺 ＋ 場外買馬
   new SlashCommandBuilder()
     .setName('大逃殺21點')
-    .setDescription('匹諾康尼 21 點多人大逃殺混戰 (入場費 1,000~5,000 星瓊)')
+    .setDescription('匹諾康尼 21 點多人大逃殺 (30秒招募，入場費 1,000~5,000，贏家獨得底池扣 10% 銷毀)')
     .addIntegerOption(option =>
       option.setName('入場費')
         .setDescription('每人上桌入場費 (1,000 ~ 5,000)')
@@ -577,7 +578,7 @@ const commands = [
   // 匹諾康尼 德州撲克 5+1 錦標賽 (石心十人盲注桌)
   new SlashCommandBuilder()
     .setName('德州撲克')
-    .setDescription('石心十人盲注桌：1~5名玩家＋NPC砂金德州撲克 (可自訂買入或 allin 全押身家，專屬包廂運作)')
+    .setDescription('石心十人盲注桌：1~5人＋NPC砂金德州撲克 (百分比加注、神話派彩與獲利天花板風控)')
     .addStringOption(option =>
       option.setName('買入上限')
         .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 50,000)')
@@ -587,16 +588,16 @@ const commands = [
   // 撤回未領完的星瓊紅包
   new SlashCommandBuilder()
     .setName('退紅包')
-    .setDescription('撤回自己尚未被領取完畢的星瓊紅包，將剩餘星瓊全額原路退回'),
+    .setDescription('查詢紅包退回規則 (紅包發出後禁止手動撤回，滿 24 小時未領完自動銷毀)'),
 
   // 🧧 拼手氣星瓊紅包
   new SlashCommandBuilder()
     .setName('紅包')
-    .setDescription('🧧 塞入無上限星瓊發送拼手氣群紅包，群友依隨機機率瓜分！')
+    .setDescription('🧧 塞入星瓊發送免稅拼手氣紅包 (最少 3 份，24 小時未領完自動銷毀)')
     .addIntegerOption(option =>
       option.setName('總星瓊')
-        .setDescription('紅包內的總星瓊金額 (無上限，需自身餘額足夠)')
-        .setMinValue(1)
+        .setDescription('紅包內的總星瓊金額 (最少 3 星瓊，需自身餘額充足)')
+        .setMinValue(3)
         .setRequired(true)
     )
     .addIntegerOption(option =>
@@ -630,7 +631,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('賭場大亨')
-    .setDescription('查看今日賭場大亨至高榮譽榜，或出資頂替冠名')
+    .setDescription('查看今日賭場大亨榮譽榜，或出資頂替冠名 (起標 5,000 星瓊，加價 20%)')
     .addStringOption(option =>
       option.setName('自訂嘲諷')
         .setDescription('頂替時或現任大亨欲顯示的自訂嘲諷詞 (最多 30 字)')
