@@ -1325,23 +1325,26 @@ async function concludeUncontestedWin(session, winner) {
 
     taxNote = `\n*(砂金通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，60% 系統直接銷毀)*`;
   } else {
-    // 玩家獲勝：檢查 All-in 賠付天花板 (L = min(MAX_BET * 5, Vault * 20%))
+    // 玩家獲勝：全局風控獲利天花板 (L = min(MAX_BET * 5, Vault * 20%))
     let winPool = session.pot;
-    const isAllIn = !!(session.isAllIn || winner.isAllIn);
     let allInCapNote = '';
 
-    if (isAllIn) {
-      const rawProfit = winPool - winner.totalBet;
-      if (rawProfit > 0) {
-        const texasVault = await getVault(db, 'texas');
-        const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
-        if (rawProfit > payoutCap) {
-          const excessProfit = rawProfit - payoutCap;
-          winPool = winner.totalBet + payoutCap;
-          await recordDirectBurn(db, 'texas', excessProfit);
-          allInCapNote = `\n🔥 **【All-in 賠付天花板截斷】** 玩家發動 All-in 獲勝，依風控最高賠付額鎖死在 **${payoutCap.toLocaleString()}** 星瓊（滿注 5 倍 / 德州金庫 20% 取其低），底池超額之 **${excessProfit.toLocaleString()}** 星瓊已全額銷毀！`;
-        }
+    const rawProfit = winPool - winner.totalBet;
+    if (rawProfit > 0) {
+      const texasVault = await getVault(db, 'texas');
+      const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
+      if (rawProfit > payoutCap) {
+        const excessProfit = rawProfit - payoutCap;
+        winPool = winner.totalBet + payoutCap;
+        await recordDirectBurn(db, 'texas', excessProfit);
+        allInCapNote = `\n🔥 **【獲利封頂截斷】** 單局獲利觸發賠付天花板風控 ($L=${payoutCap.toLocaleString()}$ 星瓊)，最高獲利封頂為 **${payoutCap.toLocaleString()}** 星瓊！底池超額之 **${excessProfit.toLocaleString()}** 星瓊已全額銷毀！`;
       }
+    }
+
+    // 若本局有 NPC 砂金且砂金輸給玩家，砂金投入底池之籌碼自德州金庫實體扣除賠付
+    const aventurineSeat = session.seats.find((s) => s.isNpc);
+    if (aventurineSeat && aventurineSeat.totalBet > 0) {
+      await claimJackpotVault(db, 'texas', aventurineSeat.totalBet);
     }
 
     const tax = Math.floor(winPool * 0.05);
@@ -1455,22 +1458,19 @@ async function concludeShowdown(session) {
       await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
       taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，60% 系統直接銷毀)*`;
     } else {
-      // 玩家獲勝或平局瓜分
+      // 玩家獲勝或平局瓜分：全局風控獲利天花板 (L = min(MAX_BET * 5, Vault * 20%))
       let share = splitPot;
-      const isAllIn = !!(session.isAllIn || w.isAllIn);
       let allInCapNote = '';
 
-      if (isAllIn) {
-        const rawProfit = share - w.totalBet;
-        if (rawProfit > 0) {
-          const texasVault = await getVault(db, 'texas');
-          const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
-          if (rawProfit > payoutCap) {
-            const excessProfit = rawProfit - payoutCap;
-            share = w.totalBet + payoutCap;
-            await recordDirectBurn(db, 'texas', excessProfit);
-            allInCapNote = `\n🔥 **【All-in 賠付天花板截斷】** 玩家發動 All-in 獲勝，依風控最高賠付額鎖死在 **${payoutCap.toLocaleString()}** 星瓊（滿注 5 倍 / 德州金庫 20% 取其低），底池超額之 **${excessProfit.toLocaleString()}** 星瓊已全額銷毀！`;
-          }
+      const rawProfit = share - w.totalBet;
+      if (rawProfit > 0) {
+        const texasVault = await getVault(db, 'texas');
+        const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
+        if (rawProfit > payoutCap) {
+          const excessProfit = rawProfit - payoutCap;
+          share = w.totalBet + payoutCap;
+          await recordDirectBurn(db, 'texas', excessProfit);
+          allInCapNote = `\n🔥 **【獲利封頂截斷】** 單局獲利觸發賠付天花板風控 ($L=${payoutCap.toLocaleString()}$ 星瓊)，最高獲利封頂為 **${payoutCap.toLocaleString()}** 星瓊！底池超額之 **${excessProfit.toLocaleString()}** 星瓊已全額銷毀！`;
         }
       }
 
@@ -1504,6 +1504,14 @@ async function concludeShowdown(session) {
         }
       }
     }
+  }
+
+  // 若本局有 NPC 砂金且砂金落敗（贏家包含真人玩家），砂金投入底池之籌碼自德州金庫實體扣除賠付
+  const hasHumanWinner = winners.some((w) => !w.isNpc);
+  const aventurineSeat = session.seats.find((s) => s.isNpc);
+  const aventurineLost = aventurineSeat && !winners.some((w) => w.seatIndex === aventurineSeat.seatIndex);
+  if (hasHumanWinner && aventurineLost && aventurineSeat.totalBet > 0) {
+    await claimJackpotVault(db, 'texas', aventurineSeat.totalBet);
   }
 
   // 4. 場外買馬分紅

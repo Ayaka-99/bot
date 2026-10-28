@@ -1343,6 +1343,14 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
 // 🔥 按鈕邏輯：孤注一擲 (Double Down)
 // ==========================================
 async function handlePlayerDouble(db, session, interaction) {
+  // 身家全押局嚴格禁止 Double Down
+  if (session.isAllIn) {
+    return interaction.reply({
+      content: '❌ **身家全押 (All-in) 局嚴格禁止使用孤注一擲 (Double Down)！**',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   // 檢查玩家餘額是否足夠加倍
   const currency = await new Promise((resolve) => {
     db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [session.userId], (err, row) => {

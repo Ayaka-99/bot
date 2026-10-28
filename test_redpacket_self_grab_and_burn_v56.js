@@ -3,6 +3,7 @@ const sqlite3 = require('sqlite3').verbose();
 const { initGachaTables, grantUserJades, getUserCurrency } = require('./gachaService');
 const {
   initRedPacketDb,
+  handleSendRedPacket,
   handleGrabRedPacket,
   handleRefundRedPacket,
   checkAndRefundExpiredPackets,
@@ -23,12 +24,12 @@ async function runTests() {
     // 賦予發送者 10,000 星瓊
     await grantUserJades(db, sender.id, sender.username, 10000);
 
-    // 建立一個測試紅包 (10,000 星瓊，分為 2 份)
+    // 建立一個測試紅包 (10,000 星瓊，分為 3 份)
     const packetId = 'test_pkt_001';
     await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO red_packets (id, sender_id, sender_name, total_jades, total_count, remaining_jades, remaining_count, blessing, status, created_at)
-         VALUES (?, ?, ?, 10000, 2, 10000, 2, '恭喜發財', 'ACTIVE', datetime('now'))`,
+         VALUES (?, ?, ?, 10000, 3, 10000, 3, '恭喜發財', 'ACTIVE', datetime('now'))`,
         [packetId, sender.id, sender.username],
         (err) => (err ? reject(err) : resolve())
       );
@@ -80,12 +81,12 @@ async function runTests() {
     assert.ok(receiverReply.includes('搶到了'), `其他成員應能順利搶到紅包，回傳：${receiverReply}`);
 
     // 4. 測試 24 小時逾期自動銷毀機制
-    // 建立一個 25 小時前的過期紅包 (5,000 星瓊，未領完剩餘 5,000)
+    // 建立一個 25 小時前的過期紅包 (5,000 星瓊，未領完剩餘 5,000，分為 3 份)
     const expiredPacketId = 'test_pkt_expired';
     await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO red_packets (id, sender_id, sender_name, total_jades, total_count, remaining_jades, remaining_count, blessing, status, created_at)
-         VALUES (?, ?, ?, 5000, 2, 5000, 2, '過期紅包', 'ACTIVE', datetime('now', '-25 hours'))`,
+         VALUES (?, ?, ?, 5000, 3, 5000, 3, '過期紅包', 'ACTIVE', datetime('now', '-25 hours'))`,
         [expiredPacketId, sender.id, sender.username],
         (err) => (err ? reject(err) : resolve())
       );
@@ -109,7 +110,32 @@ async function runTests() {
     const senderBalanceAfter = (await getUserCurrency(db, sender.id, sender.username)).stellarJades;
     assert.strictEqual(senderBalanceAfter, senderBalanceBefore, '發起人餘額不應增加，過期星瓊全數銷毀');
 
-    console.log('✅ 紅包防搶、手動禁退、24h 自動銷毀單元測試 100% 通過！');
+    // 5. 測試紅包最低人數 3 人限制 (份數 < 3 應遭嚴格攔截)
+    let rejectReply1 = '';
+    const rejectInteraction1 = {
+      user: sender,
+      options: {
+        getInteger: (name) => (name === '總星瓊' ? 3000 : 2), // 2 份
+        getString: (name) => (name === '祝福語' ? '測試雙人包' : null),
+      },
+      reply: async (opt) => { rejectReply1 = typeof opt === 'string' ? opt : opt.content; },
+    };
+    await handleSendRedPacket(db, rejectInteraction1);
+    assert.ok(rejectReply1.includes('最低人數為 3 人'), `2 份紅包應被拒絕，回傳：${rejectReply1}`);
+
+    let rejectReply2 = '';
+    const rejectInteraction2 = {
+      user: sender,
+      options: {
+        getInteger: (name) => (name === '總星瓊' ? 3000 : 1), // 1 份
+        getString: (name) => (name === '祝福語' ? '測試單人包' : null),
+      },
+      reply: async (opt) => { rejectReply2 = typeof opt === 'string' ? opt : opt.content; },
+    };
+    await handleSendRedPacket(db, rejectInteraction2);
+    assert.ok(rejectReply2.includes('最低人數為 3 人'), `1 份紅包應被拒絕，回傳：${rejectReply2}`);
+
+    console.log('✅ 紅包防搶、手動禁退、最低3人限制與 24h 自動銷毀單元測試 100% 通過！');
   } finally {
     db.close();
   }

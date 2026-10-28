@@ -249,9 +249,9 @@ async function handleSendRedPacket(db, interaction) {
     });
   }
 
-  if (!count || count < 1 || count > 100) {
+  if (!count || count < 3 || count > 100) {
     return interaction.reply({
-      content: '❌ **紅包份數必須在 1 到 100 之間！**',
+      content: '❌ **紅包領取最低人數為 3 人！**\n份數必須介於 **3 到 100** 之間（不可發送 1 或 2 人私吞包）。',
       flags: MessageFlags.Ephemeral,
     });
   }

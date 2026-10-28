@@ -601,8 +601,8 @@ const commands = [
     )
     .addIntegerOption(option =>
       option.setName('份數')
-        .setDescription('瓜分紅包的人數份數 (最少 1 份，最多 100 份)')
-        .setMinValue(1)
+        .setDescription('瓜分紅包的人數份數 (最少 3 份，最多 100 份)')
+        .setMinValue(3)
         .setMaxValue(100)
         .setRequired(true)
     )
