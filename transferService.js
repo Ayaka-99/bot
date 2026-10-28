@@ -38,6 +38,19 @@ function initTransferTable(db) {
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (senderId, targetId)
         )
+      `);
+
+      // 永久轉帳審計日誌表 (供管理員追蹤洗錢與不正常資產匯集)
+      db.run(`
+        CREATE TABLE IF NOT EXISTS transfer_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          senderId TEXT NOT NULL,
+          senderName TEXT,
+          targetId TEXT NOT NULL,
+          targetName TEXT,
+          amount INTEGER NOT NULL,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
       `, (err) => {
         if (err) {
           console.error('❌ 初始化 transfer_target_cooldowns 資料表失敗:', err);
@@ -180,6 +193,13 @@ async function executeTransfer(db, sender, target, amount) {
         [sender.id, target.id, cooldownUntil]
       );
 
+      // 寫入永久轉帳審計日誌
+      db.run(
+        `INSERT INTO transfer_logs (senderId, senderName, targetId, targetName, amount)
+         VALUES (?, ?, ?, ?, ?)`,
+        [sender.id, sender.username, target.id, target.username, amount]
+      );
+
       db.run('COMMIT', (err) => {
         if (err) {
           db.run('ROLLBACK', () => reject(err));
@@ -192,6 +212,21 @@ async function executeTransfer(db, sender, target, amount) {
 
   const senderAfter = senderCur.stellarJades - amount;
   const targetAfter = targetCur.stellarJades + amount;
+
+  console.log(`[💸 轉帳審計] ${sender.username} (${sender.id}) 轉帳給 ${target.username} (${target.id}) : ${amount} 星瓊`);
+
+  // 審計警報：檢查接收者 24 小時內是否收到大量轉帳（疑似小號洗錢歸集）
+  db.get(
+    `SELECT COUNT(*) as count, SUM(amount) as totalReceived 
+     FROM transfer_logs 
+     WHERE targetId = ? AND createdAt >= datetime('now', '-24 hours')`,
+    [target.id],
+    (err, stat) => {
+      if (!err && stat && stat.count >= 3) {
+        console.warn(`🚨 [洗錢風控警報] 成員 ${target.username} (${target.id}) 24 小時內已收到 ${stat.count} 筆轉帳，累計 ${stat.totalReceived} 星瓊！`);
+      }
+    }
+  );
 
   return {
     success: true,

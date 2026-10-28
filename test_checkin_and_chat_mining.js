@@ -98,7 +98,7 @@ async function runTests() {
   const user2 = 'test_user_chat_1';
   await addMessageJades(db, user2, 'Chatter');
   const curr = await getUserCurrency(db, user2, 'Chatter');
-  assert.strictEqual(curr.stellarJades, 16000 + 25, '發言一次應獲得 25 星瓊 (16,025)');
+  assert.strictEqual(curr.stellarJades, 50000 + 25, '發言一次應獲得 25 星瓊 (基準資產 50,000 + 25)');
 
   // 測試 5 秒冷卻防刷邏輯
   const cooldownMap = new Map();

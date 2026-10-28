@@ -2631,7 +2631,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!result.success) {
           if (result.reason === 'INSUFFICIENT_JADES') {
             return interaction.editReply({
-              content: `⚠️ **星瓊不足，躍遷失敗！**\n\n開拓者 **${user.username}**，每次十連躍遷需消耗 **8,000** 星瓊。\n您當前僅擁有：**${result.currentJades.toLocaleString()}** 星瓊 (還差 ${(result.requiredJades - result.currentJades).toLocaleString()} 星瓊)。\n\n💡 **星瓊賺取途徑**：\n• 在伺服器文字頻道聊天發言：每則訊息 **+400 星瓊**\n• 每日執行 \`/簽到\` 指令：每日簽到津貼 **+600 星瓊**！\n• 輸入 \`/星瓊\` 可隨時查看個人資產與躍遷水位。`,
+              content: `⚠️ **星瓊不足，躍遷失敗！**\n\n開拓者 **${user.username}**，每次十連躍遷需消耗 **8,000** 星瓊。\n您當前僅擁有：**${result.currentJades.toLocaleString()}** 星瓊 (還差 ${(result.requiredJades - result.currentJades).toLocaleString()} 星瓊)。\n\n💡 **星瓊賺取途徑**：\n• 在文字頻道發言：每次發言 **+25 星瓊** (5 秒冷卻防刷)\n• 每日執行 \`/簽到\` 指令：每日階梯津貼 **+1,500 ~ 2,500 星瓊**！\n• 參與匹諾康尼星際賭場（/詭弈砂金、/單挑21點、/德州撲克）贏取彩金\n• 輸入 \`/星瓊\` 可隨時查看個人資產與躍遷水位。`,
             });
           }
           return interaction.editReply({ content: '❌ 躍遷過程遭遇星軌亂流，請稍後再試。' });

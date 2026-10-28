@@ -169,7 +169,7 @@ function getUserCurrency(db, userId, username) {
 function addMessageJades(db, userId, username, amount = 25) {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, 16000 + ?, 0)
+      `INSERT INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, 50000 + ?, 0)
        ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
       [userId, username, amount, amount],
       (err) => {
@@ -186,7 +186,7 @@ function addMessageJades(db, userId, username, amount = 25) {
 function grantUserJades(db, userId, username, amount) {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, 16000 + ?, 0)
+      `INSERT INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, 50000 + ?, 0)
        ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
       [userId, username, amount, amount],
       (err) => {
@@ -569,6 +569,10 @@ function buildGachaResultEmbed(user, result) {
 
 function buildCurrencyEmbed(targetUser, currency, stats, dailyClaimed) {
   const balance = currency.stellarJades;
+  const streak = currency.checkinStreak || 0;
+  const nextStreak = dailyClaimed ? streak : (streak + 1);
+  const nextReward = calculateCheckinReward(nextStreak);
+
   const embed = new EmbedBuilder()
     .setColor('#00D2BE')
     .setTitle(`💎 ${targetUser.username} 的星瓊資產與躍遷檔案`)
@@ -592,21 +596,22 @@ function buildCurrencyEmbed(targetUser, currency, stats, dailyClaimed) {
       {
         name: '🎁 今日簽到津貼',
         value: dailyClaimed
-          ? '✅ 今日簽到津貼已領取 (+600 星瓊)'
-          : '⏳ 今日尚未領取！請在聊天室輸入 `/簽到` 領取 **600 星瓊**！',
+          ? `✅ 今日簽到津貼已領取 (連續簽到第 **${streak}** 天，已獲 **${calculateCheckinReward(streak >= 1 ? streak : 1).toLocaleString()}** 星瓊)`
+          : `⏳ 今日尚未領取！在文字頻道輸入 \`/簽到\` 可領取 **+${nextReward.toLocaleString()} 星瓊** (連續簽到第 **${nextStreak}** 天，滿 7 天達每日最高 **2,500** 星瓊)！`,
         inline: false,
       },
       {
         name: '💡 星瓊賺取途徑',
         value: [
-          '• 在伺服器任意文字頻道聊天發言：每則訊息 **+400 星瓊**',
-          '• 每日執行 `/簽到` 指令：領取每日簽到津貼 **+600 星瓊**',
+          '• 在文字頻道聊天發言：每次發言 **+25 星瓊** (5 秒冷卻防刷)',
+          '• 每日執行 \`/簽到\` 指令：領取每日階梯津貼 **+1,500 ~ 2,500 星瓊**',
+          '• 匹諾康尼星際賭場：參與 \`/詭弈砂金\`、\`/單挑21點\`、\`/大逃殺21點\`、\`/德州撲克\` 贏取彩金',
           '• 每次十連躍遷固定消耗 **8,000 星瓊**',
         ].join('\n'),
         inline: false,
       }
     )
-    .setFooter({ text: '星穹鐵道模擬抽卡系統' })
+    .setFooter({ text: '星穹鐵道模擬抽卡系統・基準初始資產 50,000 星瓊' })
     .setTimestamp();
 
   return embed;
