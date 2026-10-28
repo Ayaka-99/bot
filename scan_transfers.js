@@ -1,12 +1,11 @@
 /**
- * 匹諾康尼全維度深層洗錢稽核工具 (Pennacony Full Forensics & Money Laundering Audit)
- * 核心強化：
- * 1. 深度遍歷所有文字頻道與【已封存/未封存討論串】，檢索深度大幅提升至 5,000 則訊息 (翻到底為止)
- * 2. 寬鬆正則捕捉所有歷史版本的轉帳文字與 Embed (不再漏抓任何空格、全半形標點或變形)
- * 3. 同步直接審計 SQLite 資料庫三大洗錢途徑：
- *    - 【資產異常榜】(user_currency 前 10 大戶，看錢洗到誰身上)
- *    - 【紅包洗錢榜】(red_packets / red_packet_claims 自發自搶與大額定向輸送)
- *    - 【PvP 單挑刷分榜】(casino_user_stats 單挑極端勝率與異常轉移)
+ * 匹諾康尼星際賭場・指定頻道與討論串深層洗錢稽核工具
+ * 目標對象：1561967817798975608, 1562660176023130162, 1562663083971711106, 1562663147725127761
+ * 特性：
+ * 1. 深度無上限翻查（穿透至創立以來第 1 則訊息，翻到底為止）
+ * 2. 穿透所有子討論串與已封存討論串
+ * 3. 寬鬆正則捕捉所有轉帳與紅包交易，並自動連線 Discord API 解析真實帳號名稱
+ * 4. 同步對比 SQLite 資料庫資產與紅包總帳
  */
 
 require('dotenv').config();
@@ -26,11 +25,20 @@ const client = new Client({
   ],
 });
 
+// 使用者指定的 4 個核心目標頻道/討論串 ID
+const TARGET_IDS = process.argv.slice(2).length > 0
+  ? process.argv.slice(2)
+  : [
+      '1561967817798975608',
+      '1562660176023130162',
+      '1562663083971711106',
+      '1562663147725127761',
+    ];
+
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 輔助 Promise 包裝 db.all
 function dbAll(sql, params = []) {
   return new Promise((resolve) => {
     db.all(sql, params, (err, rows) => {
@@ -40,177 +48,119 @@ function dbAll(sql, params = []) {
   });
 }
 
+// 使用者名稱記憶快取
+const userCache = new Map();
+async function resolveUsername(userId) {
+  if (!userId) return '未知';
+  if (userCache.has(userId)) return userCache.get(userId);
+  try {
+    const u = await client.users.fetch(userId).catch(() => null);
+    if (u) {
+      const name = u.globalName ? `${u.username} (${u.globalName})` : u.username;
+      userCache.set(userId, name);
+      return name;
+    }
+  } catch (e) {}
+  userCache.set(userId, userId);
+  return userId;
+}
+
 async function runForensics() {
-  console.log('🕵️‍♂️ ======================================================');
-  console.log('🕵️‍♂️   匹諾康尼星際賭場・全維度深度洗錢與資產流向稽核工具   ');
-  console.log('🕵️‍♂️ ======================================================\n');
+  console.log('🕵️‍♂️ =================================================================');
+  console.log('🕵️‍♂️   匹諾康尼星際賭場・指定目標深度洗錢與轉帳稽核專用工具          ');
+  console.log('🕵️‍♂️   鎖定目標 ID: ' + TARGET_IDS.join(', '));
+  console.log('🕵️‍♂️ =================================================================\n');
 
   await initTransferTable(db);
 
   // ----------------------------------------------------
-  // 第一階段：SQLite 資料庫原生數據排查 (本機最客觀數據)
+  // 第一階段：SQLite 資料庫原生總帳快速檢閱
   // ----------------------------------------------------
-  console.log('📊 【第一階段：資料庫內部資產與異常交易排查】\n');
-
-  // 1. 資產餘額前 10 名
+  console.log('📊 【第一階段：資料庫總帳核驗】');
   const topUsers = await dbAll(
-    'SELECT userId, username, stellarJades, lastDailyCheckin, updatedAt FROM user_currency ORDER BY stellarJades DESC LIMIT 10'
+    'SELECT userId, username, stellarJades, lastDailyCheckin, updatedAt FROM user_currency ORDER BY stellarJades DESC LIMIT 5'
   );
-  console.log('💰 [1/3] 目前伺服器星瓊資產排行 (前 10 大戶)：');
   if (topUsers.length > 0) {
+    console.log('💰 目前全服資產前 5 名持有者：');
     console.table(
       topUsers.map((u, i) => ({
         名次: `#${i + 1}`,
         帳號: `${u.username || '未知'} (${u.userId})`,
         持有星瓊: (u.stellarJades || 0).toLocaleString(),
-        最後更新時間: (u.updatedAt || '').replace('T', ' ').slice(0, 19),
-      }))
-    );
-  } else {
-    console.log('  ⚠️ 未讀取到 user_currency 資料。');
-  }
-
-  // 2. 紅包洗錢排查 (自發自領 & 大額定向輸送)
-  console.log('\n🧧 [2/3] 紅包歷史稽核：');
-  const selfClaims = await dbAll(`
-    SELECT c.username, c.user_id as userId, COUNT(*) as claimCount, SUM(c.amount) as totalAmount
-    FROM red_packet_claims c 
-    JOIN red_packets p ON c.packet_id = p.id 
-    WHERE c.user_id = p.sender_id 
-    GROUP BY c.user_id 
-    ORDER BY totalAmount DESC 
-    LIMIT 10
-  `);
-  if (selfClaims.length > 0) {
-    console.log('  🚨 【紅包自產自銷榜】(自己發紅包、自己領回套取/洗星瓊)：');
-    console.table(
-      selfClaims.map((s) => ({
-        成員: `${s.username} (${s.userId})`,
-        自領次數: s.claimCount,
-        套取總星瓊: (s.totalAmount || 0).toLocaleString(),
-      }))
-    );
-  } else {
-    console.log('  ✅ 未發現「自己發自己領」的異常紅包紀錄。');
-  }
-
-  const targetedClaims = await dbAll(`
-    SELECT c.username as claimer, p.sender_name as sender, COUNT(*) as count, SUM(c.amount) as total
-    FROM red_packet_claims c 
-    JOIN red_packets p ON c.packet_id = p.id 
-    WHERE c.user_id != p.sender_id 
-    GROUP BY c.user_id, p.sender_id 
-    ORDER BY total DESC 
-    LIMIT 10
-  `);
-  if (targetedClaims.length > 0) {
-    console.log('  🤝 【紅包定向輸送榜】(發起人與領取人資金集中)：');
-    console.table(
-      targetedClaims.map((t) => ({
-        發紅包人: t.sender,
-        領取人: t.claimer,
-        次數: t.count,
-        輸送總星瓊: (t.total || 0).toLocaleString(),
-      }))
-    );
-  }
-
-  // 3. PvP 單挑 21 點刷分排查
-  console.log('\n⚔️ [3/3] PvP 單挑假賽對刷排查：');
-  const duelWinners = await dbAll(
-    'SELECT userId, username, duelGames, duelWins, duelLosses, duelNetJades FROM casino_user_stats WHERE duelGames > 0 ORDER BY duelNetJades DESC LIMIT 5'
-  );
-  if (duelWinners.length > 0) {
-    console.log('  🏆 單挑獲利最高前 5 名：');
-    console.table(
-      duelWinners.map((d) => ({
-        成員: `${d.username} (${d.userId})`,
-        單挑場次: d.duelGames,
-        勝率: `${Math.round((d.duelWins / (d.duelGames || 1)) * 100)}%`,
-        單挑淨獲利: (d.duelNetJades || 0).toLocaleString(),
+        最後更新: (u.updatedAt || '').replace('T', ' ').slice(0, 19),
       }))
     );
   }
 
   // ----------------------------------------------------
-  // 第二階段：Discord 雲端歷史深度穿透掃描 (突破限制)
+  // 第二階段：鎖定目標頻道與討論串進行深度翻查 (無上限翻到底)
   // ----------------------------------------------------
-  console.log('\n📡 ======================================================');
-  console.log('📡 【第二階段：Discord 雲端訊息深度穿透掃描】');
-  console.log('📡 ======================================================\n');
+  console.log('\n📡 =================================================================');
+  console.log('📡 【第二階段：鎖定目標頻道/討論串深度穿透翻查 (翻到底為止)】');
+  console.log('📡 =================================================================\n');
 
   const readyEvent = Events.ClientReady || 'ready';
   client.once(readyEvent, async () => {
-    console.log(`🤖 連線成功：${client.user.tag}`);
-
-    const guildId = process.env.GUILD_ID;
-    let guild = guildId ? await client.guilds.fetch(guildId).catch(() => null) : client.guilds.cache.first();
-    if (!guild) guild = client.guilds.cache.first();
-
-    if (!guild) {
-      console.error('❌ 找不到目標伺服器');
-      client.destroy();
-      db.close();
-      return;
-    }
-
-    console.log(`🏰 目標伺服器: ${guild.name} (${guild.id})`);
-    const rawChannels = await guild.channels.fetch();
-
-    const targets = [];
-    for (const [, ch] of rawChannels) {
-      if (ch && (ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement)) {
-        targets.push(ch);
-      }
-    }
-
-    console.log(`📋 共有 ${targets.length} 個主要文字頻道，開始深度翻查歷史訊息 (包含已封存討論串)...\n`);
+    console.log(`🤖 機器人連線成功: ${client.user.tag}`);
 
     const transferRecords = [];
-    let scannedChannels = 0;
+    const redPacketRecords = [];
 
-    for (const ch of targets) {
-      scannedChannels++;
-      process.stdout.write(`  📂 [${scannedChannels}/${targets.length}] 正在深搜 #${ch.name} ... `);
-      const found = await deepScanChannel(ch, transferRecords);
-      console.log(`共尋獲 ${found} 筆轉帳`);
+    for (const targetId of TARGET_IDS) {
+      console.log(`\n🎯 正在檢索目標 ID: ${targetId} ...`);
+      let channel = await client.channels.fetch(targetId).catch((err) => {
+        console.warn(`  ❌ 無法以一般方式獲取頻道/討論串 ${targetId}: ${err.message}`);
+        return null;
+      });
 
-      // 檢查此頻道下的所有討論串 (活躍 + 已封存)
-      try {
-        if (ch.threads) {
-          // 活躍中
-          const active = await ch.threads.fetchActive().catch(() => null);
-          if (active && active.threads) {
+      if (!channel) {
+        console.log(`  ⏩ 跳過目標 ${targetId} (可能無權限或 ID 不存在)。`);
+        continue;
+      }
+
+      const channelName = channel.name || '未命名';
+      const isThread = channel.isThread ? channel.isThread() : false;
+      console.log(`  📍 目標解析：${isThread ? '【討論串】' : '【文字頻道】'} #${channelName} (ID: ${channel.id})`);
+
+      // 1. 深度掃描該頻道/討論串自身的所有訊息
+      await deepScanChannelMessages(channel, transferRecords, redPacketRecords);
+
+      // 2. 若該目標為頻道且擁有討論串，自動穿透其下的活躍與封存討論串
+      if (!isThread && channel.threads) {
+        try {
+          const active = await channel.threads.fetchActive().catch(() => null);
+          if (active && active.threads && active.threads.size > 0) {
+            console.log(`    ↳ 發現 ${active.threads.size} 個活躍討論串，開始穿透...`);
             for (const [, th] of active.threads) {
-              process.stdout.write(`    ↳ [活躍討論串] #${th.name} ... `);
-              const thFound = await deepScanChannel(th, transferRecords);
-              console.log(`${thFound} 筆`);
+              await deepScanChannelMessages(th, transferRecords, redPacketRecords);
             }
           }
-          // 已封存 (歷史紀錄通常在此！)
-          const archived = await ch.threads.fetchArchived({ limit: 100 }).catch(() => null);
-          if (archived && archived.threads) {
+
+          const archived = await channel.threads.fetchArchived({ limit: 100 }).catch(() => null);
+          if (archived && archived.threads && archived.threads.size > 0) {
+            console.log(`    ↳ 發現 ${archived.threads.size} 個已封存討論串，開始穿透...`);
             for (const [, th] of archived.threads) {
-              process.stdout.write(`    ↳ [封存討論串] #${th.name} ... `);
-              const thFound = await deepScanChannel(th, transferRecords);
-              console.log(`${thFound} 筆`);
+              await deepScanChannelMessages(th, transferRecords, redPacketRecords);
             }
           }
+        } catch (e) {
+          // 忽略權限不足
         }
-      } catch (err) {
-        // 忽略無權限討論串
       }
     }
 
-    console.log(`\n======================================================`);
-    console.log(`🎉 深度歷史掃描總計：尋獲 ${transferRecords.length} 筆完整轉帳紀錄！`);
-    console.log(`======================================================\n`);
+    // ----------------------------------------------------
+    // 第三階段：產出稽核報告與回填資料庫
+    // ----------------------------------------------------
+    console.log(`\n=================================================================`);
+    console.log(`📊 深度稽核總結：共尋獲 ${transferRecords.length} 筆轉帳交易，${redPacketRecords.length} 筆紅包紀錄！`);
+    console.log(`=================================================================\n`);
 
     if (transferRecords.length > 0) {
-      // 依時間排序
+      // 時間排序
       transferRecords.sort((a, b) => a.timestamp - b.timestamp);
 
-      // 回填 transfer_logs
+      // 1. 同步回填至 transfer_logs 資料表
       let newCount = 0;
       for (const rec of transferRecords) {
         const exists = await new Promise((res) => {
@@ -234,21 +184,22 @@ async function runForensics() {
         }
       }
 
-      console.log(`💾 成功同步回填 ${newCount} 筆轉帳交易至 transfer_logs 審計資料表！\n`);
+      console.log(`💾 成功同步回填 ${newCount} 筆轉帳交易至 transfer_logs 審計表！\n`);
 
-      // 打印完整或前 30 筆明細
-      console.log(`📜 轉帳明細列表 (共 ${transferRecords.length} 筆，展示前 30 筆)：`);
+      // 2. 輸出完整轉帳明細清單
+      console.log('📜 【尋獲之轉帳交易明細清單】(依時間順序排序)：');
       console.table(
-        transferRecords.slice(-30).map((r) => ({
+        transferRecords.map((r, i) => ({
+          編號: `#${i + 1}`,
           時間: r.createdAt.replace('T', ' ').slice(0, 19),
           轉帳者: `${r.senderName} (${r.senderId})`,
           接收者: `${r.targetName} (${r.targetId})`,
           金額: r.amount.toLocaleString(),
-          頻道: r.channelName,
+          頻道來源: r.channelName,
         }))
       );
 
-      // 聚合排行榜
+      // 3. 聚合統計
       const receiverTotals = {};
       const senderTotals = {};
 
@@ -259,22 +210,36 @@ async function runForensics() {
         senderTotals[sKey] = (senderTotals[sKey] || 0) + r.amount;
       }
 
-      console.log('\n🚨 【歷史收錢洗錢歸集榜】(誰收到的星瓊最多)：');
+      console.log('\n🚨 【歷史收錢洗錢歸集榜】(資金最終流入之主力大戶)：');
       console.table(
         Object.entries(receiverTotals)
           .sort((a, b) => b[1] - a[1])
-          .map(([user, sum]) => ({ 成員帳號: user, 累計收到星瓊: sum.toLocaleString() }))
+          .map(([user, sum]) => ({ 成員: user, 累計接收星瓊: sum.toLocaleString() }))
       );
 
-      console.log('\n💸 【歷史轉出掏空榜】(誰轉出的星瓊最多)：');
+      console.log('\n💸 【歷史轉出掏空榜】(出資轉出者)：');
       console.table(
         Object.entries(senderTotals)
           .sort((a, b) => b[1] - a[1])
-          .map(([user, sum]) => ({ 成員帳號: user, 累計轉出星瓊: sum.toLocaleString() }))
+          .map(([user, sum]) => ({ 成員: user, 累計轉出星瓊: sum.toLocaleString() }))
       );
     } else {
-      console.log('⚠️ 在 Discord 歷史訊息中未檢索到更多公開轉帳記錄。');
-      console.log('💡 若交易筆數很少，可能表示洗錢者是利用【紅包】或【單挑假賽】轉移資產，請參考第一階段的資料庫審計數據！');
+      console.log('⚠️ 在這 4 個目標位置中未發現任何機器人發布的公開轉帳訊息。');
+    }
+
+    if (redPacketRecords.length > 0) {
+      console.log(`\n🧧 【目標位置中發現的紅包紀錄】(共 ${redPacketRecords.length} 筆)：`);
+      console.table(
+        redPacketRecords.map((rp, i) => ({
+          編號: `#${i + 1}`,
+          時間: rp.createdAt.replace('T', ' ').slice(0, 19),
+          發起人: rp.senderName,
+          總星瓊: rp.totalJades.toLocaleString(),
+          紅包份數: rp.count,
+          祝福語: rp.blessing || '無',
+          頻道來源: rp.channelName,
+        }))
+      );
     }
 
     client.destroy();
@@ -288,23 +253,28 @@ async function runForensics() {
 }
 
 /**
- * 深度掃描頻道訊息 (高達 5,000 則訊息，翻查到底)
+ * 深入掃描單一頻道/討論串的所有訊息（無上限翻查至第一則）
  */
-async function deepScanChannel(channel, transferRecords) {
-  let found = 0;
+async function deepScanChannelMessages(channel, transferRecords, redPacketRecords) {
   let lastId = null;
-  let fetchedTotal = 0;
-  const maxLimit = 5000; // 每個頻道最多翻查 5,000 則訊息
+  let totalFetched = 0;
+  let foundTransfers = 0;
+  let foundRedPackets = 0;
+
+  process.stdout.write(`    ⏳ 正在深搜 #${channel.name || channel.id} ... `);
 
   try {
-    while (fetchedTotal < maxLimit) {
+    while (true) {
       const options = { limit: 100 };
       if (lastId) options.before = lastId;
 
-      const messages = await channel.messages.fetch(options).catch(() => null);
+      const messages = await channel.messages.fetch(options).catch((err) => {
+        return null;
+      });
+
       if (!messages || messages.size === 0) break;
 
-      fetchedTotal += messages.size;
+      totalFetched += messages.size;
       lastId = messages.last().id;
 
       for (const [, msg] of messages) {
@@ -313,8 +283,10 @@ async function deepScanChannel(channel, transferRecords) {
         const content = msg.content || '';
         const embeds = msg.embeds || [];
 
-        // 寬鬆特徵判定：包含「轉帳」或「💸」
-        const isTransferMsg =
+        // ----------------------------------------------------
+        // A. 轉帳訊息解析
+        // ----------------------------------------------------
+        const isTransfer =
           content.includes('轉帳') ||
           content.includes('💸') ||
           embeds.some(
@@ -324,71 +296,103 @@ async function deepScanChannel(channel, transferRecords) {
               (e.description && (e.description.includes('轉帳') || e.description.includes('轉帳數額')))
           );
 
-        if (!isTransferMsg) continue;
+        if (isTransfer) {
+          let targetId = null;
+          let senderId = null;
+          let amount = 0;
 
-        let targetId = null;
-        let senderId = null;
-        let amount = 0;
-        let senderName = '未知';
-        let targetName = '未知';
-
-        // 寬鬆正則 1: 解析文字內容
-        // 支援 `💸 <@targetId>！您收到了一筆來自 <@senderId> 的 **amount** 星瓊轉帳！` 或各類變形
-        const textMatch = content.match(/<@!?(\d+)>.*?來自.*?<@!?(\d+)>.*?([\d,]+).*?星瓊/s);
-        if (textMatch) {
-          targetId = textMatch[1];
-          senderId = textMatch[2];
-          amount = parseInt(textMatch[3].replace(/,/g, ''), 10);
-        }
-
-        // 寬鬆正則 2: 解析 Embed
-        for (const emb of embeds) {
-          const desc = emb.description || '';
-          const amtM = desc.match(/(?:轉帳數額|數額)[^\d]*([\d,]+)/);
-          const sM = desc.match(/(?:轉帳者|發送者)[^<]*<@!?(\d+)>/);
-          const tM = desc.match(/(?:接收者|對象)[^<]*<@!?(\d+)>/);
-
-          if (amtM && !amount) amount = parseInt(amtM[1].replace(/,/g, ''), 10);
-          if (sM && !senderId) senderId = sM[1];
-          if (tM && !targetId) targetId = tM[1];
-        }
-
-        if (senderId && targetId && amount > 0) {
-          // 嘗試提取 Username
-          if (msg.mentions && msg.mentions.users) {
-            const s = msg.mentions.users.get(senderId);
-            const t = msg.mentions.users.get(targetId);
-            if (s) senderName = s.username;
-            if (t) targetName = t.username;
+          // 1. 從文字內容提取
+          const textMatch = content.match(/<@!?(\d+)>.*?來自.*?<@!?(\d+)>.*?([\d,]+).*?星瓊/s);
+          if (textMatch) {
+            targetId = textMatch[1];
+            senderId = textMatch[2];
+            amount = parseInt(textMatch[3].replace(/,/g, ''), 10);
           }
 
-          const createdAt = new Date(msg.createdTimestamp).toISOString();
+          // 2. 從 Embed 提取
+          for (const emb of embeds) {
+            const desc = emb.description || '';
+            const amtM = desc.match(/(?:轉帳數額|數額)[^\d]*([\d,]+)/);
+            const sM = desc.match(/(?:轉帳者|發送者)[^<]*<@!?(\d+)>/);
+            const tM = desc.match(/(?:接收者|對象)[^<]*<@!?(\d+)>/);
 
-          if (!transferRecords.some((r) => r.messageId === msg.id)) {
-            transferRecords.push({
-              messageId: msg.id,
-              channelId: channel.id,
-              channelName: `#${channel.name}`,
-              senderId,
-              senderName,
-              targetId,
-              targetName,
-              amount,
-              createdAt,
-              timestamp: msg.createdTimestamp,
-            });
-            found++;
+            if (amtM && !amount) amount = parseInt(amtM[1].replace(/,/g, ''), 10);
+            if (sM && !senderId) senderId = sM[1];
+            if (tM && !targetId) targetId = tM[1];
+          }
+
+          if (senderId && targetId && amount > 0) {
+            const createdAt = new Date(msg.createdTimestamp).toISOString();
+
+            if (!transferRecords.some((r) => r.messageId === msg.id)) {
+              const senderName = await resolveUsername(senderId);
+              const targetName = await resolveUsername(targetId);
+
+              transferRecords.push({
+                messageId: msg.id,
+                channelId: channel.id,
+                channelName: `#${channel.name || channel.id}`,
+                senderId,
+                senderName,
+                targetId,
+                targetName,
+                amount,
+                createdAt,
+                timestamp: msg.createdTimestamp,
+              });
+              foundTransfers++;
+            }
+          }
+        }
+
+        // ----------------------------------------------------
+        // B. 紅包訊息解析
+        // ----------------------------------------------------
+        const isRedPacket =
+          content.includes('紅包') ||
+          content.includes('🧧') ||
+          embeds.some(
+            (e) =>
+              (e.title && e.title.includes('紅包')) ||
+              (e.author?.name && e.author.name.includes('紅包'))
+          );
+
+        if (isRedPacket) {
+          for (const emb of embeds) {
+            const title = emb.title || '';
+            const desc = emb.description || '';
+            if (title.includes('紅包') || desc.includes('星瓊紅包')) {
+              const amtM = desc.match(/(?:總星瓊|總額|金額)[^\d]*([\d,]+)/);
+              const cntM = desc.match(/(?:總份數|份數)[^\d]*(\d+)/);
+              const senderM = desc.match(/(?:發起人|發送者)[^<]*<@!?(\d+)>/);
+
+              if (amtM && !redPacketRecords.some((r) => r.messageId === msg.id)) {
+                const sId = senderM ? senderM[1] : null;
+                const sName = sId ? await resolveUsername(sId) : '未知';
+                redPacketRecords.push({
+                  messageId: msg.id,
+                  channelId: channel.id,
+                  channelName: `#${channel.name || channel.id}`,
+                  senderName: sName,
+                  totalJades: parseInt(amtM[1].replace(/,/g, ''), 10),
+                  count: cntM ? parseInt(cntM[1], 10) : 1,
+                  blessing: emb.footer?.text || '',
+                  createdAt: new Date(msg.createdTimestamp).toISOString(),
+                });
+                foundRedPackets++;
+              }
+            }
           }
         }
       }
 
-      await sleep(40);
+      await sleep(30);
     }
-  } catch (e) {
-    // 忽略權限問題
-  }
 
-  return found;
+    console.log(`翻查完畢 (共閱覽 ${totalFetched} 則訊息，發現 ${foundTransfers} 筆轉帳，${foundRedPackets} 筆紅包)`);
+  } catch (err) {
+    console.log(`掃描中斷或無權限: ${err.message}`);
+  }
 }
 
 runForensics().catch(console.error);
