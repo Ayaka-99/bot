@@ -396,17 +396,15 @@ function calculateBlackjackJackpot(currentVault, bet, specialHand) {
 }
 
 /**
- * 計算德州撲克神話牌型彩金派彩金額 (規格書 3.2 表格)
+ * 計算德州撲克神話牌型彩金派彩金額 (不設最高賠付上限，直接以金庫該階比例派彩)
  * @param {number} currentVault - 當前德州金庫總額
  * @param {number} personalTotalBet - 當局個人投入金額
  * @param {number} handTier - 德州撲克牌型位階 (from pokerEvaluator)
  */
 function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
-  const effectiveBet = Math.min(personalTotalBet, MAX_BET);
   let percent = 0;
   let multiplier = 0;
   let label = '';
-  let hardCap = 0;
 
   // 引用牌型位階
   // 9: ROYAL_FLUSH, 8: STRAIGHT_FLUSH, 7: FOUR_OF_A_KIND, 6: FULL_HOUSE
@@ -414,36 +412,31 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
     percent = 0.50;
     multiplier = 40;
     label = '皇家同花順 (Royal Flush)';
-    hardCap = 200000;
   } else if (handTier === 8) {
     percent = 0.45;
     multiplier = 25;
     label = '同花順 (Straight Flush)';
-    hardCap = 125000;
   } else if (handTier === 7) {
     percent = 0.35;
     multiplier = 14;
     label = '四條 / 鐵支 (Four of a Kind)';
-    hardCap = 70000;
   } else if (handTier === 6) {
     percent = 0.20;
     multiplier = 6;
     label = '葫蘆 / 滿堂紅 (Full House)';
-    hardCap = 30000;
   }
 
-  if (percent <= 0) return { payout: 0, percent: 0, multiplier: 0, label: '', hardCap: 0 };
+  if (percent <= 0) return { payout: 0, percent: 0, multiplier: 0, label: '', hardCap: Infinity };
 
-  const vaultPortion = Math.floor(currentVault * percent);
-  const multiplierPortion = effectiveBet * multiplier;
-  const payout = Math.min(vaultPortion, multiplierPortion);
+  // 德州撲克不設最高賠付上限：直接以金庫該階比例派彩 (無 MAX_BET 限制，無 hardCap 天花板)
+  const payout = Math.floor(currentVault * percent);
 
   return {
     payout,
     percent,
     multiplier,
     label,
-    hardCap,
+    hardCap: Infinity,
   };
 }
 

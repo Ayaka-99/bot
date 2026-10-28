@@ -193,6 +193,16 @@ const {
   parseCasinoSettlementMessage,
 } = require('./casinoStatsService');
 
+// 引入閉嘴侍者服務黑名單管理模組 (/黑名單)
+const {
+  initBlacklistTable,
+  isUserBlacklisted,
+  addBlacklistUser,
+  removeBlacklistUser,
+  listBlacklistUsers,
+  buildBlacklistEmbed,
+} = require('./blacklistService');
+
 function buildCustomTitleModal() {
   const modal = new ModalBuilder()
     .setCustomId('custom_title_modal')
@@ -263,6 +273,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
     initCasinoStatsTable(db).catch(console.error);
     // 初始化拼手氣星瓊紅包資料表
     initRedPacketDb(db).catch(console.error);
+    // 初始化閉嘴服務黑名單資料表
+    initBlacklistTable(db).catch(console.error);
   }
 });
 
@@ -632,6 +644,38 @@ const commands = [
   new SlashCommandBuilder()
     .setName('佩戴稱號')
     .setDescription('打開個人稱號背包並切換當前佩戴稱號'),
+
+  // 【主人專屬】管理閉嘴侍者服務黑名單
+  new SlashCommandBuilder()
+    .setName('黑名單')
+    .setDescription('【主人專屬】管理閉嘴侍者服務黑名單')
+    .addSubcommand(sub =>
+      sub.setName('新增')
+        .setDescription('將指定成員加入黑名單，全面禁止使用閉嘴侍者服務')
+        .addStringOption(opt =>
+          opt.setName('目標')
+            .setDescription('目標成員之 @提及、使用者名稱或數字 ID')
+            .setRequired(true)
+        )
+        .addStringOption(opt =>
+          opt.setName('原因')
+            .setDescription('列入黑名單原因 (選填)')
+            .setRequired(false)
+        )
+    )
+    .addSubcommand(sub =>
+      sub.setName('解除')
+        .setDescription('將指定成員自黑名單中移除，恢復服務使用權限')
+        .addStringOption(opt =>
+          opt.setName('目標')
+            .setDescription('目標成員之 @提及、使用者名稱或數字 ID')
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub.setName('查詢')
+        .setDescription('查詢目前所有被列入黑名單的成員名冊')
+    ),
 ];
 
 // ==========================================
@@ -994,6 +1038,12 @@ function getSnowCatPhoto() {
 const chatMiningCooldowns = new Map();
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+
+  // 🛡️ 黑名單全域防護 (主人 lance_508 永不受限)
+  if (message.author.username !== 'lance_508') {
+    const isBlacklisted = await isUserBlacklisted(db, message.author.id, message.author.username);
+    if (isBlacklisted) return; // 黑名單成員發言不計數、不發幣、不回應、不觸發迷因
+  }
 
   const trimmedContent = (message.content || '').trim();
 
@@ -1499,6 +1549,23 @@ client.on('messageCreate', async (message) => {
 // 🎮 互動監聽器 (處理 Slash Commands 與 Modals)
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
+  // 🛡️ 黑名單全域防護 (主人 lance_508 永不受限)
+  if (interaction.user.username !== 'lance_508') {
+    const isBlacklisted = await isUserBlacklisted(db, interaction.user.id, interaction.user.username);
+    if (isBlacklisted) {
+      const replyPayload = {
+        content: '🚫 **存取遭拒**\n你已被侍者列入黑名單，無權使用閉嘴侍者的任何服務。',
+        flags: MessageFlags.Ephemeral,
+      };
+      if (interaction.isRepliable()) {
+        if (interaction.deferred || interaction.replied) {
+          return interaction.followUp(replyPayload).catch(() => {});
+        }
+        return interaction.reply(replyPayload).catch(() => {});
+      }
+      return;
+    }
+  }
   // 1. 處理 Modal 彈窗提交 (安全綁定 Cookie)
   if (interaction.isModalSubmit()) {
     if (interaction.customId === 'hsr_bind_modal') {
@@ -3034,6 +3101,67 @@ client.on('interactionCreate', async (interaction) => {
         const { embed, row } = await buildEquipSelectEmbed(db, user.id);
         await interaction.reply({ embeds: [embed], components: row ? [row] : [], flags: MessageFlags.Ephemeral });
         break;
+      }
+
+      // ==========================================
+      // 🛡️ 閉嘴侍者服務黑名單管理 (僅限主人 lance_508)
+      // ==========================================
+      case '黑名單': {
+        if (user.username !== 'lance_508') {
+          return interaction.reply({
+            content: '🚫 **權限不足！**\n閉嘴侍者服務黑名單管理為最高權限指令，僅限主人 lance_508 執行。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const subcommand = options.getSubcommand();
+        if (subcommand === '新增') {
+          const rawTarget = options.getString('目標').trim();
+          const reason = options.getString('原因') || '主人指令要求封鎖';
+          const cleanId = rawTarget.replace(/[<@!>]/g, '');
+
+          let targetName = cleanId;
+          try {
+            if (interaction.guild) {
+              const member = await interaction.guild.members.fetch(cleanId).catch(() => null);
+              if (member && member.user) {
+                targetName = member.user.username;
+              }
+            }
+          } catch (_) {}
+
+          await addBlacklistUser(db, { id: cleanId, username: targetName }, reason, { id: user.id, username: user.username });
+          return interaction.reply({
+            content: `🚫 **已將成員加入閉嘴服務黑名單**\n• 目標：**${targetName}** (\`${cleanId}\`)\n• 原因：*${reason}*\n• 執行者：${user.username}\n> 該成員已被全面隔離，無法使用任何閉嘴侍者功能與發言回覆。`,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        if (subcommand === '解除') {
+          const rawTarget = options.getString('目標').trim();
+          const cleanId = rawTarget.replace(/[<@!>]/g, '');
+          let targetName = cleanId;
+          try {
+            if (interaction.guild) {
+              const member = await interaction.guild.members.fetch(cleanId).catch(() => null);
+              if (member && member.user) {
+                targetName = member.user.username;
+              }
+            }
+          } catch (_) {}
+
+          const res = await removeBlacklistUser(db, { id: cleanId, username: targetName });
+          return interaction.reply({
+            content: `✅ **已將成員自黑名單中解除**\n• 目標：**${targetName}** (\`${cleanId}\`)\n• 異動紀錄數：${res.removedCount}\n> 該成員已恢復侍者服務之存取權限。`,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        if (subcommand === '查詢') {
+          const rows = await listBlacklistUsers(db);
+          const embed = buildBlacklistEmbed(rows);
+          return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        }
       }
 
 

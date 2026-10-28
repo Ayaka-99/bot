@@ -85,7 +85,7 @@ async function testRedPacket() {
   const afterSendRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [senderId], (_, row) => res(row)));
   assert.strictEqual(afterSendRow.stellarJades, 4000000, '發紅包應扣除 6,000,000 星瓊');
 
-  // 執行撤回退款
+  // 執行嘗試撤回退款 (v5.6 新規：紅包發出後不可手動退回)
   let refundReply = '';
   const mockRefundInteraction = {
     user: { id: senderId, username: 'lance_508' },
@@ -94,16 +94,17 @@ async function testRedPacket() {
   };
 
   await handleRefundRedPacket(db, mockRefundInteraction);
-  assert.ok(refundReply.includes('成功撤回紅包') && refundReply.includes('6,000,000'), '應提示成功退款 6,000,000');
+  assert.ok(refundReply.includes('不可退回'), '手動退回應明確提示不可退回');
+  assert.ok(refundReply.includes('自動銷毀'), '應提示未領完由系統直接銷毀');
 
-  // 驗證餘額完全復原為 10,000,000
+  // 驗證扣款後餘額依然維持 4,000,000 (不可退款)
   const afterRefundRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [senderId], (_, row) => res(row)));
-  assert.strictEqual(afterRefundRow.stellarJades, 10000000, '撤回後星瓊應 100% 全額復原');
+  assert.strictEqual(afterRefundRow.stellarJades, 4000000, '手動退回被拒，星瓊不退回');
 
-  // 驗證資料庫狀態為 REFUNDED
+  // 驗證資料庫狀態依然保持 ACTIVE 進行中
   const packetDbRow = await new Promise((res) => db.get("SELECT * FROM red_packets WHERE sender_id = ? ORDER BY created_at DESC LIMIT 1", [senderId], (_, row) => res(row)));
-  assert.strictEqual(packetDbRow.status, 'REFUNDED');
-  assert.strictEqual(packetDbRow.remaining_jades, 0);
+  assert.strictEqual(packetDbRow.status, 'ACTIVE');
+  assert.strictEqual(packetDbRow.remaining_jades, 6000000);
 
   // 6. 測試按鈕組件：取消手動撤回按鈕，只保留搶紅包
   console.log('  ▶ [6/8] 測試紅包按鈕僅保留「搶紅包」，確認手動退回按鈕已取消...');
@@ -139,11 +140,11 @@ async function testRedPacket() {
     reply: async (p) => { normalRefundReply = p.content; },
   };
   await handleRefundRedPacket(db, mockRefundNormal);
-  assert.ok(normalRefundReply.includes('紅包無法手動提早退回'), '一般成員應被阻擋手動提早退回');
-  console.log('    ✅ 通過：24 小時內嚴格禁止手動提早退回！');
+  assert.ok(normalRefundReply.includes('不可退回'), '一般成員應被告知紅包不可退回');
+  console.log('    ✅ 通過：紅包發出後禁止手動退回！');
 
-  // 8. 測試 24 小時逾期自動退回排程與頻道通知
-  console.log('  ▶ [8/8] 測試 24 小時逾期自動退款 (Auto-Refund) 與頻道通知機制...');
+  // 8. 測試 24 小時逾期自動銷毀排程與頻道銷毀通知
+  console.log('  ▶ [8/8] 測試 24 小時逾期自動銷毀 (Burn) 與頻道銷毀通知機制...');
   const { checkAndRefundExpiredPackets } = require('./redPacketService');
 
   // 建立一筆 25 小時前的未領完紅包
@@ -190,21 +191,21 @@ async function testRedPacket() {
   assert.strictEqual(processed.length, 1, '應成功巡檢查出 1 筆逾期紅包');
   assert.strictEqual(processed[0].id, expiredPacketId);
 
-  // 驗證星瓊退款 (1000 + 30000 = 31000)
+  // 驗證星瓊不退款，餘額維持 1000
   const afterAutoRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [expiredSender], (_, row) => res(row)));
-  assert.strictEqual(afterAutoRow.stellarJades, 31000, '逾期剩餘 30,000 星瓊應全額自動退款');
+  assert.strictEqual(afterAutoRow.stellarJades, 1000, '逾期剩餘 30,000 星瓊不退款，直接銷毀');
 
-  // 驗證紅包狀態變為 EXPIRED 且剩餘為 0
+  // 驗證紅包狀態變為 BURNED 且剩餘為 0
   const afterPacketRow = await new Promise((res) => db.get('SELECT status, remaining_jades, remaining_count FROM red_packets WHERE id = ?', [expiredPacketId], (_, row) => res(row)));
-  assert.strictEqual(afterPacketRow.status, 'EXPIRED');
+  assert.strictEqual(afterPacketRow.status, 'BURNED');
   assert.strictEqual(afterPacketRow.remaining_jades, 0);
 
   // 驗證原始 Discord 訊息更新與頻道通知
   assert.ok(editMsgCalled, '原始紅包 Discord 訊息應被編輯更新');
-  assert.ok(channelNoticeContent.includes('紅包逾期自動退回通知'), '頻道應收到逾期退回通知');
-  assert.ok(channelNoticeContent.includes('30,000'), '通知內容應包含退還金額 30,000');
+  assert.ok(channelNoticeContent.includes('紅包逾期銷毀通知'), '頻道應收到逾期銷毀通知');
+  assert.ok(channelNoticeContent.includes('30,000'), '通知內容應包含銷毀金額 30,000');
 
-  console.log('    ✅ 通過：24 小時逾期自動退款與頻道通知 100% 正常運作！');
+  console.log('    ✅ 通過：24 小時逾期自動銷毀與頻道通知 100% 正常運作！');
 
   console.log('✅ 紅包服務單元測試（含 24h 自動退回、通知與無手動按鈕）100% 通過！');
 }
