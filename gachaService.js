@@ -98,9 +98,13 @@ function initGachaTables(db) {
           username TEXT,
           stellarJades INTEGER DEFAULT 16000,
           lastDailyCheckin TEXT,
+          checkinStreak INTEGER DEFAULT 0,
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-      `);
+      `, () => {
+        // 自動遷移：補充 checkinStreak 欄位
+        db.run('ALTER TABLE user_currency ADD COLUMN checkinStreak INTEGER DEFAULT 0', () => {});
+      });
 
       // 使用者獨立抽卡統計表
       db.run(`
@@ -142,7 +146,7 @@ function getUserCurrency(db, userId, username) {
       // 新使用者：初始發放 16,000 星瓊 (10 次十連抽)
       const initialJades = 16000;
       db.run(
-        'INSERT OR IGNORE INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)',
+        'INSERT OR IGNORE INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, ?, 0)',
         [userId, username, initialJades],
         (insertErr) => {
           if (insertErr) return reject(insertErr);
@@ -153,6 +157,7 @@ function getUserCurrency(db, userId, username) {
               username,
               stellarJades: initialJades,
               lastDailyCheckin: null,
+              checkinStreak: 0,
             });
           });
         }
@@ -161,10 +166,10 @@ function getUserCurrency(db, userId, username) {
   });
 }
 
-function addMessageJades(db, userId, username, amount = 400) {
+function addMessageJades(db, userId, username, amount = 25) {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, 16000 + ?)
+      `INSERT INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, 16000 + ?, 0)
        ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
       [userId, username, amount, amount],
       (err) => {
@@ -181,7 +186,7 @@ function addMessageJades(db, userId, username, amount = 400) {
 function grantUserJades(db, userId, username, amount) {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, 16000 + ?)
+      `INSERT INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, 16000 + ?, 0)
        ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
       [userId, username, amount, amount],
       (err) => {
@@ -192,7 +197,16 @@ function grantUserJades(db, userId, username, amount) {
   });
 }
 
-function claimDailyJades(db, userId, username, amount = 600) {
+/**
+ * 計算每日連續簽到階梯津貼 (1,500 ~ 2,500)
+ */
+function calculateCheckinReward(streak) {
+  if (streak <= 1) return 1500;
+  if (streak >= 7) return 2500;
+  return 1500 + Math.round(((streak - 1) / 6) * 1000);
+}
+
+function claimDailyJades(db, userId, username) {
   return new Promise(async (resolve, reject) => {
     try {
       const today = getTaiwanDateString();
@@ -203,15 +217,31 @@ function claimDailyJades(db, userId, username, amount = 600) {
           success: false,
           alreadyClaimed: true,
           balance: currency.stellarJades,
+          streak: currency.checkinStreak || 1,
         });
       }
+
+      // 計算連續簽到天數
+      let newStreak = 1;
+      if (currency.lastDailyCheckin) {
+        const todayMs = Date.parse(`${today}T00:00:00+08:00`);
+        const lastMs = Date.parse(`${currency.lastDailyCheckin}T00:00:00+08:00`);
+        const diffDays = Math.round((todayMs - lastMs) / 86400000);
+        if (diffDays === 1) {
+          newStreak = (currency.checkinStreak || 0) + 1;
+        } else {
+          newStreak = 1;
+        }
+      }
+
+      const reward = calculateCheckinReward(newStreak);
 
       // 原子性條件更新：防止同日並發重複領取每日簽到津貼
       db.run(
         `UPDATE user_currency
-         SET stellarJades = stellarJades + ?, lastDailyCheckin = ?, username = ?, updatedAt = CURRENT_TIMESTAMP
+         SET stellarJades = stellarJades + ?, lastDailyCheckin = ?, checkinStreak = ?, username = ?, updatedAt = CURRENT_TIMESTAMP
          WHERE userId = ? AND (lastDailyCheckin IS NULL OR lastDailyCheckin != ?)`,
-        [amount, today, username, userId, today],
+        [reward, today, newStreak, username, userId, today],
         function (err) {
           if (err) return reject(err);
           if (this.changes === 0) {
@@ -219,14 +249,16 @@ function claimDailyJades(db, userId, username, amount = 600) {
               success: false,
               alreadyClaimed: true,
               balance: currency.stellarJades,
+              streak: currency.checkinStreak || 1,
             });
           }
-          const newBalance = currency.stellarJades + amount;
+          const newBalance = currency.stellarJades + reward;
           resolve({
             success: true,
             alreadyClaimed: false,
-            added: amount,
+            added: reward,
             balance: newBalance,
+            streak: newStreak,
           });
         }
       );

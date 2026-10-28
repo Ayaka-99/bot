@@ -107,10 +107,38 @@ function applyStatsMigrations(db) {
         executedAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )`,
       (tblErr) => {
-        if (tblErr) return resolve();
+        function runV56Migration() {
+          const v56MigrationKey = 'migration_v56_profit_reset_preservation_20261028';
+          db.get('SELECT migrationName FROM system_migrations WHERE migrationName = ?', [v56MigrationKey], (v56Err, v56Row) => {
+            if (v56Err || v56Row) return resolve();
+            console.log('🚀 [Migration v5.6] 正在執行歷史損益精準重置（戰績與對局數 100% 絕對保留）...');
+            db.run(
+              `UPDATE casino_user_stats 
+               SET netJades = 0, totalBetJades = 0, totalWonJades = 0, 
+                   pveNetJades = 0, duelNetJades = 0, brNetJades = 0, 
+                   horseNetJades = 0, holdemNetJades = 0, updatedAt = CURRENT_TIMESTAMP`,
+              (uErr) => {
+                if (uErr) console.warn('更新 casino_user_stats 失敗:', uErr.message);
+                // 同步重置 user_profile_decorations (若存在)
+                db.run(
+                  `UPDATE user_profile_decorations 
+                   SET netProfit = 0, sessionProfit = 0, currentTilt = 0 
+                   WHERE netProfit IS NOT NULL`,
+                  () => {
+                    db.run('INSERT OR IGNORE INTO system_migrations (migrationName) VALUES (?)', [v56MigrationKey], () => {
+                      console.log('✅ [Migration v5.6] 歷史損益已安全歸零，全體玩家歷史勝率與總局數 100% 毫髮無傷保留！');
+                      resolve();
+                    });
+                  }
+                );
+              }
+            );
+          });
+        }
+
         const migrationKey = 'migration_fix_itsyuexi_holdem_jackpot_stats_20261025';
         db.get('SELECT migrationName FROM system_migrations WHERE migrationName = ?', [migrationKey], (mErr, row) => {
-          if (mErr || row) return resolve();
+          if (mErr || row) return runV56Migration();
           db.get(
             "SELECT userId FROM casino_user_stats WHERE userId = '827495671031660555' OR username = 'itsyuexi'",
             (uErr, userRow) => {
@@ -127,15 +155,15 @@ function applyStatsMigrations(db) {
                     if (!updateErr) {
                       db.run('INSERT OR IGNORE INTO system_migrations (migrationName) VALUES (?)', [migrationKey], () => {
                         console.log('✅ [Migration] 成功為開拓者 itsyuexi 補正德州撲克金庫神話派彩戰績 +303,503 星瓊！');
-                        resolve();
+                        runV56Migration();
                       });
                     } else {
-                      resolve();
+                      runV56Migration();
                     }
                   }
                 );
               } else {
-                resolve();
+                runV56Migration();
               }
             }
           );

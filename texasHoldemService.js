@@ -36,6 +36,13 @@ const {
 } = require('./pokerEvaluator');
 
 const { addToIpcVault, checkAndRedeemDebt } = require('./aventurineCasinoService');
+const {
+  calculateHoldemJackpot,
+  getVault,
+  claimJackpotVault,
+  injectVaultWithBurn,
+  recordDirectBurn,
+} = require('./casinoVaultService');
 const { getCasinoTycoon } = require('./blackMarketService');
 const { recordCasinoGame } = require('./casinoStatsService');
 
@@ -84,9 +91,7 @@ function getRandomQuote(category) {
 }
 
 function getTycoonFooter(session, fallbackText) {
-  if (session?.tycoon?.username) {
-    return `📢 今日賭場大亨【${session.tycoon.username}】贊助播出：「${session.tycoon.tauntMessage}」`;
-  }
+  // v5.6 牌桌純化：全面移除今日賭場大亨贊助播出廣告，回歸純粹博弈對決
   return fallbackText;
 }
 
@@ -128,43 +133,24 @@ function awardJades(db, userId, amount) {
 }
 
 /**
- * 德州撲克神話牌型金庫派彩計算與發放
- * 皇家同花順 / 同花順：搬走 min(25%, (個人投入 / 1000) * 1%)
- * 四條 / 鐵支：搬走 min(12.5%, (個人投入 / 1000) * 0.5%)
- * 保證留存至少 10,000 星瓊底金
+ * 德州撲克神話牌型金庫派彩計算與發放 (v5.6 對接獨立 Texas_Vault)
+ * Tier 1 葫蘆 (20% / 6x, 硬上限 30,000)
+ * Tier 2 四條 (35% / 14x, 硬上限 70,000)
+ * Tier 3 同花順 (45% / 25x, 硬上限 125,000)
+ * Tier 4 皇家同花順 (50% / 40x, 硬上限 200,000)
  */
-function claimHoldemJackpot(db, personalTotalBet, handTier) {
-  return new Promise((resolve) => {
-    db.get('SELECT currentJades FROM ipc_vault WHERE id = 1', [], (err, row) => {
-      const vaultTotal = (row && row.currentJades) ? row.currentJades : 10000;
-      let ratio = 0;
-      let handLabel = '';
-
-      if (handTier === HAND_TIERS.ROYAL_FLUSH || handTier === HAND_TIERS.STRAIGHT_FLUSH) {
-        ratio = Math.min(0.25, (personalTotalBet / 1000) * 0.01);
-        handLabel = handTier === HAND_TIERS.ROYAL_FLUSH ? '皇家同花順' : '同花順';
-      } else if (handTier === HAND_TIERS.FOUR_OF_A_KIND) {
-        ratio = Math.min(0.125, (personalTotalBet / 1000) * 0.005);
-        handLabel = '四條 / 鐵支';
-      } else if (handTier === HAND_TIERS.FULL_HOUSE) {
-        ratio = Math.min(0.05, (personalTotalBet / 1000) * 0.002);
-        handLabel = '葫蘆 / 滿堂紅';
-      }
-
-      if (ratio <= 0) return resolve({ payout: 0, ratio: 0, handLabel: '' });
-
-      const payout = Math.floor(vaultTotal * ratio);
-      const newVault = Math.max(10000, vaultTotal - payout);
-
-      db.run(
-        'UPDATE ipc_vault SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
-        [newVault, payout],
-        () => {
-          resolve({ payout, ratio, handLabel });
-        }
-      );
-    });
-  });
+async function claimHoldemJackpot(db, personalTotalBet, handTier) {
+  const vault = await getVault(db, 'texas');
+  const jp = calculateHoldemJackpot(vault.currentJades, personalTotalBet, handTier);
+  if (jp.payout > 0) {
+    await claimJackpotVault(db, 'texas', jp.payout);
+  }
+  return {
+    payout: jp.payout,
+    ratio: jp.percent,
+    handLabel: jp.label,
+    hardCap: jp.hardCap,
+  };
 }
 
 // ==========================================================
@@ -1332,17 +1318,17 @@ async function concludeUncontestedWin(session, winner) {
       .filter((s) => !s.isNpc)
       .reduce((sum, s) => sum + s.totalBet, 0);
     const vaultShare = Math.floor(totalPlayerLost * 0.40);
-    await addToIpcVault(db, vaultShare);
+    await injectVaultWithBurn(db, 'texas', vaultShare);
 
-    taxNote = `\n*(砂金通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入 IPC 金庫，60% 系統回收銷毀)*`;
+    taxNote = `\n*(砂金通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，超出上限 100% 銷毀)*`;
   } else {
-    // 玩家獲勝：抽水 5% 營運稅注入金庫
+    // 玩家獲勝：抽水 5% 營運稅注入德州金庫
     const tax = Math.floor(session.pot * 0.05);
     const netWinPool = session.pot - tax;
-    await addToIpcVault(db, tax);
+    await injectVaultWithBurn(db, 'texas', tax);
     await awardJades(db, winner.userId, netWinPool);
 
-    taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入 IPC 金庫)*`;
+    taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入德州撲克金庫)*`;
   }
 
   // 3. 場外買馬分紅
@@ -1442,8 +1428,8 @@ async function concludeShowdown(session) {
         .filter((s) => !s.isNpc)
         .reduce((sum, s) => sum + s.totalBet, 0);
       const vaultShare = Math.floor(totalPlayerLost * 0.40);
-      await addToIpcVault(db, vaultShare);
-      taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入 IPC 金庫)*`;
+      await injectVaultWithBurn(db, 'texas', vaultShare);
+      taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，超額 100% 銷毀)*`;
     } else {
       // 玩家獲勝或平局瓜分
       const profit = splitPot - w.totalBet;
@@ -1453,7 +1439,7 @@ async function concludeShowdown(session) {
         : Math.floor(splitPot * 0.05);
       const netWin = splitPot - tax;
       if (tax > 0) {
-        await addToIpcVault(db, tax);
+        await injectVaultWithBurn(db, 'texas', tax);
       }
       await awardJades(db, w.userId, netWin);
       winnerPotWonMap.set(w.seatIndex, netWin);

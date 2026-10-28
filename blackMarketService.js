@@ -115,7 +115,7 @@ function initBlackMarket(db) {
       const { dateStr } = getTaiwanTime();
       db.run(`
         INSERT OR IGNORE INTO casino_tycoon (id, userId, username, bidAmount, tauntMessage, updatedDate)
-        VALUES (1, NULL, '星際和平公司 (IPC)', 30000, '這裡由我包場了，各位開拓者請便。', ?)
+        VALUES (1, NULL, '星際和平公司 (IPC)', 5000, '這裡由我包場了，各位開拓者請便。', ?)
       `, [dateStr], (err) => {
         if (err) return reject(err);
         resolve();
@@ -138,7 +138,7 @@ function getCasinoTycoon(db) {
           id: 1,
           userId: null,
           username: '星際和平公司 (IPC)',
-          bidAmount: 30000,
+          bidAmount: 5000,
           tauntMessage: '這裡由我包場了，各位開拓者請便。',
           updatedDate: dateStr,
         });
@@ -147,7 +147,7 @@ function getCasinoTycoon(db) {
       // 每日 00:00 (UTC+8) 重置
       if (row.updatedDate !== dateStr) {
         db.run(
-          `UPDATE casino_tycoon SET userId = NULL, username = '星際和平公司 (IPC)', bidAmount = 30000, tauntMessage = '這裡由我包場了，各位開拓者請便。', updatedDate = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1`,
+          `UPDATE casino_tycoon SET userId = NULL, username = '星際和平公司 (IPC)', bidAmount = 5000, tauntMessage = '這裡由我包場了，各位開拓者請便。', updatedDate = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1`,
           [dateStr],
           (updateErr) => {
             if (updateErr) console.error('重置賭場大亨失敗:', updateErr);
@@ -157,7 +157,7 @@ function getCasinoTycoon(db) {
           id: 1,
           userId: null,
           username: '星際和平公司 (IPC)',
-          bidAmount: 30000,
+          bidAmount: 5000,
           tauntMessage: '這裡由我包場了，各位開拓者請便。',
           updatedDate: dateStr,
         });
@@ -185,7 +185,7 @@ async function bidCasinoTycoon(db, user, tauntInput) {
   const currentTycoon = await getCasinoTycoon(db);
 
   // 計算所需出價 (1.2 倍無條件進位至百位數)
-  let requiredBid = 30000;
+  let requiredBid = 5000;
   if (currentTycoon.userId) {
     if (currentTycoon.userId === user.id) {
       return {
@@ -290,7 +290,7 @@ async function updateTycoonTaunt(db, userId, newTaunt) {
 async function buildTycoonEmbed(db, userId) {
   const tycoon = await getCasinoTycoon(db);
   const { hour } = getTaiwanTime();
-  const nextBid = tycoon.userId ? Math.ceil((tycoon.bidAmount * 1.2) / 100) * 100 : 30000;
+  const nextBid = tycoon.userId ? Math.ceil((tycoon.bidAmount * 1.2) / 100) * 100 : 5000;
   const isLocked = hour >= 22;
 
   const isCurrentTycoon = tycoon.userId === userId;
@@ -301,11 +301,11 @@ async function buildTycoonEmbed(db, userId) {
     .setTitle(`👑 當前賭場大亨：【${tycoon.username}】`)
     .setDescription(
       `> 📢 *「${tycoon.tauntMessage}」*\n\n` +
-      `今日全服所有開拓者遊玩 **/詭弈砂金、/單挑21點、/大逃殺21點** 時，牌桌下方皆會強制滾動贊助播出上述嘲諷詞！\n\n` +
+      `今日登上匹諾康尼「賭場大亨」至高榮譽榜，彰顯開拓者的豪賭傳奇！\n\n` +
       `──────────────────────\n` +
       `💰 **目前冠名身價**：\`${tycoon.bidAmount.toLocaleString()}\` 星瓊\n` +
       `⚔️ **下次頂替最低出價 (+20%)**：\`${nextBid.toLocaleString()}\` 星瓊\n` +
-      `⏱️ **時段階梯退款**：18:00 前被頂退 70% ｜ 18:00 後被頂退 40% (差額全入 IPC 金庫)\n` +
+      `🛡️ **無損退款機制**：若席位被其他開拓者加價頂替，本金 100% 全額退回\n` +
       `🔒 **夜間封盤時間**：22:00 ~ 23:59 (UTC+8) ${isLocked ? '🔴 **【已封盤】**' : '🟢 **【開放競標】**'}\n` +
       `──────────────────────`
     )

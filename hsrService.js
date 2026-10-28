@@ -417,11 +417,13 @@ function buildCheckinEmbed({ username, result, isAuto = false, jadeInfo = null }
     );
 
   if (jadeInfo) {
+    const streakStr = jadeInfo.streak ? ` (連續簽到第 **${jadeInfo.streak}** 天)` : '';
+    const amountStr = (jadeInfo.amount || 1500).toLocaleString();
     embed.addFields({
       name: '💎 模擬抽卡簽到津貼',
       value: jadeInfo.alreadyClaimed
-        ? `• 今日簽到津貼已領取 (+600 星瓊)\n• 當前星瓊餘額：**${jadeInfo.balance.toLocaleString()}** 星瓊`
-        : `• **+600 星瓊** (已入帳！)\n• 當前星瓊餘額：**${jadeInfo.balance.toLocaleString()}** 星瓊`,
+        ? `• 今日簽到津貼已領取${streakStr}\n• 當前星瓊餘額：**${jadeInfo.balance.toLocaleString()}** 星瓊`
+        : `• **+${amountStr} 星瓊** (已入帳！)${streakStr}\n• 當前星瓊餘額：**${jadeInfo.balance.toLocaleString()}** 星瓊`,
       inline: false,
     });
   }

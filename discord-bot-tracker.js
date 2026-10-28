@@ -522,10 +522,10 @@ const commands = [
   // 「詭弈砂金」星際賭場相關指令
   new SlashCommandBuilder()
     .setName('詭弈砂金')
-    .setDescription('與砂金對決匹諾康尼 21 點豪賭（支援平局比骰決鬥、五龍過關與 IPC 金庫大獎）')
+    .setDescription('與砂金對決匹諾康尼 21 點豪賭（支援平局比骰決鬥、五龍過關與雙金庫大獎）')
     .addStringOption(option =>
       option.setName('下注')
-        .setDescription('下注星瓊數量 (100 ~ 50,000) 或輸入 max 滿注 / all 全押 (預設 500)')
+        .setDescription('下注星瓊數量 (100 ~ 5,000) 或輸入 max 滿注 / all 全押 (預設 500)')
         .setRequired(false)
     ),
 
@@ -536,12 +536,12 @@ const commands = [
   // 匹諾康尼 PvP 21 點雙人盲抽單挑
   new SlashCommandBuilder()
     .setName('單挑21點')
-    .setDescription('匹諾康尼 21 點雙人盲抽生死單挑 (賭注 100~50,000 星瓊)')
+    .setDescription('匹諾康尼 21 點雙人盲抽生死單挑 (賭注 100~5,000 星瓊)')
     .addIntegerOption(option =>
       option.setName('賭注')
-        .setDescription('單挑下注星瓊金額 (100 ~ 50,000)')
+        .setDescription('單挑下注星瓊金額 (100 ~ 5,000)')
         .setMinValue(100)
-        .setMaxValue(50000)
+        .setMaxValue(5000)
         .setRequired(true)
     )
     .addUserOption(option =>
@@ -553,12 +553,12 @@ const commands = [
   // 匹諾康尼 PvP 21 點多人大逃殺 ＋ 場外買馬
   new SlashCommandBuilder()
     .setName('大逃殺21點')
-    .setDescription('匹諾康尼 21 點多人大逃殺混戰 ＋ 場外買馬分紅 (入場費 100~50,000 星瓊)')
+    .setDescription('匹諾康尼 21 點多人大逃殺混戰 (入場費 1,000~5,000 星瓊)')
     .addIntegerOption(option =>
       option.setName('入場費')
-        .setDescription('每人上桌入場費 (100 ~ 50,000)')
-        .setMinValue(100)
-        .setMaxValue(50000)
+        .setDescription('每人上桌入場費 (1,000 ~ 5,000)')
+        .setMinValue(1000)
+        .setMaxValue(5000)
         .setRequired(true)
     ),
 
@@ -618,7 +618,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('賭場大亨')
-    .setDescription('查看今日賭場大亨與全服牌桌贊助嘲諷標語，或出資頂替冠名')
+    .setDescription('查看今日賭場大亨至高榮譽榜，或出資頂替冠名')
     .addStringOption(option =>
       option.setName('自訂嘲諷')
         .setDescription('頂替時或現任大亨欲顯示的自訂嘲諷詞 (最多 30 字)')
@@ -991,6 +991,7 @@ function getSnowCatPhoto() {
 // ==========================================
 // 📡 訊息監聽器 (即時統計)
 // ==========================================
+const chatMiningCooldowns = new Map();
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -1078,8 +1079,12 @@ client.on('messageCreate', async (message) => {
     (err) => { if (err) console.error('Error updating daily stats:', err); }
   );
 
-  // 增加星瓊：每次伺服器發言 +400 星瓊
-  addMessageJades(db, userId, username, 400).then(() => {
+  // v5.6 發言挖礦：每次伺服器發言 +25 星瓊，5 秒防刷冷卻
+  const now = Date.now();
+  const lastMine = chatMiningCooldowns.get(userId) || 0;
+  if (now - lastMine >= 5000) {
+    chatMiningCooldowns.set(userId, now);
+    addMessageJades(db, userId, username, 25).then(() => {
     getUserCurrency(db, userId, username).then(curr => {
       if (curr && curr.stellarJades >= 1600) {
         checkAndRedeemDebt(db, message.member, userId, curr.stellarJades).catch(() => {});
@@ -1088,6 +1093,7 @@ client.on('messageCreate', async (message) => {
   }).catch((err) => {
     console.error('更新星瓊失敗:', err.message);
   });
+  }
 
   // ==========================================
   // 🔇 禁言頻道 / 討論串黑名單 (不觸發任何迷因圖與 AI 對話回覆)
@@ -2345,7 +2351,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : 0 });
 
         // 領取每日模擬抽卡 600 星瓊津貼
-        const jadeResult = await claimDailyJades(db, user.id, user.username, 600);
+        const jadeResult = await claimDailyJades(db, user.id, user.username);
         if (jadeResult && jadeResult.balance >= 1600) {
           checkAndRedeemDebt(db, interaction.member, user.id, jadeResult.balance).catch(() => {});
         }
@@ -2354,9 +2360,9 @@ client.on('interactionCreate', async (interaction) => {
         if (!account) {
           let msg = `🎁 **今日模擬躍遷簽到津貼已入帳！**\n\n開拓者 **${user.username}**：\n`;
           if (jadeResult.alreadyClaimed) {
-            msg += `• 今日已領取過每日簽到 600 星瓊津貼。\n`;
+            msg += `• 今日已領取過每日簽到津貼（連續簽到第 **${jadeResult.streak}** 天）。\n`;
           } else {
-            msg += `• 獲得每日簽到津貼：**+600 星瓊**！\n`;
+            msg += `• 獲得每日簽到津貼：**+${jadeResult.amount.toLocaleString()} 星瓊**（連續簽到第 **${jadeResult.streak}** 天）！\n`;
           }
           msg += `• 當前星瓊餘額：**${jadeResult.balance.toLocaleString()}** 星瓊 (可進行 ${Math.floor(jadeResult.balance / 8000)} 次十連)\n\n*(💡 提示：若要同時領取崩壞：星穹鐵道遊戲官方簽到獎勵，請輸入 \`/星鐵綁定\` 進行一次性私密綁定)*`;
           return interaction.editReply({ content: msg });

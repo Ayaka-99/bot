@@ -28,6 +28,18 @@ const {
   recordCasinoGame,
 } = require('./casinoStatsService');
 
+const {
+  initCasinoVaults,
+  getVault,
+  injectVaultWithBurn,
+  recordDirectBurn,
+  claimJackpotVault,
+  adjustVault,
+  settleAllIn,
+  evaluateBlackjackSpecialHand,
+  calculateBlackjackJackpot,
+} = require('./casinoVaultService');
+
 // ==========================================
 // 🎨 視覺素材與常數設定
 // ==========================================
@@ -123,7 +135,9 @@ function initAventurineCasino(db) {
         )
       `);
 
-      // 1. IPC 公司金庫表
+      // 1. IPC 公司金庫表 (舊版相容) 與 雙軌獨立金庫表 (v5.6)
+      initCasinoVaults(db).catch(console.error);
+
       db.run(`
         CREATE TABLE IF NOT EXISTS ipc_vault (
           id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -216,69 +230,14 @@ function getTaiwanDateString(date = new Date()) {
 }
 
 // ==========================================
-// 🏦 IPC 金庫管理函式
+// 🏦 IPC 金庫相容管理函式 (轉接至 21 點專屬金庫 BJ_Vault)
 // ==========================================
 function getIpcVault(db) {
-  return new Promise((resolve, reject) => {
-    db.get('SELECT currentJades, totalPaidOut FROM ipc_vault WHERE id = 1', (err, row) => {
-      if (err) return reject(err);
-      resolve(row || { currentJades: 10000, totalPaidOut: 0 });
-    });
-  });
+  return getVault(db, 'bj');
 }
 
 function addToIpcVault(db, amount) {
-  if (amount <= 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    db.run(
-      'UPDATE ipc_vault SET currentJades = currentJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
-      [amount],
-      (err) => {
-        if (err) return reject(err);
-        resolve();
-      }
-    );
-  });
-}
-
-/**
- * 計算並發放底池獎勵
- * 規則 (2026-10-23 改版)：
- * 1. 取消 10 倍限制
- * 2. 每下注 1,000 星瓊可分得金庫 1% 的派彩，滿注 50,000 最多拿 50% 的派彩 (上限 50%)
- * 3. 金庫扣除發放金額後，維持至少 10,000 星瓊種子基金
- */
-function claimJackpotVault(db, bet = 100) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const vault = await getIpcVault(db);
-      const vaultTotal = vault.currentJades || 10000;
-
-      // 1. 每下注 1,000 星瓊拿 1%，滿注 50,000 拿最多 50% (取消 10 倍上限)
-      const shareRatio = Math.min(0.50, (bet / 1000) * 0.01);
-      const payout = Math.floor(vaultTotal * shareRatio);
-
-      // 2. 計算金庫新餘額 (扣減 payout，並保證不低於 10,000 星瓊種子基金)
-      const newBalance = Math.max(10000, vaultTotal - payout);
-
-      db.run(
-        'UPDATE ipc_vault SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
-        [newBalance, payout],
-        (err) => {
-          if (err) return reject(err);
-          resolve({
-            payout,
-            shareRatio,
-            rawReward: payout,
-            vaultBefore: vaultTotal,
-            vaultAfter: newBalance,
-          });
-        }
-      );
-    } catch (e) {
-      reject(e);
-    }
-  });
+  return injectVaultWithBurn(db, 'bj', amount);
 }
 
 // ==========================================
@@ -517,12 +476,13 @@ function buildGameEmbed(session, options = {}) {
       }
     );
 
-  const tycoonNotice = session.tycoon
-    ? `📢 今日賭場大亨【${session.tycoon.username}】贊助播出：「${session.tycoon.tauntMessage}」`
+  // v5.6 牌桌純化：全面移除牌桌 Footer 大亨廣告
+  const footerText = gameOver
+    ? '匹諾康尼頂級豪賭・對局已結束'
     : '請點擊下方按鈕進行抉擇・60 秒無動作自動結算';
 
   embed.setFooter({
-    text: gameOver ? tycoonNotice : `${tycoonNotice}\n(60 秒無動作自動結算)`,
+    text: footerText,
     iconURL: AVENTURINE_AVATAR,
   }).setTimestamp();
 
@@ -540,7 +500,7 @@ function buildGameActionRow(session, userJades = 0) {
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_hit_${session.userId}`)
-      .setLabel('🎲 加注抽牌 (Hit)')
+      .setLabel('🎲【跟注抽牌】')
       .setStyle(ButtonStyle.Primary)
   );
 
@@ -548,39 +508,39 @@ function buildGameActionRow(session, userJades = 0) {
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_stand_${session.userId}`)
-      .setLabel('🛡️ 穩健停牌 (Stand)')
+      .setLabel('🛡️【鎖定籌碼】')
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // 3. 全押盲注 (Double Down) - 限首回合且非 All-in 且有足夠星瓊追加
-  const canDouble = !session.isAllIn && session.turnCount === 1 && userJades >= session.bet && session.bet * 2 <= 100000;
+  // 3. 孤注一擲 (Double Down) - 限首回合且非 All-in 且有足夠星瓊追加
+  const canDouble = !session.isAllIn && session.turnCount === 1 && userJades >= session.bet && session.bet * 2 <= 10000;
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_double_${session.userId}`)
-      .setLabel('🔥 全押盲注 (Double)')
+      .setLabel('🔥【孤注一擲】')
       .setStyle(ButtonStyle.Danger)
-      .setDisabled(!canDouble)
+      .setDisabled(!canDouble || session.isAllIn)
   );
 
   return row;
 }
 
 /**
- * 構建牌局結算 (GameOver) 時的快捷按鈕 (滿注開局 50,000 / 再來一局)
+ * 構建牌局結算 (GameOver) 時的快捷按鈕 (滿注開局 5,000 / 再來一局)
  */
 function buildGameOverActionRow(userId, lastBet = 500) {
   const row = new ActionRowBuilder();
 
-  // 1. 滿注開局 (50,000)
+  // 1. 滿注開局 (5,000)
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_maxbet_${userId}`)
-      .setLabel('🔥 滿注開局 (50,000)')
+      .setLabel('🔥 滿注開局 (5,000)')
       .setStyle(ButtonStyle.Danger)
   );
 
-  // 2. 再來一局 (同注額)
-  const rebetAmount = Math.min(Math.max(lastBet, 100), 50000);
+  // 2. 再來一局 (同注額，上限 5,000)
+  const rebetAmount = Math.min(Math.max(lastBet, 100), 5000);
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_rebet_${userId}_${rebetAmount}`)
@@ -591,26 +551,32 @@ function buildGameOverActionRow(userId, lastBet = 500) {
   return row;
 }
 
-// 構建平手比骰戰 Embed
+// 構建平手比骰戰 Embed (v5.6 二階段手動擲骰)
 function buildDiceDuelEmbed(session, options = {}) {
-  const { quote, playerRoll, dealerRoll, isTieReroll = false, finalWinner = null } = options;
+  const { quote, playerRoll, dealerRoll, finalWinner = null, isTimeout = false } = options;
 
   let duelDesc = `> *${quote || getRandomQuote('dicePush')}*\n\n` +
-    `⚡ **平局觸發 Boss 戰「賭命轉盤」**！\n` +
-    `雙方各擲 2 顆命運之骰（2~12 點）：\n` +
-    `• **開拓者獲勝**：觸發【弱點擊破】，贏得 **1.2 倍** 獎金！\n` +
-    `• **詭弈砂金獲勝**：觸發【死戰到底】，扣除 50% 下注籌碼，退還 50%。\n` +
-    `• **點數相同**：自動重新擲骰直到分出勝負！\n` +
+    `⚡ **平局觸發 Boss 戰「賭命轉盤」手動擲骰決鬥**！\n` +
     `──────────────────────\n`;
 
-  if (playerRoll && dealerRoll) {
-    const pSum = playerRoll[0] + playerRoll[1];
+  if (dealerRoll && !playerRoll) {
+    // 砂金先攻完成，等待開拓者 15 秒手動投擲
     const dSum = dealerRoll[0] + dealerRoll[1];
-    duelDesc += `🎲 **你的骰子**：\`[ ${DICE_EMOJIS[playerRoll[0]]} ${playerRoll[0]} ]\` + \`[ ${DICE_EMOJIS[playerRoll[1]]} ${playerRoll[1]} ]\` = **${pSum} 點**\n` +
-      `🎲 **砂金骰子**：\`[ ${DICE_EMOJIS[dealerRoll[0]]} ${dealerRoll[0]} ]\` + \`[ ${DICE_EMOJIS[dealerRoll[1]]} ${dealerRoll[1]} ]\` = **${dSum} 點**\n\n`;
+    duelDesc += `🎲 **砂金先攻擲骰**：\`[ ${DICE_EMOJIS[dealerRoll[0]]} ${dealerRoll[0]} ]\` + \`[ ${DICE_EMOJIS[dealerRoll[1]]} ${dealerRoll[1]} ]\` = **${dSum} 點**\n\n` +
+      `⏱️ **輪到你了！請於 15 秒內點擊下方按鈕投擲雙骰應戰！**\n` +
+      `• **開拓者點數 > 砂金**：觸發【弱點擊破】，贏得 **1.2 倍** 勝者獎勵！\n` +
+      `• **開拓者點數 <= 砂金**：觸發【死戰到底】，扣除 50% 下注籌碼，退還 50%。\n` +
+      `• **15 秒逾時未應戰**：視同棄賽，依死戰規則結算。`;
+  } else if (dealerRoll && playerRoll) {
+    const dSum = dealerRoll[0] + dealerRoll[1];
+    const pSum = playerRoll[0] + playerRoll[1];
+    duelDesc += `🎲 **砂金先攻**：\`[ ${DICE_EMOJIS[dealerRoll[0]]} ${dealerRoll[0]} ]\` + \`[ ${DICE_EMOJIS[dealerRoll[1]]} ${dealerRoll[1]} ]\` = **${dSum} 點**\n` +
+      `🎲 **開拓者應戰**：${isTimeout ? '*[ 逾時未投擲 ]*' : `\`[ ${DICE_EMOJIS[playerRoll[0]]} ${playerRoll[0]} ]\` + \`[ ${DICE_EMOJIS[playerRoll[1]]} ${playerRoll[1]} ]\` = **${pSum} 點**`}\n\n`;
 
-    if (isTieReroll) {
-      duelDesc += `⚠️ **雙方點數相同 (${pSum} 點)！轉盤再度轉動，自動重新擲骰！**\n`;
+    if (finalWinner === 'PLAYER') {
+      duelDesc += `✨ **開拓者點數壓制！成功擊破砂金弱點！**\n`;
+    } else {
+      duelDesc += `💥 **點數未超越砂金！觸發【死戰到底】退還半數籌碼！**\n`;
     }
   }
 
@@ -621,15 +587,15 @@ function buildDiceDuelEmbed(session, options = {}) {
       name: 'Boss 戰 —— 詭弈砂金「賭命轉盤」',
       iconURL: AVENTURINE_AVATAR,
     })
-    .setTitle(finalWinner ? '🎲 命運之骰決鬥結果' : '🎲 轉盤已就緒！請投擲命運之骰！')
+    .setTitle(finalWinner ? '🎲 命運之骰決鬥結果' : '🎲 砂金先攻完畢！請投擲雙骰應戰 (15s)！')
     .setDescription(duelDesc);
 
-  const tycoonNotice = session.tycoon
-    ? `📢 今日賭場大亨【${session.tycoon.username}】贊助播出：「${session.tycoon.tauntMessage}」`
-    : '賭命轉盤已結算・無冷卻可立即再次開局！';
+  const footerText = finalWinner
+    ? '賭命轉盤已結算・無冷卻可立即再次開局！'
+    : '請於 15 秒內點擊按鈕應戰・逾時將視為棄賽';
 
   embed.setFooter({
-    text: finalWinner ? tycoonNotice : `${tycoonNotice}\n(點擊下方按鈕擲骰・60 秒逾時砂金將代為投擲)`,
+    text: footerText,
     iconURL: AVENTURINE_AVATAR,
   }).setTimestamp();
 
@@ -752,22 +718,22 @@ async function startCasinoGame(db, interaction, user, betInput) {
     }
     bet = availableJades;
     isAllIn = true;
-  } else if (rawBet === 'max' || rawBet === '滿注' || rawBet === '50000') {
-    bet = Math.min(50000, availableJades);
+  } else if (rawBet === 'max' || rawBet === '滿注' || rawBet === '5000') {
+    bet = Math.min(5000, availableJades);
   } else if (/^\d+$/.test(rawBet)) {
     bet = parseInt(rawBet, 10);
   }
 
   if (isNaN(bet) || bet < 100) {
     return interaction.reply({
-      content: '❌ **無效的下注金額！**\n最低下注額為 `100` 星瓊，最高單注上限為 `50,000` 星瓊 (滿注請輸入 `max` 或 `滿注`，全押請輸入 `all`)。',
+      content: '❌ **無效的下注金額！**\n最低下注額為 `100` 星瓊，最高單注上限為 `5,000` 星瓊 (滿注請輸入 `max` 或 `滿注`，全押請輸入 `all`)。',
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  // 非 All-in 模式下注上限為 50,000
-  if (!isAllIn && bet > 50000) {
-    bet = 50000;
+  // 非 All-in 模式常規單注上限為 5,000
+  if (!isAllIn && bet > 5000) {
+    bet = 5000;
   }
 
   if (availableJades < bet) {
@@ -814,50 +780,63 @@ async function startCasinoGame(db, interaction, user, betInput) {
   if (pScore.isBlackjack) {
     // 莊家翻底牌
     if (dScore.isBlackjack) {
-      // 雙方都是 BJ -> 進入比骰
+      // 雙方都是 BJ -> 進入比骰（砂金先攻 2d6，15 秒倒數）
       session.state = 'DICE_DUEL';
+      const dD1 = Math.floor(Math.random() * 6) + 1;
+      const dD2 = Math.floor(Math.random() * 6) + 1;
+      session.dealerDiceRoll = [dD1, dD2];
       activeGames.set(userId, session);
+
       const duelEmbed = buildDiceDuelEmbed(session, {
-        quote: '「起手雙雙天胡？！看來命運將我們推上了同一個天平，用骰子一決生死吧！」',
+        quote: '「起手雙雙天胡？！看來命運將我們推上了同一個天平，用雙骰一決生死吧！」',
+        dealerRoll: [dD1, dD2],
       });
       const diceRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`aventurine_dice_${userId}`)
-          .setLabel('🎲 投擲命運之骰！')
+          .setLabel('🎲【投擲雙骰應戰】(15s)')
           .setStyle(ButtonStyle.Success)
       );
 
       await interaction.reply({ embeds: [duelEmbed], components: [diceRow] });
-      startTimeoutTimer(db, session, interaction);
+      startDiceTimeoutTimer(db, session, interaction);
       return;
     }
 
     // 玩家獨得 Blackjack
     setCooldown(userId, 60);
 
-    // 檢查同花色 Blackjack (搬空金庫)
     let winProfit = 0;
     let jackpotClaimed = 0;
     let extraNote = '';
 
-    if (pScore.isSuitedBlackjack) {
-      const jp = await claimJackpotVault(db, bet);
-      jackpotClaimed = jp.payout;
-      winProfit = bet * 2;
-      const ratioPercent = (jp.shareRatio * 100).toFixed(1);
-      extraNote = `\n👑 **觸發【同花色 Blackjack】神話大獎！**\n` +
-        `按投注 ${bet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%) 分得 IPC 金庫：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+    const bjVault = await getVault(db, 'bj');
+
+    if (isAllIn) {
+      const allInRes = settleAllIn(0, bet, true, bjVault.currentJades, 5000, 200000);
+      winProfit = allInRes.profit;
+      await new Promise((res) => {
+        db.run(
+          'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+          [allInRes.newVault, allInRes.profit],
+          () => res()
+        );
+      });
     } else {
       winProfit = bet * 2; // 1:2 賠率
     }
 
-    // All-in 且獲利超過 10 萬強制徵收 15% 暴利稅 (10% 銷毀, 5% 入金庫)
-    if (isAllIn && bet > 100000) {
-      const windfallTax = Math.floor(winProfit * 0.15);
-      const vaultCut = Math.floor(winProfit * 0.05);
-      await addToIpcVault(db, vaultCut);
-      winProfit -= windfallTax;
-      extraNote += `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
+    // 檢查特殊牌型 (Tier 1: 同花 Blackjack)
+    const specialHand = evaluateBlackjackSpecialHand(playerCards, pScore);
+    if (specialHand) {
+      const currentBjVault = await getVault(db, 'bj');
+      const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(bet, 5000), specialHand);
+      if (calculated > 0) {
+        const jp = await claimJackpotVault(db, 'bj', calculated);
+        jackpotClaimed = jp.payout;
+        extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+          `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+      }
     }
 
     const winAmount = bet + winProfit + jackpotClaimed;
@@ -882,8 +861,8 @@ async function startCasinoGame(db, interaction, user, betInput) {
     checkAndRedeemDebt(db, interaction.member, userId, currentJades - bet + winAmount);
 
     const winEmbed = buildGameEmbed(session, {
-      title: pScore.isSuitedBlackjack ? '🏆【同花天胡】搬空星際和平公司金庫！' : '🎉【天胡 Blackjack】榮耀歸於開拓者！',
-      quote: pScore.isSuitedBlackjack ? getRandomQuote('jackpotVault') : getRandomQuote('blackjack'),
+      title: specialHand ? `🏆【${specialHand.name}】搬空星際和平公司金庫！` : '🎉【天胡 Blackjack】榮耀歸於開拓者！',
+      quote: specialHand ? getRandomQuote('jackpotVault') : getRandomQuote('blackjack'),
       color: SUCCESS_COLOR,
       gameOver: true,
       showDealerCards: true,
@@ -909,7 +888,7 @@ async function startCasinoGame(db, interaction, user, betInput) {
 }
 
 // ==========================================
-// ⏰ 60 秒超時防呆計時器
+// ⏰ 超時防呆計時器 (常規 60 秒 / 比骰 15 秒)
 // ==========================================
 function startTimeoutTimer(db, session, interaction) {
   if (session.timeoutTimer) clearTimeout(session.timeoutTimer);
@@ -920,11 +899,59 @@ function startTimeoutTimer(db, session, interaction) {
     if (session.state === 'PLAYER_TURN') {
       // 逾時自動停牌
       handlePlayerStand(db, session, interaction, true).catch(console.error);
-    } else if (session.state === 'DICE_DUEL') {
-      // 逾時砂金代為擲骰
-      handleDiceRoll(db, session, interaction, true).catch(console.error);
     }
   }, 60000);
+}
+
+function startDiceTimeoutTimer(db, session, interaction) {
+  if (session.timeoutTimer) clearTimeout(session.timeoutTimer);
+
+  session.timeoutTimer = setTimeout(async () => {
+    if (!activeGames.has(session.userId)) return;
+    activeGames.delete(session.userId);
+
+    // 15 秒逾時未投擲應戰，視同棄賽
+    const refund = Math.floor(session.bet * 0.5);
+    const lostAmount = session.bet - refund;
+    const vaultShare = Math.floor(lostAmount * 0.4);
+    await injectVaultWithBurn(db, 'bj', vaultShare);
+    await recordDirectBurn(db, 'bj', lostAmount - vaultShare, 'PVE_DICE_TIMEOUT_BURN');
+
+    db.run(
+      'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+      [refund, session.userId]
+    );
+
+    recordCasinoGame(db, {
+      userId: session.userId,
+      username: session.username,
+      mode: 'pve',
+      result: 'LOSE',
+      bet: session.bet,
+      won: refund,
+      net: -lostAmount,
+    }).catch(() => {});
+
+    const embed = buildDiceDuelEmbed(session, {
+      quote: '「猶豫就會敗北。15 秒已過，你未能投擲命運之骰，砂金收下半數籌碼，餘額奉還。」',
+      dealerRoll: session.dealerDiceRoll,
+      playerRoll: [0, 0],
+      finalWinner: 'DEALER',
+      isTimeout: true,
+    });
+
+    embed.addFields({
+      name: '⏱️ 逾時未應戰 (死戰結算)',
+      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊注入 21 點金庫)*`,
+    });
+
+    const row = buildGameOverActionRow(session.userId, session.bet);
+    try {
+      await interaction.editReply({ embeds: [embed], components: [row] });
+    } catch (err) {
+      console.warn('[詭弈砂金] 比骰超時更新失敗:', err.message);
+    }
+  }, 15000);
 }
 
 // ==========================================
@@ -943,19 +970,52 @@ async function handlePlayerHit(db, session, interaction) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    // 輸掉籌碼的 40% 注入 IPC 金庫
-    const vaultShare = Math.floor(session.bet * 0.4);
-    await addToIpcVault(db, vaultShare);
+    let lossNote = '';
+    let refundAmount = 0;
 
-    recordCasinoGame(db, {
-      userId: session.userId,
-      username: session.username,
-      mode: 'pve',
-      result: 'LOSE',
-      bet: session.bet,
-      won: 0,
-      net: -session.bet,
-    }).catch(() => {});
+    if (session.isAllIn) {
+      const bjVault = await getVault(db, 'bj');
+      const allInRes = settleAllIn(0, session.bet, false, bjVault.currentJades, 5000, 200000);
+      refundAmount = allInRes.finalBalance;
+      if (refundAmount > 0) {
+        db.run(
+          'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+          [refundAmount, session.userId]
+        );
+      }
+      db.run(
+        'UPDATE casino_vaults SET currentJades = ?, totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+        [allInRes.newVault, allInRes.burned]
+      );
+      recordCasinoGame(db, {
+        userId: session.userId,
+        username: session.username,
+        mode: 'pve',
+        result: 'LOSE',
+        bet: session.bet,
+        won: refundAmount,
+        net: -allInRes.loss,
+      }).catch(() => {});
+
+      lossNote = `損失籌碼：**-${allInRes.loss.toLocaleString()}** 星瓊\n` +
+        `*(All-in 截斷保護：退回超額 ${refundAmount.toLocaleString()} 星瓊；沒收有效押注並徵收 10% 懲罰稅共銷毀 ${allInRes.burned.toLocaleString()} 星瓊)*`;
+    } else {
+      const vaultShare = Math.floor(session.bet * 0.4);
+      await injectVaultWithBurn(db, 'bj', vaultShare);
+      await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_BUST_BURN');
+
+      recordCasinoGame(db, {
+        userId: session.userId,
+        username: session.username,
+        mode: 'pve',
+        result: 'LOSE',
+        bet: session.bet,
+        won: 0,
+        net: -session.bet,
+      }).catch(() => {});
+
+      lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+    }
 
     const embed = buildGameEmbed(session, {
       title: '💥 爆牌出局！籌碼歸入砂金口袋',
@@ -967,7 +1027,7 @@ async function handlePlayerHit(db, session, interaction) {
 
     embed.addFields({
       name: '💸 結算損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
+      value: lossNote,
     });
 
     return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
@@ -979,8 +1039,36 @@ async function handlePlayerHit(db, session, interaction) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    const winProfit = session.bet * 3; // 1:3 奇蹟倍率
-    const totalReturn = session.bet + winProfit;
+    let winProfit = 0;
+    let extraNote = '';
+    const bjVault = await getVault(db, 'bj');
+
+    if (session.isAllIn) {
+      const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
+      winProfit = allInRes.profit;
+      db.run(
+        'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+        [allInRes.newVault, allInRes.profit]
+      );
+    } else {
+      winProfit = session.bet * 3; // 1:3 奇蹟倍率
+    }
+
+    // 檢查特殊牌型 (Tier 2: 五龍過關)
+    let jackpotClaimed = 0;
+    const specialHand = evaluateBlackjackSpecialHand(session.playerCards, pScore);
+    if (specialHand) {
+      const currentBjVault = await getVault(db, 'bj');
+      const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
+      if (calculated > 0) {
+        const jp = await claimJackpotVault(db, 'bj', calculated);
+        jackpotClaimed = jp.payout;
+        extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+          `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+      }
+    }
+
+    const totalReturn = session.bet + winProfit + jackpotClaimed;
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -994,7 +1082,7 @@ async function handlePlayerHit(db, session, interaction) {
       result: 'WIN',
       bet: session.bet,
       won: totalReturn,
-      net: winProfit,
+      net: winProfit + jackpotClaimed,
     }).catch(() => {});
 
     const embed = buildGameEmbed(session, {
@@ -1007,7 +1095,7 @@ async function handlePlayerHit(db, session, interaction) {
 
     embed.addFields({
       name: '💰 結算獲利 (1:3 奇蹟倍率)',
-      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet} + 獲利 ${winProfit.toLocaleString()})`,
+      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 獲利 ${winProfit.toLocaleString()})${extraNote}`,
     });
 
     return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
@@ -1044,39 +1132,43 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     dScore = calculateHandScore(session.dealerCards);
   }
 
-  // 檢查是否為 7-7-7 (匹諾康尼頭獎)
-  let jackpotShare = 0;
-  let jackpotFieldNote = '';
-  if (pScore.is777) {
-    const jp = await claimJackpotVault(db, session.bet);
-    jackpotShare = jp.payout;
-    const ratioPercent = (jp.shareRatio * 100).toFixed(1);
-    jackpotFieldNote = `\n👑 **7-7-7 匹諾康尼頭獎**：按投注 ${session.bet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%) 分得 IPC 金庫：**+${jackpotShare.toLocaleString()}** 星瓊！`;
-  }
+  // 檢查特殊牌型 (Tier 1~4)
+  const specialHand = evaluateBlackjackSpecialHand(session.playerCards, pScore);
 
   // 結果判定
-  // 1. 莊家爆牌 -> 玩家獲勝
-  if (dScore.isBust) {
+  // 1. 莊家爆牌 或 玩家點數大於砂金 -> 玩家獲勝
+  if (dScore.isBust || pScore.total > dScore.total) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
     let winProfit = 0;
     let extraNote = '';
+    const bjVault = await getVault(db, 'bj');
+
     if (session.isAllIn) {
-      winProfit = session.bet;
-      if (session.bet > 100000) {
-        const windfallTax = Math.floor(winProfit * 0.15);
-        const vaultCut = Math.floor(winProfit * 0.05);
-        await addToIpcVault(db, vaultCut);
-        winProfit -= windfallTax;
-        extraNote = `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
-      }
+      const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
+      winProfit = allInRes.profit;
+      db.run(
+        'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+        [allInRes.newVault, allInRes.profit]
+      );
     } else {
       winProfit = session.bet;
     }
 
-    winProfit += jackpotShare;
-    const totalReturn = session.bet + winProfit;
+    let jackpotClaimed = 0;
+    if (specialHand) {
+      const currentBjVault = await getVault(db, 'bj');
+      const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
+      if (calculated > 0) {
+        const jp = await claimJackpotVault(db, 'bj', calculated);
+        jackpotClaimed = jp.payout;
+        extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+          `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+      }
+    }
+
+    const totalReturn = session.bet + winProfit + jackpotClaimed;
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -1090,14 +1182,26 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       result: 'WIN',
       bet: session.bet,
       won: totalReturn,
-      net: winProfit,
+      net: winProfit + jackpotClaimed,
     }).catch(() => {});
 
     checkAndRedeemDebt(db, interaction.member, session.userId, totalReturn);
 
+    const winTitle = specialHand
+      ? `🏆【${specialHand.name}】搬空星際和平公司金庫！`
+      : dScore.isBust
+      ? '🎉 砂金爆牌！開拓者獲勝！'
+      : '🎉 點數壓制！開拓者拿下勝局！';
+
+    const winQuote = specialHand
+      ? getRandomQuote('jackpotVault')
+      : dScore.isBust
+      ? getRandomQuote('dealerBust')
+      : getRandomQuote('playerWin');
+
     const embed = buildGameEmbed(session, {
-      title: pScore.is777 ? '🎰【7-7-7 匹諾康尼頭獎】搬空金庫！' : '🎉 砂金爆牌！開拓者獲勝！',
-      quote: pScore.is777 ? getRandomQuote('jackpotVault') : getRandomQuote('dealerBust'),
+      title: winTitle,
+      quote: winQuote,
       color: SUCCESS_COLOR,
       gameOver: true,
       showDealerCards: true,
@@ -1105,7 +1209,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
 
     embed.addFields({
       name: '💰 結算獲利 (1:1 賠率)',
-      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 獲利 ${winProfit.toLocaleString()})${jackpotFieldNote}${extraNote}`,
+      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 獲利 ${winProfit.toLocaleString()})${extraNote}`,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1115,86 +1219,57 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     return interaction.update({ embeds: [embed], components: [row] });
   }
 
-  // 2. 玩家點數大於砂金 -> 玩家獲勝
-  if (pScore.total > dScore.total) {
-    activeGames.delete(session.userId);
-    setCooldown(session.userId, 60);
-
-    let winProfit = 0;
-    let extraNote = '';
-    if (session.isAllIn) {
-      winProfit = session.bet;
-      if (session.bet > 100000) {
-        const windfallTax = Math.floor(winProfit * 0.15);
-        const vaultCut = Math.floor(winProfit * 0.05);
-        await addToIpcVault(db, vaultCut);
-        winProfit -= windfallTax;
-        extraNote = `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
-      }
-    } else {
-      winProfit = session.bet;
-    }
-
-    winProfit += jackpotShare;
-    const totalReturn = session.bet + winProfit;
-
-    db.run(
-      'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-      [totalReturn, session.userId]
-    );
-
-    recordCasinoGame(db, {
-      userId: session.userId,
-      username: session.username,
-      mode: 'pve',
-      result: 'WIN',
-      bet: session.bet,
-      won: totalReturn,
-      net: winProfit,
-    }).catch(() => {});
-
-    checkAndRedeemDebt(db, interaction.member, session.userId, totalReturn);
-
-    const embed = buildGameEmbed(session, {
-      title: pScore.is777 ? '🎰【7-7-7 匹諾康尼頭獎】搬空金庫！' : '🎉 點數壓制！開拓者拿下勝局！',
-      quote: pScore.is777 ? getRandomQuote('jackpotVault') : getRandomQuote('playerWin'),
-      color: SUCCESS_COLOR,
-      gameOver: true,
-      showDealerCards: true,
-    });
-
-    embed.addFields({
-      name: '💰 結算獲利 (1:1 賠率)',
-      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 獲利 ${winProfit.toLocaleString()})${jackpotFieldNote}${extraNote}`,
-    });
-
-    const row = buildGameOverActionRow(session.userId, session.bet);
-    if (isTimeout) {
-      return interaction.editReply({ embeds: [embed], components: [row] });
-    }
-    return interaction.update({ embeds: [embed], components: [row] });
-  }
-
-  // 3. 玩家點數小於砂金 -> 砂金獲勝
+  // 2. 玩家點數小於砂金 -> 砂金獲勝
   if (pScore.total < dScore.total) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    let vaultShare = Math.floor(session.bet * 0.4);
-    if (session.isAllIn) {
-      vaultShare = Math.min(Math.floor(session.bet * 0.10), 100000);
-    }
-    await addToIpcVault(db, vaultShare);
+    let lossNote = '';
+    let refundAmount = 0;
 
-    recordCasinoGame(db, {
-      userId: session.userId,
-      username: session.username,
-      mode: 'pve',
-      result: 'LOSE',
-      bet: session.bet,
-      won: 0,
-      net: -session.bet,
-    }).catch(() => {});
+    if (session.isAllIn) {
+      const bjVault = await getVault(db, 'bj');
+      const allInRes = settleAllIn(0, session.bet, false, bjVault.currentJades, 5000, 200000);
+      refundAmount = allInRes.finalBalance;
+      if (refundAmount > 0) {
+        db.run(
+          'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+          [refundAmount, session.userId]
+        );
+      }
+      db.run(
+        'UPDATE casino_vaults SET currentJades = ?, totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+        [allInRes.newVault, allInRes.burned]
+      );
+      recordCasinoGame(db, {
+        userId: session.userId,
+        username: session.username,
+        mode: 'pve',
+        result: 'LOSE',
+        bet: session.bet,
+        won: refundAmount,
+        net: -allInRes.loss,
+      }).catch(() => {});
+
+      lossNote = `損失籌碼：**-${allInRes.loss.toLocaleString()}** 星瓊\n` +
+        `*(All-in 截斷保護：退回超額 ${refundAmount.toLocaleString()} 星瓊；沒收有效押注並徵收 10% 懲罰稅共銷毀 ${allInRes.burned.toLocaleString()} 星瓊)*`;
+    } else {
+      const vaultShare = Math.floor(session.bet * 0.4);
+      await injectVaultWithBurn(db, 'bj', vaultShare);
+      await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_STAND_LOSS_BURN');
+
+      recordCasinoGame(db, {
+        userId: session.userId,
+        username: session.username,
+        mode: 'pve',
+        result: 'LOSE',
+        bet: session.bet,
+        won: 0,
+        net: -session.bet,
+      }).catch(() => {});
+
+      lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+    }
 
     const embed = buildGameEmbed(session, {
       title: '🃏 點數不及！砂金技高一籌',
@@ -1206,7 +1281,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
 
     embed.addFields({
       name: '💸 結算損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 ${session.isAllIn ? '10% (上限10萬)' : '40%'} 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
+      value: lossNote,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1216,16 +1291,21 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     return interaction.update({ embeds: [embed], components: [row] });
   }
 
-  // 4. 點數相同 (Push) -> 觸發 Boss 戰「賭命轉盤」比骰子
+  // 3. 點數相同 (Push) -> 觸發 Boss 戰「賭命轉盤」手動擲骰決戰（砂金先攻 2d6，15 秒倒數）
   session.state = 'DICE_DUEL';
+  const dD1 = Math.floor(Math.random() * 6) + 1;
+  const dD2 = Math.floor(Math.random() * 6) + 1;
+  session.dealerDiceRoll = [dD1, dD2];
+
   const duelEmbed = buildDiceDuelEmbed(session, {
     quote: getRandomQuote('dicePush'),
+    dealerRoll: [dD1, dD2],
   });
 
   const diceRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_dice_${session.userId}`)
-      .setLabel('🎲 投擲命運之骰！')
+      .setLabel('🎲【投擲雙骰應戰】(15s)')
       .setStyle(ButtonStyle.Success)
   );
 
@@ -1235,11 +1315,11 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     await interaction.update({ embeds: [duelEmbed], components: [diceRow] });
   }
 
-  startTimeoutTimer(db, session, interaction);
+  startDiceTimeoutTimer(db, session, interaction);
 }
 
 // ==========================================
-// 🔥 按鈕邏輯：全押盲注 (Double Down)
+// 🔥 按鈕邏輯：孤注一擲 (Double Down)
 // ==========================================
 async function handlePlayerDouble(db, session, interaction) {
   // 檢查玩家餘額是否足夠加倍
@@ -1251,7 +1331,7 @@ async function handlePlayerDouble(db, session, interaction) {
 
   if (currency.stellarJades < session.bet) {
     return interaction.reply({
-      content: `❌ 星瓊不足，無法進行全押盲注！追加需 **${session.bet.toLocaleString()}** 星瓊。`,
+      content: `❌ 星瓊不足，無法進行孤注一擲！追加需 **${session.bet.toLocaleString()}** 星瓊。`,
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -1278,7 +1358,8 @@ async function handlePlayerDouble(db, session, interaction) {
     setCooldown(session.userId, 60);
 
     const vaultShare = Math.floor(session.bet * 0.4);
-    await addToIpcVault(db, vaultShare);
+    await injectVaultWithBurn(db, 'bj', vaultShare);
+    await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_DOUBLE_BUST_BURN');
 
     recordCasinoGame(db, {
       userId: session.userId,
@@ -1300,7 +1381,7 @@ async function handlePlayerDouble(db, session, interaction) {
 
     embed.addFields({
       name: '💸 結算雙倍損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入星際和平公司金庫)*`,
+      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`,
     });
 
     return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
@@ -1315,43 +1396,27 @@ async function handlePlayerDouble(db, session, interaction) {
 // ==========================================
 async function handleDiceRoll(db, session, interaction, isTimeout = false) {
   if (session.timeoutTimer) clearTimeout(session.timeoutTimer);
-
-  let pD1 = Math.floor(Math.random() * 6) + 1;
-  let pD2 = Math.floor(Math.random() * 6) + 1;
-  let dD1 = Math.floor(Math.random() * 6) + 1;
-  let dD2 = Math.floor(Math.random() * 6) + 1;
-
-  let pSum = pD1 + pD2;
-  let dSum = dD1 + dD2;
-
-  // 若骰子依然平手，自動重新擲骰直到分出勝負
-  let tieRerollCount = 0;
-  while (pSum === dSum) {
-    tieRerollCount++;
-    pD1 = Math.floor(Math.random() * 6) + 1;
-    pD2 = Math.floor(Math.random() * 6) + 1;
-    dD1 = Math.floor(Math.random() * 6) + 1;
-    dD2 = Math.floor(Math.random() * 6) + 1;
-    pSum = pD1 + pD2;
-    dSum = dD1 + dD2;
-  }
-
   activeGames.delete(session.userId);
   setCooldown(session.userId, 60);
 
+  const pD1 = Math.floor(Math.random() * 6) + 1;
+  const pD2 = Math.floor(Math.random() * 6) + 1;
+  const pSum = pD1 + pD2;
+
+  const dealerRoll = session.dealerDiceRoll || [Math.floor(Math.random() * 6) + 1, Math.floor(Math.random() * 6) + 1];
+  const dSum = dealerRoll[0] + dealerRoll[1];
+
   if (pSum > dSum) {
-    // 玩家勝利：弱點擊破，獲得 1.2 倍獎金
+    // 玩家勝利：弱點擊破，獲得 1.2 倍勝者獎勵
     let winProfit = 0;
-    let extraNote = '';
     if (session.isAllIn) {
-      winProfit = Math.floor(session.bet * 1.2);
-      if (session.bet > 100000) {
-        const windfallTax = Math.floor(winProfit * 0.15);
-        const vaultCut = Math.floor(winProfit * 0.05);
-        await addToIpcVault(db, vaultCut);
-        winProfit -= windfallTax;
-        extraNote = `\n*(All-in 獲利超過 10 萬星瓊，強制徵收 15% 暴利稅 ${windfallTax.toLocaleString()} 星瓊，其中 5% 注入 IPC 金庫，10% 系統回收銷毀)*`;
-      }
+      const bjVault = await getVault(db, 'bj');
+      const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
+      winProfit = Math.floor(allInRes.profit * 1.2);
+      db.run(
+        'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+        [allInRes.newVault, winProfit]
+      );
     } else {
       winProfit = Math.floor(session.bet * 1.2);
     }
@@ -1377,13 +1442,13 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
     const embed = buildDiceDuelEmbed(session, {
       quote: getRandomQuote('diceWin'),
       playerRoll: [pD1, pD2],
-      dealerRoll: [dD1, dD2],
+      dealerRoll,
       finalWinner: 'PLAYER',
     });
 
     embed.addFields({
       name: '⚡ 弱點擊破！獲得 1.2 倍勝者獎勵',
-      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 擊破加成 ${winProfit.toLocaleString()})${extraNote}`,
+      value: `獲得籌碼：**+${totalReturn.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 擊破加成 ${winProfit.toLocaleString()})`,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1392,15 +1457,18 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
     }
     return interaction.update({ embeds: [embed], components: [row] });
   } else {
-    // 砂金勝利：死戰到底，吃掉一半賭注，退回一半
+    // 玩家點數 <= 砂金：觸發【死戰到底】，扣除 50% 下注籌碼，退還 50%
     const refund = Math.floor(session.bet * 0.5);
     const lostAmount = session.bet - refund;
-    let vaultShare = Math.floor(lostAmount * 0.4);
-    if (session.isAllIn) {
-      vaultShare = Math.min(Math.floor(lostAmount * 0.10), 100000);
-    }
+    const vaultShare = Math.floor(lostAmount * 0.4);
 
-    await addToIpcVault(db, vaultShare);
+    await injectVaultWithBurn(db, 'bj', vaultShare);
+    await recordDirectBurn(db, 'bj', lostAmount - vaultShare, 'PVE_DICE_LOSS_BURN');
+
+    db.run(
+      'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+      [refund, session.userId]
+    );
 
     recordCasinoGame(db, {
       userId: session.userId,
@@ -1412,21 +1480,16 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
       net: -lostAmount,
     }).catch(() => {});
 
-    db.run(
-      'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-      [refund, session.userId]
-    );
-
     const embed = buildDiceDuelEmbed(session, {
       quote: getRandomQuote('diceLose'),
       playerRoll: [pD1, pD2],
-      dealerRoll: [dD1, dD2],
+      dealerRoll,
       finalWinner: 'DEALER',
     });
 
     embed.addFields({
       name: '🛡️ 死戰到底！扣除半注',
-      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 ${session.isAllIn ? '10% (上限10萬)' : '40%'} 計 ${vaultShare.toLocaleString()} 星瓊入金庫)*`,
+      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊注入 21 點金庫)*`,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1438,10 +1501,11 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
 }
 
 // ==========================================
-// 🏛️ 查詢金庫 Embed (Slash Command: /公司金庫)
+// 🏛️ 查詢金庫 Embed (Slash Command: /公司金庫 - v5.6 雙軌儀表板)
 // ==========================================
 async function buildIpcVaultEmbed(db) {
-  const vault = await getIpcVault(db);
+  const bjVault = await getVault(db, 'bj');
+  const texasVault = await getVault(db, 'texas');
 
   // 查詢首富榜 Top 3
   const topRich = await new Promise((resolve) => {
@@ -1468,17 +1532,36 @@ async function buildIpcVaultEmbed(db) {
       name: '星際和平公司 (IPC) —— 匹諾康尼戰略投資部',
       iconURL: AVENTURINE_AVATAR,
     })
-    .setTitle('🏦 星際和平公司公共金庫 (Jackpot Vault)')
+    .setTitle('🏦 星際和平公司公共金庫 (雙軌獨立獎池儀表板)')
     .setDescription(
       `> *「這座金庫見證過無數賭徒的眼淚，但也隨時準備向真正的命運寵兒敞開大門。」*\n\n` +
-      `💎 **目前累積總獎池**：\`${vault.currentJades.toLocaleString()}\` **星瓊**\n` +
-      `🏛️ **公司歷史總派彩**：\`${vault.totalPaidOut.toLocaleString()}\` **星瓊**\n` +
+      `🔥 **全服通膨自動抗性閥門**：單次注資上限 25,000 星瓊，滿溢 100% 強制銷毀！\n` +
+      `💀 **雙金庫累計銷毀星瓊**：\`${(bjVault.totalBurned + texasVault.totalBurned).toLocaleString()}\` **星瓊**\n` +
       `──────────────────────`
     )
     .addFields(
       {
-        name: '👑 搬空金庫神話牌型',
-        value: '• **同花色 Blackjack**：起手同花 A + 10/J/Q/K\n• **7-7-7 (匹諾康尼頭獎)**：三張 7 組成 21 點\n*(防鑽漏洞機制：每下注 1,000 星瓊可獲取 1% 金庫派彩，滿注 50,000 可瓜分高達 50% 金庫獎池，掏空後公司補回 10,000 底金)*',
+        name: `🃏 21 點專屬金庫 (BJ_Vault)`,
+        value: `• **當前水位**：\`${bjVault.currentJades.toLocaleString()} / ${bjVault.maxCapacity.toLocaleString()}\` 星瓊\n` +
+          `• **歷史總派彩**：\`${bjVault.totalPaidOut.toLocaleString()}\` 星瓊\n` +
+          `• **系統直接銷毀**：\`${bjVault.totalBurned.toLocaleString()}\` 星瓊\n` +
+          `• **特殊牌型彩金**：\n` +
+          `  - Tier 1 同花 BJ: 10% (最高 10,000)\n` +
+          `  - Tier 2 五龍/雜色 678: 15% (最高 20,000)\n` +
+          `  - Tier 3 同花 21 點: 25% (最高 40,000)\n` +
+          `  - Tier 4 7-7-7/同花 678: 50% (最高 90,000)`,
+        inline: false,
+      },
+      {
+        name: `🤠 德州撲克專屬金庫 (Texas_Vault)`,
+        value: `• **當前水位**：\`${texasVault.currentJades.toLocaleString()} / ${texasVault.maxCapacity.toLocaleString()}\` 星瓊\n` +
+          `• **歷史總派彩**：\`${texasVault.totalPaidOut.toLocaleString()}\` 星瓊\n` +
+          `• **系統直接銷毀**：\`${texasVault.totalBurned.toLocaleString()}\` 星瓊\n` +
+          `• **高階牌型彩金**：\n` +
+          `  - Tier 1 葫蘆: 20% (最高 30,000)\n` +
+          `  - Tier 2 四條: 35% (最高 70,000)\n` +
+          `  - Tier 3 同花順: 45% (最高 125,000)\n` +
+          `  - Tier 4 皇家同花順: 50% (最高 200,000)`,
         inline: false,
       },
       {
@@ -1529,7 +1612,7 @@ async function forceResetGame(db, userId, member, interaction) {
 }
 
 /**
- * 處理結算面板上的快捷重開局 (滿注 50,000 / 再來一局)
+ * 處理結算面板上的快捷重開局 (滿注 5,000 / 再來一局)
  */
 async function handleCasinoQuickReplay(db, interaction, actionType, targetUserId, lastBet = 500) {
   if (interaction.user.id !== targetUserId) {
@@ -1539,7 +1622,7 @@ async function handleCasinoQuickReplay(db, interaction, actionType, targetUserId
     });
   }
 
-  const betAmount = actionType === 'maxbet' ? '50000' : String(lastBet);
+  const betAmount = actionType === 'maxbet' ? '5000' : String(lastBet);
   return await startCasinoGame(db, interaction, interaction.user, betAmount);
 }
 
