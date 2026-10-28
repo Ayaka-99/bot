@@ -129,7 +129,7 @@ function initAventurineCasino(db) {
         CREATE TABLE IF NOT EXISTS user_currency (
           userId TEXT PRIMARY KEY,
           username TEXT,
-          stellarJades INTEGER DEFAULT 16000,
+          stellarJades INTEGER DEFAULT 50000,
           lastDailyCheckin TEXT,
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -210,6 +210,27 @@ function initAventurineCasino(db) {
                 } else {
                   db.run('INSERT INTO system_migrations (migrationName) VALUES (?)', [grant100kKey], () => {
                     console.log('✅ 成功為全體成員統一補發 100,000 星瓊！');
+                  });
+                }
+                checkResetJades50k();
+              });
+            } else {
+              checkResetJades50k();
+            }
+          });
+        }
+
+        function checkResetJades50k() {
+          const reset50kKey = 'migration_reset_all_users_jades_to_50000_v56';
+          db.get('SELECT * FROM system_migrations WHERE migrationName = ?', [reset50kKey], (mErr3, row3) => {
+            if (!row3) {
+              console.log('🚀 [Migration v5.6] 正在將全體開拓者星瓊資產統一重置為基準 50,000 星瓊...');
+              db.run('UPDATE user_currency SET stellarJades = 50000, updatedAt = CURRENT_TIMESTAMP', (uErr3) => {
+                if (uErr3) {
+                  console.error('❌ 重置全體星瓊為 50000 失敗:', uErr3);
+                } else {
+                  db.run('INSERT INTO system_migrations (migrationName) VALUES (?)', [reset50kKey], () => {
+                    console.log('✅ [Migration v5.6] 成功將全體開拓者星瓊資產統一重置為基準 50,000 星瓊！');
                   });
                 }
                 resolve();
@@ -684,11 +705,11 @@ async function startCasinoGame(db, interaction, user, betInput) {
     db.get('SELECT * FROM user_currency WHERE userId = ?', [userId], (err, row) => {
       if (err) return reject(err);
       if (row) return resolve(row);
-      // 若尚未記錄則初始發放 16000
+      // 若尚未記錄則初始發放 50000 (v5.6 基準資產)
       db.run(
-        'INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, 16000)',
+        'INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, 50000)',
         [userId, username],
-        () => resolve({ userId, username, stellarJades: 16000 })
+        () => resolve({ userId, username, stellarJades: 50000 })
       );
     });
   });

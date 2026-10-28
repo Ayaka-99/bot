@@ -91,12 +91,12 @@ const GACHA_DATA = {
 function initGachaTables(db) {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
-      // 使用者星瓊資產表 (新成員初始 16,000 星瓊)
+      // 使用者星瓊資產表 (新成員初始 50,000 星瓊)
       db.run(`
         CREATE TABLE IF NOT EXISTS user_currency (
           userId TEXT PRIMARY KEY,
           username TEXT,
-          stellarJades INTEGER DEFAULT 16000,
+          stellarJades INTEGER DEFAULT 50000,
           lastDailyCheckin TEXT,
           checkinStreak INTEGER DEFAULT 0,
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -143,8 +143,8 @@ function getUserCurrency(db, userId, username) {
       if (err) return reject(err);
       if (row) return resolve(row);
 
-      // 新使用者：初始發放 16,000 星瓊 (10 次十連抽)
-      const initialJades = 16000;
+      // 新使用者：初始發放 50,000 星瓊 (v5.6 基準資產)
+      const initialJades = 50000;
       db.run(
         'INSERT OR IGNORE INTO user_currency (userId, username, stellarJades, checkinStreak) VALUES (?, ?, ?, 0)',
         [userId, username, initialJades],

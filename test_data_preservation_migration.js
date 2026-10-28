@@ -61,7 +61,19 @@ async function runTests() {
             50, 30, 20, 500000,
             50, 30, 15, 734567
           )`,
-          () => resolve()
+          () => {
+            // 建立 user_currency 並給予舊有的 9,999,999 星瓊
+            db.run(`
+              CREATE TABLE IF NOT EXISTS user_currency (
+                userId TEXT PRIMARY KEY,
+                username TEXT,
+                stellarJades INTEGER,
+                updatedAt DATETIME
+              )
+            `, () => {
+              db.run("INSERT INTO user_currency (userId, username, stellarJades) VALUES ('veteran_player_001', 'LegendaryGambler', 9999999)", () => resolve());
+            });
+          }
         );
       }
     );
@@ -96,6 +108,10 @@ async function runTests() {
   assert.strictEqual(stats.totalWonJades, 0, '總贏得額 totalWonJades 必須歸零 (0)');
   assert.strictEqual(stats.pveNetJades, 0, 'PvE 淨損益必須歸零 (0)');
   assert.strictEqual(stats.duelNetJades, 0, 'PvP 淨損益必須歸零 (0)');
+
+  // 關鍵驗證 4: 全體星瓊資產統一重置為基準 50,000！
+  const userRow = await new Promise((r) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', ['veteran_player_001'], (_, row) => r(row)));
+  assert.strictEqual(userRow.stellarJades, 50000, '玩家星瓊資產必須統一重置為基準 50,000 星瓊！');
 
   console.log('✅ test_data_preservation_migration.js 所有測試 100% 通過！');
 }

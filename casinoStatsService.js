@@ -110,7 +110,7 @@ function applyStatsMigrations(db) {
         function runV56Migration() {
           const v56MigrationKey = 'migration_v56_profit_reset_preservation_20261028';
           db.get('SELECT migrationName FROM system_migrations WHERE migrationName = ?', [v56MigrationKey], (v56Err, v56Row) => {
-            if (v56Err || v56Row) return resolve();
+            if (v56Err || v56Row) return runJades50kMigration();
             console.log('🚀 [Migration v5.6] 正在執行歷史損益精準重置（戰績與對局數 100% 絕對保留）...');
             db.run(
               `UPDATE casino_user_stats 
@@ -127,12 +127,31 @@ function applyStatsMigrations(db) {
                   () => {
                     db.run('INSERT OR IGNORE INTO system_migrations (migrationName) VALUES (?)', [v56MigrationKey], () => {
                       console.log('✅ [Migration v5.6] 歷史損益已安全歸零，全體玩家歷史勝率與總局數 100% 毫髮無傷保留！');
-                      resolve();
+                      runJades50kMigration();
                     });
                   }
                 );
               }
             );
+          });
+        }
+
+        function runJades50kMigration() {
+          const reset50kKey = 'migration_reset_all_users_jades_to_50000_v56';
+          db.get('SELECT migrationName FROM system_migrations WHERE migrationName = ?', [reset50kKey], (jErr, jRow) => {
+            if (jErr || jRow) return resolve();
+            // 防禦性檢查 user_currency 表是否存在
+            db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='user_currency'", (tErr, tRow) => {
+              if (tErr || !tRow) return resolve();
+              console.log('🚀 [Migration v5.6] 正在將全體開拓者星瓊資產統一重置為基準 50,000 星瓊...');
+              db.run('UPDATE user_currency SET stellarJades = 50000, updatedAt = CURRENT_TIMESTAMP', (err) => {
+                if (err) console.warn('重置 user_currency 失敗:', err.message);
+                db.run('INSERT OR IGNORE INTO system_migrations (migrationName) VALUES (?)', [reset50kKey], () => {
+                  console.log('✅ [Migration v5.6] 成功將全體開拓者星瓊資產統一重置為基準 50,000 星瓊！');
+                  resolve();
+                });
+              });
+            });
           });
         }
 

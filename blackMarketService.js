@@ -200,7 +200,7 @@ async function bidCasinoTycoon(db, user, tauntInput) {
   const decoration = await getUserProfileDecoration(db, user.id);
   const currency = await new Promise((resolve) => {
     db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [user.id], (err, row) => {
-      resolve(row || { stellarJades: 16000 });
+      resolve(row || { stellarJades: 50000 });
     });
   });
 
@@ -389,7 +389,7 @@ async function buyTitle(db, user, titleId, customTitleName = '') {
   const decoration = await getUserProfileDecoration(db, user.id);
   const currency = await new Promise((resolve) => {
     db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [user.id], (err, row) => {
-      resolve(row || { stellarJades: 16000 });
+      resolve(row || { stellarJades: 50000 });
     });
   });
 
@@ -555,7 +555,7 @@ async function buildBlackMarketEmbed(db, userId) {
   const deco = await getUserProfileDecoration(db, userId);
   const currency = await new Promise((resolve) => {
     db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [userId], (err, row) => {
-      resolve(row || { stellarJades: 16000 });
+      resolve(row || { stellarJades: 50000 });
     });
   });
 
