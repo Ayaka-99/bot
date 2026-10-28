@@ -1,15 +1,10 @@
 /**
  * 歷史轉帳追溯掃描器 (Transfer History Forensics Scanner)
- * 功能：
- * 1. 遍歷 Discord 伺服器內所有文字頻道與討論串的歷史訊息
- * 2. 抓取所有由機器人發出的「星瓊轉帳」訊息與 Embed
- * 3. 提取轉帳者、接收者、金額、時間與訊息連結
- * 4. 統計洗錢排行榜 (誰轉出最多、誰接收最多)
- * 5. 自動將歷史紀錄追溯回填至 transfer_logs 資料表
+ * 優化版：顯示即時進度、跳過冗長封存討論串、消除 DeprecationWarning
  */
 
 require('dotenv').config();
-const { Client, GatewayIntentBits, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, ChannelType, Events } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const { initTransferTable } = require('./transferService');
@@ -33,7 +28,8 @@ async function runScanner() {
   console.log('🔍 [轉帳溯源] 正在初始化資料庫與連線 Discord...');
   await initTransferTable(db);
 
-  client.once('ready', async () => {
+  const readyEvent = Events.ClientReady || 'ready';
+  client.once(readyEvent, async () => {
     console.log(`🤖 機器人已就緒: ${client.user.tag} (ID: ${client.user.id})`);
 
     const guildId = process.env.GUILD_ID;
@@ -50,35 +46,50 @@ async function runScanner() {
       process.exit(1);
     }
 
-    console.log(`📡 正在掃描伺服器: ${guild.name} (${guild.id})`);
-    const channels = await guild.channels.fetch();
+    console.log(`📡 連線伺服器: ${guild.name} (${guild.id})`);
+    const rawChannels = await guild.channels.fetch();
+
+    // 篩選出可讀取的文字頻道
+    const textChannels = [];
+    for (const [, ch] of rawChannels) {
+      if (ch && (ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement)) {
+        textChannels.push(ch);
+      }
+    }
+
+    console.log(`📋 共有 ${textChannels.length} 個文字頻道待掃描，開始高速檢索...\n`);
 
     const transferRecords = [];
+    let processed = 0;
 
-    for (const [channelId, channel] of channels) {
-      if (!channel || (!channel.isTextBased && !channel.threads)) continue;
+    for (const channel of textChannels) {
+      processed++;
+      process.stdout.write(`  ⏳ [${processed}/${textChannels.length}] 正在掃描 #${channel.name} ... `);
+      const foundInChannel = await scanChannelMessages(channel, transferRecords);
+      if (foundInChannel > 0) {
+        console.log(`✅ 發現 ${foundInChannel} 筆轉帳！`);
+      } else {
+        console.log(`無轉帳`);
+      }
 
-      // 檢查文字頻道
-      if (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement) {
-        await scanChannelMessages(channel, transferRecords);
-
-        // 檢查討論串
-        try {
+      // 檢查活躍中的討論串 (通常遊戲賭局與指令都在活躍討論串或主頻道)
+      try {
+        if (channel.threads) {
           const activeThreads = await channel.threads.fetchActive().catch(() => null);
           if (activeThreads && activeThreads.threads) {
             for (const [, thread] of activeThreads.threads) {
-              await scanChannelMessages(thread, transferRecords);
+              process.stdout.write(`    ↳ 討論串 #${thread.name} ... `);
+              const foundInThread = await scanChannelMessages(thread, transferRecords);
+              if (foundInThread > 0) {
+                console.log(`✅ 發現 ${foundInThread} 筆轉帳！`);
+              } else {
+                console.log(`無轉帳`);
+              }
             }
           }
-          const archivedThreads = await channel.threads.fetchArchived({ limit: 50 }).catch(() => null);
-          if (archivedThreads && archivedThreads.threads) {
-            for (const [, thread] of archivedThreads.threads) {
-              await scanChannelMessages(thread, transferRecords);
-            }
-          }
-        } catch (e) {
-          // 忽視無權限討論串
         }
+      } catch (e) {
+        // 忽略無權限討論串
       }
     }
 
@@ -96,7 +107,7 @@ async function runScanner() {
     // 按時間由舊到新排序
     transferRecords.sort((a, b) => a.timestamp - b.timestamp);
 
-    // 寫入 transfer_logs 資料表 (若未存在)
+    // 寫入 transfer_logs 資料表
     let newInserted = 0;
     for (const rec of transferRecords) {
       const exists = await new Promise((res) => {
@@ -120,13 +131,17 @@ async function runScanner() {
       }
     }
 
-    console.log(`💾 成功同步回填 ${newInserted} 筆轉帳交易至 transfer_logs 審計資料表！\n`);
+    if (newInserted > 0) {
+      console.log(`💾 成功同步回填 ${newInserted} 筆轉帳交易至 transfer_logs 審計資料表！\n`);
+    } else {
+      console.log(`ℹ️ 所有抓取到的交易皆已存在於資料庫中，無須重複插入。\n`);
+    }
 
     // 格式化輸出最新交易
-    console.log('📜 最新歷史轉帳紀錄 (前 20 筆)：');
+    console.log('📜 歷史轉帳紀錄 (最多顯示最近 20 筆)：');
     console.table(
       transferRecords.slice(-20).map((r) => ({
-        時間: r.createdAt,
+        時間: r.createdAt.replace('T', ' ').slice(0, 19),
         轉帳者: `${r.senderName} (${r.senderId})`,
         接收者: `${r.targetName} (${r.targetId})`,
         金額: r.amount.toLocaleString(),
@@ -139,24 +154,26 @@ async function runScanner() {
     const senderTotals = {};
 
     for (const r of transferRecords) {
-      receiverTotals[r.targetName || r.targetId] = (receiverTotals[r.targetName || r.targetId] || 0) + r.amount;
-      senderTotals[r.senderName || r.senderId] = (senderTotals[r.senderName || r.senderId] || 0) + r.amount;
+      const rKey = r.targetName !== '未知' ? `${r.targetName} (${r.targetId})` : r.targetId;
+      const sKey = r.senderName !== '未知' ? `${r.senderName} (${r.senderId})` : r.senderId;
+      receiverTotals[rKey] = (receiverTotals[rKey] || 0) + r.amount;
+      senderTotals[sKey] = (senderTotals[sKey] || 0) + r.amount;
     }
 
     console.log('\n🚨 【歷史收錢排行榜】(資金匯集嫌疑帳號)：');
     console.table(
       Object.entries(receiverTotals)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([name, total]) => ({ 成員: name, 累計接收星瓊: total.toLocaleString() }))
+        .slice(0, 10)
+        .map(([account, total]) => ({ 帳號: account, 累計接收星瓊: total.toLocaleString() }))
     );
 
-    console.log('\n💸 【歷史轉出排行榜】(小號或資金源頭)：');
+    console.log('\n💸 【歷史轉出排行榜】(小號或出金源頭)：');
     console.table(
       Object.entries(senderTotals)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([name, total]) => ({ 成員: name, 累計轉出星瓊: total.toLocaleString() }))
+        .slice(0, 10)
+        .map(([account, total]) => ({ 帳號: account, 累計轉出星瓊: total.toLocaleString() }))
     );
 
     client.destroy();
@@ -170,10 +187,11 @@ async function runScanner() {
 }
 
 async function scanChannelMessages(channel, transferRecords) {
+  let foundCount = 0;
   try {
     let lastId = null;
     let fetchedCount = 0;
-    const maxMessagesPerChannel = 500; // 每個頻道最多往前掃 500 則
+    const maxMessagesPerChannel = 300; // 每個頻道往前掃 300 則 (足夠涵蓋近期活動)
 
     while (fetchedCount < maxMessagesPerChannel) {
       const options = { limit: 100 };
@@ -250,15 +268,17 @@ async function scanChannelMessages(channel, transferRecords) {
               timestamp: msg.createdTimestamp,
               url: msg.url,
             });
+            foundCount++;
           }
         }
       }
 
-      await sleep(100); // 避免觸發 rate limit
+      await sleep(50);
     }
   } catch (err) {
-    // 忽略特定權限不足錯誤
+    // 忽略個別頻道讀取權限不足
   }
+  return foundCount;
 }
 
 runScanner().catch(console.error);
