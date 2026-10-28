@@ -660,7 +660,7 @@ async function resolveDuel(db, session) {
         `👤 **${pA.username}**：${revealA}\n` +
         `👤 **${pB.username}**：${revealB}\n\n` +
         `> *「點數完全相同？！命運把你們推上了同一座賭盤，擲出骰子決一死戰吧！」*\n\n` +
-        `請雙方點擊下方按鈕擲出 2 顆骰子，點數大者獨吞 **${winPayout.toLocaleString()}** 星瓊 (已扣 5% 稅)！`
+        `請雙方點擊下方按鈕擲出 2 顆骰子，點數大者獨吞 **${winPayout.toLocaleString()}** 星瓊 (已扣 10% 系統銷毀稅)！`
       );
 
     const diceRow = new ActionRowBuilder().addComponents(
@@ -1076,15 +1076,11 @@ async function closeBattleRoyaleRecruitment(db, session) {
       activePvpPlayers.delete(p.userId);
       await awardJades(db, p.userId, session.entryFee);
     }
-    // 退還觀眾買馬費
-    for (const b of session.spectatorBets.values()) {
-      await awardJades(db, b.spectatorId, b.amount);
-    }
 
     const abortEmbed = new EmbedBuilder()
       .setColor(DANGER_COLOR)
       .setTitle('❌【大逃殺牌局已解散】人數不足')
-      .setDescription(`未達最低成局人數（至少需 2 人，當前僅 ${session.players.size} 人）。\n所有選手入場費與觀眾買馬星瓊已全數退回。`);
+      .setDescription(`未達最低成局人數（至少需 2 人，當前僅 ${session.players.size} 人）。\n所有選手入場費已全數退回。`);
 
     return session.interaction.editReply({ embeds: [abortEmbed], components: [] }).catch(() => {});
   }
@@ -1119,22 +1115,20 @@ async function closeBattleRoyaleRecruitment(db, session) {
   session.interaction.editReply({ embeds: [blindEmbed], components: [row] }).catch(() => {});
 }
 
-// 大逃殺盲抽主面板
+// 大逃殺盲抽主面板 (v5.6 純粹博弈版：無買馬)
 function buildBattleRoyaleBlindEmbed(session) {
   const totalPrize = session.players.size * session.entryFee;
-  const specTotalPot = session.spectatorBets.size * session.spectatorFee;
 
   const playerRows = Array.from(session.players.values()).map((p, i) => {
     const cardsView = [formatCard(p.cards[0]), ...p.cards.slice(1).map(() => '[ 🂠 ]')].join(' ');
     const lockTag = p.isLocked ? '🔒 *(已鎖定)*' : `🤔 *(手牌: ${p.cards.length} 張)*`;
-    const betCount = Array.from(session.spectatorBets.values()).filter(b => b.targetUserId === p.userId).length;
-    return `\`${i + 1}.\` **${p.username}**：${cardsView} ${lockTag} *(場外 ${betCount} 人押他)*`;
+    return `\`${i + 1}.\` **${p.username}**：${cardsView} ${lockTag}`;
   });
 
   return new EmbedBuilder()
     .setColor(DARK_PURPLE)
     .setAuthor({ name: '匹諾康尼大逃殺 ｜ 全員盲抽對決', iconURL: AVENTURINE_AVATAR })
-    .setTitle(`🎰 大逃殺激鬥中（主獎池：${totalPrize.toLocaleString()} 星瓊 ｜ 買馬池：${specTotalPot.toLocaleString()} 星瓊）`)
+    .setTitle(`🎰 大逃殺激鬥中（總獎池：${totalPrize.toLocaleString()} 星瓊）`)
     .setDescription(
       `> *「盲抽時間 30 秒，點擊下方按鈕在個人小窗補牌！所有人鎖定即刻開牌！」*\n\n` +
       playerRows.join('\n') + '\n\n' +
@@ -1375,11 +1369,15 @@ module.exports = {
   handlePlayerHit,
   handlePlayerStand,
   handleDuelDice,
+  resolveDuel,
   startBattleRoyale,
   handleBattleRoyaleJoin,
   handleBattleRoyaleImmediateStart,
   handleBattleRoyaleSpectatorBet,
   handleBattleRoyaleDice,
+  resolveBattleRoyale,
+  closeBattleRoyaleRecruitment,
+  buildBattleRoyaleBlindEmbed,
   activePvpPlayers,
   battleRoyaleSessions,
 };

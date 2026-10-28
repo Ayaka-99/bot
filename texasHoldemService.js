@@ -1319,8 +1319,9 @@ async function concludeUncontestedWin(session, winner) {
       .reduce((sum, s) => sum + s.totalBet, 0);
     const vaultShare = Math.floor(totalPlayerLost * 0.40);
     await injectVaultWithBurn(db, 'texas', vaultShare);
+    await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
 
-    taxNote = `\n*(砂金通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，超出上限 100% 銷毀)*`;
+    taxNote = `\n*(砂金通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，60% 系統直接銷毀)*`;
   } else {
     // 玩家獲勝：抽水 5% 營運稅注入德州金庫
     const tax = Math.floor(session.pot * 0.05);
@@ -1429,7 +1430,8 @@ async function concludeShowdown(session) {
         .reduce((sum, s) => sum + s.totalBet, 0);
       const vaultShare = Math.floor(totalPlayerLost * 0.40);
       await injectVaultWithBurn(db, 'texas', vaultShare);
-      taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，超額 100% 銷毀)*`;
+      await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
+      taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，60% 系統直接銷毀)*`;
     } else {
       // 玩家獲勝或平局瓜分
       const profit = splitPot - w.totalBet;

@@ -257,6 +257,7 @@ function claimDailyJades(db, userId, username) {
             success: true,
             alreadyClaimed: false,
             added: reward,
+            amount: reward,
             balance: newBalance,
             streak: newStreak,
           });

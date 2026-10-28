@@ -418,7 +418,7 @@ function buildCheckinEmbed({ username, result, isAuto = false, jadeInfo = null }
 
   if (jadeInfo) {
     const streakStr = jadeInfo.streak ? ` (連續簽到第 **${jadeInfo.streak}** 天)` : '';
-    const amountStr = (jadeInfo.amount || 1500).toLocaleString();
+    const amountStr = (jadeInfo.amount || jadeInfo.added || 1500).toLocaleString();
     embed.addFields({
       name: '💎 模擬抽卡簽到津貼',
       value: jadeInfo.alreadyClaimed

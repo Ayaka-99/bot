@@ -21,6 +21,7 @@ async function runTests() {
   const day1Res = await claimDailyJades(db, userId, username);
   assert.strictEqual(day1Res.success, true);
   assert.strictEqual(day1Res.added, 1500, '第 1 天簽到津貼應為 1,500');
+  assert.strictEqual(day1Res.amount, 1500, '第 1 天簽到津貼 amount 應為 1,500');
   assert.strictEqual(day1Res.streak, 1, '連續天數應為 1');
 
   // 測試同日重複簽到被攔截
@@ -57,6 +58,7 @@ async function runTests() {
     assert.strictEqual(claimRes.success, true);
     assert.strictEqual(claimRes.streak, item.day);
     assert.strictEqual(claimRes.added, item.expectedAdded, `第 ${item.day} 天津貼應為 ${item.expectedAdded}`);
+    assert.strictEqual(claimRes.amount, item.expectedAdded, `第 ${item.day} 天津貼 amount 應為 ${item.expectedAdded}`);
   }
 
   // 3. 測試第 8 天 (7 天以上封頂 2,500)

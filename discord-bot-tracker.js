@@ -2362,7 +2362,8 @@ client.on('interactionCreate', async (interaction) => {
           if (jadeResult.alreadyClaimed) {
             msg += `• 今日已領取過每日簽到津貼（連續簽到第 **${jadeResult.streak}** 天）。\n`;
           } else {
-            msg += `• 獲得每日簽到津貼：**+${jadeResult.amount.toLocaleString()} 星瓊**（連續簽到第 **${jadeResult.streak}** 天）！\n`;
+            const allowance = (jadeResult.amount || jadeResult.added || 1500).toLocaleString();
+            msg += `• 獲得每日簽到津貼：**+${allowance} 星瓊**（連續簽到第 **${jadeResult.streak}** 天）！\n`;
           }
           msg += `• 當前星瓊餘額：**${jadeResult.balance.toLocaleString()}** 星瓊 (可進行 ${Math.floor(jadeResult.balance / 8000)} 次十連)\n\n*(💡 提示：若要同時領取崩壞：星穹鐵道遊戲官方簽到獎勵，請輸入 \`/星鐵綁定\` 進行一次性私密綁定)*`;
           return interaction.editReply({ content: msg });

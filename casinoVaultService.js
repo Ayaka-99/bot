@@ -67,8 +67,29 @@ function initCasinoVaults(db) {
  */
 function getVault(db, vaultType = 'bj') {
   return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM casino_vaults WHERE vaultType = ?', [vaultType], (err, row) => {
-      if (err) return reject(err);
+    db.get('SELECT * FROM casino_vaults WHERE vaultType = ?', [vaultType], async (err, row) => {
+      if (err) {
+        if (err.message && err.message.includes('no such table: casino_vaults')) {
+          try {
+            await initCasinoVaults(db);
+            const retryRow = await new Promise((res, rej) => {
+              db.get('SELECT * FROM casino_vaults WHERE vaultType = ?', [vaultType], (e, r) => (e ? rej(e) : res(r)));
+            });
+            return resolve(
+              retryRow || {
+                vaultType,
+                currentJades: vaultType === 'texas' ? TEXAS_VAULT_INIT : BJ_VAULT_INIT,
+                maxCapacity: vaultType === 'texas' ? TEXAS_VAULT_MAX : BJ_VAULT_MAX,
+                totalPaidOut: 0,
+                totalBurned: 0,
+              }
+            );
+          } catch (initErr) {
+            return reject(initErr);
+          }
+        }
+        return reject(err);
+      }
       if (row) return resolve(row);
       const defaultCap = vaultType === 'texas' ? TEXAS_VAULT_MAX : BJ_VAULT_MAX;
       const defaultInit = vaultType === 'texas' ? TEXAS_VAULT_INIT : BJ_VAULT_INIT;

@@ -1634,7 +1634,25 @@ async function handleCasinoQuickReplay(db, interaction, actionType, targetUserId
  * @param {'set' | 'add' | 'sub'} mode
  */
 async function adjustIpcVault(db, amount, mode = 'set') {
-  // 確保 row 1 存在
+  // 檢查 casino_vaults 是否存在
+  const hasCasinoVaults = await new Promise((res) => {
+    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='casino_vaults'", (_, row) => res(Boolean(row)));
+  });
+
+  if (hasCasinoVaults) {
+    const vaultRes = await adjustVault(db, 'bj', amount, mode);
+    // 同步更新 ipc_vault (若資料表存在)
+    db.run('UPDATE ipc_vault SET currentJades = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1', [vaultRes.newAmount], () => {});
+    const vault = await getVault(db, 'bj');
+    return {
+      previousAmount: vaultRes.previousAmount,
+      newAmount: vaultRes.newAmount,
+      difference: vaultRes.difference,
+      totalPaidOut: vault.totalPaidOut || 0,
+    };
+  }
+
+  // 舊版 ipc_vault 相容處理
   await new Promise((resolve) => {
     db.run(
       'INSERT OR IGNORE INTO ipc_vault (id, currentJades, totalPaidOut) VALUES (1, 1000000, 0)',
@@ -1642,9 +1660,13 @@ async function adjustIpcVault(db, amount, mode = 'set') {
     );
   });
 
-  const vault = await getIpcVault(db);
-  const previousAmount = vault.currentJades || 0;
-  const totalPaidOut = vault.totalPaidOut || 0;
+  const row = await new Promise((res) => {
+    db.get('SELECT currentJades, totalPaidOut FROM ipc_vault WHERE id = 1', (_, r) =>
+      res(r || { currentJades: 1000000, totalPaidOut: 0 })
+    );
+  });
+  const previousAmount = row.currentJades || 0;
+  const totalPaidOut = row.totalPaidOut || 0;
 
   let newAmount = previousAmount;
   if (mode === 'add') {

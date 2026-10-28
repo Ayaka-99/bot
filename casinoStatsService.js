@@ -372,9 +372,19 @@ function parseDuelMessage(msg, userMap) {
   // 1. 雙方同時爆牌
   if (title.includes('雙方同時爆牌')) {
     const playerMatches = [...desc.matchAll(/👤\s+\*\*([^*]+)\*\*/g)];
-    const refundMatch = desc.match(/退還\s+50%\s+籌碼[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
-    const refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
-    const bet = refund * 2;
+    const isV56Refund = desc.includes('全額退回全部本金') || desc.includes('各退回');
+    let refund = 0;
+    let bet = 0;
+
+    if (isV56Refund) {
+      const refundMatch = desc.match(/各退回[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+      refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
+      bet = refund;
+    } else {
+      const refundMatch = desc.match(/退還\s+50%\s+籌碼[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+      refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
+      bet = refund * 2;
+    }
 
     const results = [];
     for (const pm of playerMatches) {
@@ -384,10 +394,10 @@ function parseDuelMessage(msg, userMap) {
         userId: uId,
         username: uName,
         mode: 'duel',
-        result: 'LOSE',
+        result: isV56Refund ? 'DRAW' : 'LOSE',
         bet,
         won: refund,
-        net: -refund,
+        net: isV56Refund ? 0 : -refund,
       });
     }
     return results.length >= 2 ? results : null;
@@ -458,9 +468,24 @@ function parseBattleRoyaleMessage(msg, userMap) {
   // 1. 全員爆牌團滅
   if (title.includes('全員爆牌團滅')) {
     const playerMatches = [...desc.matchAll(/•\s+\*\*([^*]+)\*\*/g)];
-    const refundMatch = desc.match(/退回\s+50%\s+入場費[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
-    const refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
-    const bet = refund * 2;
+    const isV56Burn = desc.includes('底池全額銷毀') || desc.includes('全額直接抹除銷毀');
+    let bet = 1000;
+    let won = 0;
+    let net = -bet;
+
+    if (isV56Burn) {
+      const potMatch = desc.match(/底池籌碼\s*[*]*([0-9,]+)[*]*\s*星瓊已被系統全額直接抹除銷毀/);
+      const totalPrize = potMatch ? parseNumber(potMatch[1]) : 0;
+      bet = playerMatches.length > 0 && totalPrize > 0 ? Math.round(totalPrize / playerMatches.length) : 1000;
+      won = 0;
+      net = -bet;
+    } else {
+      const refundMatch = desc.match(/退回\s+50%\s+入場費[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
+      const refund = refundMatch ? parseNumber(refundMatch[1]) : 0;
+      bet = refund * 2;
+      won = refund;
+      net = -refund;
+    }
 
     for (const pm of playerMatches) {
       const uName = pm[1].trim();
@@ -471,8 +496,8 @@ function parseBattleRoyaleMessage(msg, userMap) {
         mode: 'br',
         result: 'LOSE',
         bet,
-        won: refund,
-        net: -refund,
+        won,
+        net,
       });
     }
     return results;
@@ -490,9 +515,11 @@ function parseBattleRoyaleMessage(msg, userMap) {
   let winPayout = 0;
   const payoutMatch = desc.match(/牌桌主獎池派發[*]*[:：]\s*[*]*\+?([0-9,]+)[*]*/);
   if (payoutMatch) winPayout = parseNumber(payoutMatch[1]);
+  const is10PercentTax = desc.includes('10%');
+  const taxRatio = is10PercentTax ? 0.90 : 0.95;
   const entryFee =
     participantNames.length > 0 && winPayout > 0
-      ? Math.round(winPayout / 0.95 / participantNames.length)
+      ? Math.round(winPayout / taxRatio / participantNames.length)
       : 1000;
 
   for (const name of participantNames) {
