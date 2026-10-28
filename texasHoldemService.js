@@ -42,6 +42,7 @@ const {
   claimJackpotVault,
   injectVaultWithBurn,
   recordDirectBurn,
+  MAX_BET,
 } = require('./casinoVaultService');
 const { getCasinoTycoon } = require('./blackMarketService');
 const { recordCasinoGame } = require('./casinoStatsService');
@@ -1312,6 +1313,7 @@ async function concludeUncontestedWin(session, winner) {
   let taxNote = '';
   let jackpotNote = '';
 
+  let finalWinnerWon = 0;
   if (winner.isNpc) {
     // 砂金獨得底池：贏走的所有玩家淨輸籌碼，40% 注入 IPC 金庫，60% 銷毀
     const totalPlayerLost = session.seats
@@ -1323,13 +1325,32 @@ async function concludeUncontestedWin(session, winner) {
 
     taxNote = `\n*(砂金通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，60% 系統直接銷毀)*`;
   } else {
-    // 玩家獲勝：抽水 5% 營運稅注入德州金庫
-    const tax = Math.floor(session.pot * 0.05);
-    const netWinPool = session.pot - tax;
+    // 玩家獲勝：檢查 All-in 賠付天花板 (L = min(MAX_BET * 5, Vault * 20%))
+    let winPool = session.pot;
+    const isAllIn = !!(session.isAllIn || winner.isAllIn);
+    let allInCapNote = '';
+
+    if (isAllIn) {
+      const rawProfit = winPool - winner.totalBet;
+      if (rawProfit > 0) {
+        const texasVault = await getVault(db, 'texas');
+        const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
+        if (rawProfit > payoutCap) {
+          const excessProfit = rawProfit - payoutCap;
+          winPool = winner.totalBet + payoutCap;
+          await recordDirectBurn(db, 'texas', excessProfit);
+          allInCapNote = `\n🔥 **【All-in 賠付天花板截斷】** 玩家發動 All-in 獲勝，依風控最高賠付額鎖死在 **${payoutCap.toLocaleString()}** 星瓊（滿注 5 倍 / 德州金庫 20% 取其低），底池超額之 **${excessProfit.toLocaleString()}** 星瓊已全額銷毀！`;
+        }
+      }
+    }
+
+    const tax = Math.floor(winPool * 0.05);
+    const netWinPool = winPool - tax;
+    finalWinnerWon = netWinPool;
     await injectVaultWithBurn(db, 'texas', tax);
     await awardJades(db, winner.userId, netWinPool);
 
-    taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入德州撲克金庫)*`;
+    taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入德州撲克金庫)*${allInCapNote}`;
   }
 
   // 3. 場外買馬分紅
@@ -1340,14 +1361,15 @@ async function concludeUncontestedWin(session, winner) {
     for (const s of session.seats) {
       if (!s.isNpc) {
         const isWinner = s.seatIndex === winner.seatIndex;
-        const netJades = isWinner ? session.pot - s.totalBet - Math.floor(session.pot * 0.05) : -s.totalBet;
+        const wonAmount = isWinner ? finalWinnerWon : 0;
+        const netJades = isWinner ? wonAmount - s.totalBet : -s.totalBet;
         await recordCasinoGame(db, {
           userId: s.userId,
           username: s.username,
           mode: 'holdem',
           result: isWinner ? 'WIN' : 'LOSE',
           bet: s.totalBet,
-          won: isWinner ? session.pot - Math.floor(session.pot * 0.05) : 0,
+          won: isWinner ? wonAmount : 0,
           net: netJades,
           beatAventurine: isWinner,
         }).catch(() => {});
@@ -1434,12 +1456,30 @@ async function concludeShowdown(session) {
       taxNote += `\n*(砂金獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，60% 系統直接銷毀)*`;
     } else {
       // 玩家獲勝或平局瓜分
-      const profit = splitPot - w.totalBet;
+      let share = splitPot;
+      const isAllIn = !!(session.isAllIn || w.isAllIn);
+      let allInCapNote = '';
+
+      if (isAllIn) {
+        const rawProfit = share - w.totalBet;
+        if (rawProfit > 0) {
+          const texasVault = await getVault(db, 'texas');
+          const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
+          if (rawProfit > payoutCap) {
+            const excessProfit = rawProfit - payoutCap;
+            share = w.totalBet + payoutCap;
+            await recordDirectBurn(db, 'texas', excessProfit);
+            allInCapNote = `\n🔥 **【All-in 賠付天花板截斷】** 玩家發動 All-in 獲勝，依風控最高賠付額鎖死在 **${payoutCap.toLocaleString()}** 星瓊（滿注 5 倍 / 德州金庫 20% 取其低），底池超額之 **${excessProfit.toLocaleString()}** 星瓊已全額銷毀！`;
+          }
+        }
+      }
+
+      const profit = share - w.totalBet;
       // 平局時若未賺取額外籌碼（profit <= 0），則免徵手續費；若有額外利潤則僅針對利潤抽 5%
       const tax = isSplit
         ? (profit > 0 ? Math.floor(profit * 0.05) : 0)
-        : Math.floor(splitPot * 0.05);
-      const netWin = splitPot - tax;
+        : Math.floor(share * 0.05);
+      const netWin = share - tax;
       if (tax > 0) {
         await injectVaultWithBurn(db, 'texas', tax);
       }
@@ -1447,9 +1487,9 @@ async function concludeShowdown(session) {
       winnerPotWonMap.set(w.seatIndex, netWin);
 
       if (isSplit) {
-        taxNote += `\n*(${w.username} 平局瓜分底池 ${splitPot.toLocaleString()}，${tax > 0 ? `扣除利潤抽稅 ${tax.toLocaleString()} 星瓊入金庫` : '免手續費全額保本返還'}，實得 ${netWin.toLocaleString()} 星瓊)*`;
+        taxNote += `\n*(${w.username} 平局瓜分底池 ${share.toLocaleString()}，${tax > 0 ? `扣除利潤抽稅 ${tax.toLocaleString()} 星瓊入金庫` : '免手續費全額保本返還'}，實得 ${netWin.toLocaleString()} 星瓊)*${allInCapNote}`;
       } else {
-        taxNote += `\n*(${w.username} 獨得底池，扣除 5% 營運稅 ${tax.toLocaleString()} 星瓊入金庫)*`;
+        taxNote += `\n*(${w.username} 獨得底池，扣除 5% 營運稅 ${tax.toLocaleString()} 星瓊入金庫)*${allInCapNote}`;
       }
 
       // 檢查神話牌型派彩 (TableCap >= 3000，支援葫蘆、四條、同花順、皇家同花順)
@@ -2074,6 +2114,7 @@ module.exports = {
   handleHoldemLobbyAllIn,
   claimHoldemJackpot,
   concludeShowdown,
+  concludeUncontestedWin,
   handleHoldemJoin,
   handleHoldemImmediateStart,
   handleHoldemSpectatorBet,
