@@ -145,6 +145,7 @@ async function runTests() {
   console.log('  ✅ 德州撲克 AI 決策升級與動態加注運算通過！\n');
 
   console.log('🎉 砂金全新出牌邏輯（H17、動態心態、絕境搏命、德州混合策略）全套測試 100% 通過！');
+  process.exit(0);
 }
 
 runTests().catch((err) => {

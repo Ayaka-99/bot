@@ -20,8 +20,8 @@ async function runTests() {
   assert.strictEqual(winRes.profit, 20000, '獲利應封頂為 E=20,000');
   // 獲勝時玩家取回：原始本金 100,000 + 獲利 20,000 = 120,000
   assert.strictEqual(winRes.finalBalance, 120000, '玩家最終帳戶餘額應為 120,000');
-  // 金庫支出 20,000，新金庫 80,000
-  assert.strictEqual(winRes.newVault, 80000, '金庫應扣除 20,000 賠付');
+  // 取消砂金輸錢自金庫扣款機制，金庫維持原額 100,000 不受損
+  assert.strictEqual(winRes.newVault, 100000, '取消砂金輸錢扣庫機制，金庫維持原額 100,000');
   assert.strictEqual(winRes.burned, 0, '獲勝無銷毀');
 
   // 情境 2: 同樣條件下，玩家落敗

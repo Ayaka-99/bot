@@ -14,6 +14,8 @@ const testScripts = [
   'test_data_preservation_migration.js',
   'test_pvp_duel_and_br_v56.js',
   'test_aventurine_pve_v56.js',
+  'test_holdem_allin_payout_cap.js',
+  'test_aventurine_dynamic_ai.js',
 ];
 
 console.log('====================================================');

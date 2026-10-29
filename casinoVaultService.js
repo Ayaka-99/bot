@@ -259,9 +259,9 @@ function settleAllIn(playerBalance, allInAmount, isWin, currentVault, maxBet = 5
   const excessAmount = allInAmount - effectiveBet;
 
   if (isWin) {
-    // 獲勝：退回本金 A + 獲利封頂 E (由金庫扣除賠付 E)
+    // 獲勝：退回本金 A + 獲利封頂 E (取消砂金輸錢自金庫拿錢機制，金庫維持原額不扣減)
     const profit = effectiveBet;
-    const newVault = Math.max(0, currentVault - profit);
+    const newVault = currentVault;
     return {
       finalBalance: playerBalance + allInAmount + profit,
       profit,

@@ -1424,12 +1424,6 @@ async function concludeUncontestedWin(session, winner) {
       }
     }
 
-    // 若本局有 NPC 砂金且砂金輸給玩家，砂金投入底池之籌碼自德州金庫實體扣除賠付
-    const aventurineSeat = session.seats.find((s) => s.isNpc);
-    if (aventurineSeat && aventurineSeat.totalBet > 0) {
-      await claimJackpotVault(db, 'texas', aventurineSeat.totalBet);
-    }
-
     const tax = Math.floor(winPool * 0.05);
     const netWinPool = winPool - tax;
     finalWinnerWon = netWinPool;
@@ -1587,14 +1581,6 @@ async function concludeShowdown(session) {
         }
       }
     }
-  }
-
-  // 若本局有 NPC 砂金且砂金落敗（贏家包含真人玩家），砂金投入底池之籌碼自德州金庫實體扣除賠付
-  const hasHumanWinner = winners.some((w) => !w.isNpc);
-  const aventurineSeat = session.seats.find((s) => s.isNpc);
-  const aventurineLost = aventurineSeat && !winners.some((w) => w.seatIndex === aventurineSeat.seatIndex);
-  if (hasHumanWinner && aventurineLost && aventurineSeat.totalBet > 0) {
-    await claimJackpotVault(db, 'texas', aventurineSeat.totalBet);
   }
 
   // 4. 場外買馬分紅

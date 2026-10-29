@@ -137,6 +137,7 @@ async function runTests() {
     assert.ok(p2BalanceAfter > p2BalanceBefore, '玩家應正常獲得有效結算與彩金');
 
     console.log('✅ 德州撲克 All-in 賠付天花板截斷與超額底池全額銷毀測試 100% 通過！');
+    process.exit(0);
   } finally {
     db.close();
   }
