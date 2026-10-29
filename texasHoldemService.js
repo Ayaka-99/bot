@@ -1725,6 +1725,7 @@ const executeAventurineTurn = executeNpcTurn;
 // ==========================================================
 
 async function concludeUncontestedWin(session, winner) {
+  const isPreflopWin = session.stage === 'PRE_FLOP';
   session.stage = session.isContinuous ? 'ROUND_FINISHED' : 'FINISHED';
   const db = session.db;
 
@@ -1758,18 +1759,22 @@ async function concludeUncontestedWin(session, winner) {
       }
     }
 
-    const tax = Math.floor(winPool * 0.05);
+    // 國際標準「No Flop, No Drop」：翻牌前全員棄牌結束，免收 5% 營運手續費，底池 100% 毫髮無損入袋
+    const tax = isPreflopWin ? 0 : Math.floor(winPool * 0.05);
     const netWinPool = winPool - tax;
     finalWinnerWon = netWinPool;
-    await injectVaultWithBurn(db, 'texas', tax);
+    if (tax > 0) {
+      await injectVaultWithBurn(db, 'texas', tax);
+      taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入德州撲克金庫)*${allInCapNote}`;
+    } else {
+      taxNote = `\n*(⚡ 翻牌前對手全數棄牌，觸發國際標準「No Flop, No Drop」未看翻牌不抽水，免收 5% 手續費！)*${allInCapNote}`;
+    }
 
     if (session.isContinuous) {
       winner.chips += netWinPool;
     } else {
       await awardJades(db, winner.userId, netWinPool);
     }
-
-    taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入德州撲克金庫)*${allInCapNote}`;
   }
 
   // 檢查輸光選手
