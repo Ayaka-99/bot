@@ -583,7 +583,7 @@ const commands = [
     .setDescription('石心十人盲注桌：1~5人＋NPC砂金德州撲克 (百分比加注、神話派彩與獲利天花板風控)')
     .addStringOption(option =>
       option.setName('買入上限')
-        .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 50,000)')
+        .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 2,500)')
         .setRequired(false)
     ),
 
@@ -2956,7 +2956,7 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
 
-        let hostLimit = 50000;
+        let hostLimit = 2500;
         if (isAllIn) {
           // 拿出玩家的所有星瓊，不設 50,000 封頂！
           hostLimit = myJades;
@@ -2976,8 +2976,8 @@ client.on('interactionCreate', async (interaction) => {
           }
           hostLimit = parsed;
         } else {
-          // 預設 50,000（若玩家餘額小於 50,000 則取其餘額）
-          hostLimit = Math.min(50000, myJades);
+          // 預設 2,500（若玩家餘額小於 2,500 則取其餘額）
+          hostLimit = Math.min(2500, myJades);
         }
 
         await startHoldemLobby(db, interaction, hostLimit, isAllIn);

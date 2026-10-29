@@ -428,6 +428,13 @@ async function runTests() {
     // 玩家最終籌碼 = 622 + 658 = 1280
     assert.strictEqual(regularSession.seats[0].chips, 622 + 658, '常規牌局玩家應全額獲得底池扣稅後全部籌碼 (658)');
     console.log('  ✅ 常規對局 100% 保障底池收益，絕無惡意封頂截斷！\n');
+
+    // 驗證 /勝率 戰績統計已精準寫入 (無論 tableCap 多少皆無障礙記錄)
+    const { getUserCasinoStats } = require('./casinoStatsService');
+    const pStats = await getUserCasinoStats(testDb, 'user_lance');
+    assert.strictEqual(pStats.holdemGames, 1, '真人玩家必須計入 1 場德州對局');
+    assert.strictEqual(pStats.holdemWins, 1, '真人玩家必須計入 1 場德州奪池勝場');
+    console.log('  ✅ 德州撲克戰績與勝率 100% 寫入 casino_user_stats！\n');
   } finally {
     testDb.close();
   }

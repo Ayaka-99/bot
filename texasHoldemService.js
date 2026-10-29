@@ -459,7 +459,7 @@ function rotateButtonAndBlinds(session, shouldRotate = true) {
 // 🏛️ 第一層：主頻道招募大廳與場外買馬
 // ==========================================================
 
-async function startHoldemLobby(db, interaction, hostLimit = 50000, isAllIn = false) {
+async function startHoldemLobby(db, interaction, hostLimit = 2500, isAllIn = false) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
@@ -876,7 +876,7 @@ async function lockAndStartHoldem(session) {
   }
   const minBalance = Math.min(...qualifiedBalances);
   session.tableCap = Math.min(minBalance, session.hostLimit);
-  session.isCasualTable = session.tableCap < 3000;
+  session.isCasualTable = session.tableCap < 500;
   session.isContinuous = true;
 
   // 3. 預扣全體真人玩家籌碼
@@ -1694,23 +1694,21 @@ async function concludeUncontestedWin(session, winner) {
 
   const horseNote = await settleSpectatorBets(session, winner.seatIndex);
 
-  if (!session.isCasualTable) {
-    for (const s of session.seats) {
-      if (!s.isNpc) {
-        const isWinner = s.seatIndex === winner.seatIndex;
-        const wonAmount = isWinner ? finalWinnerWon : 0;
-        const netJades = isWinner ? wonAmount - s.totalBet : -s.totalBet;
-        await recordCasinoGame(db, {
-          userId: s.userId,
-          username: s.username,
-          mode: 'holdem',
-          result: isWinner ? 'WIN' : 'LOSE',
-          bet: s.totalBet,
-          won: isWinner ? wonAmount : 0,
-          net: netJades,
-          beatAventurine: isWinner,
-        }).catch(() => {});
-      }
+  for (const s of session.seats) {
+    if (!s.isNpc) {
+      const isWinner = s.seatIndex === winner.seatIndex;
+      const wonAmount = isWinner ? finalWinnerWon : 0;
+      const netJades = isWinner ? wonAmount - s.totalBet : -s.totalBet;
+      await recordCasinoGame(db, {
+        userId: s.userId,
+        username: s.username,
+        mode: 'holdem',
+        result: isWinner ? 'WIN' : 'LOSE',
+        bet: s.totalBet,
+        won: isWinner ? wonAmount : 0,
+        net: netJades,
+        beatAventurine: isWinner,
+      }).catch(() => {});
     }
   }
 
@@ -1871,27 +1869,25 @@ async function concludeShowdown(session) {
   const primaryWinnerSeat = winners[0].seatIndex;
   const horseNote = await settleSpectatorBets(session, primaryWinnerSeat);
 
-  if (!session.isCasualTable) {
-    for (const s of session.seats) {
-      if (!s.isNpc) {
-        const isWinner = winners.some((w) => w.seatIndex === s.seatIndex);
-        const beatAventurine = isWinner && contenders.some((c) => c.isNpc);
-        const potWon = isWinner ? (winnerPotWonMap.get(s.seatIndex) ?? 0) : 0;
-        const jpWon = winnerJackpotMap.get(s.seatIndex) || 0;
-        const totalWon = potWon + jpWon;
-        const netJades = totalWon - s.totalBet;
+  for (const s of session.seats) {
+    if (!s.isNpc) {
+      const isWinner = winners.some((w) => w.seatIndex === s.seatIndex);
+      const beatAventurine = isWinner && contenders.some((c) => c.isNpc);
+      const potWon = isWinner ? (winnerPotWonMap.get(s.seatIndex) ?? 0) : 0;
+      const jpWon = winnerJackpotMap.get(s.seatIndex) || 0;
+      const totalWon = potWon + jpWon;
+      const netJades = totalWon - s.totalBet;
 
-        await recordCasinoGame(db, {
-          userId: s.userId,
-          username: s.username,
-          mode: 'holdem',
-          result: isWinner ? (isSplit && netJades === 0 ? 'DRAW' : 'WIN') : 'LOSE',
-          bet: s.totalBet,
-          won: totalWon,
-          net: netJades,
-          beatAventurine,
-        }).catch(() => {});
-      }
+      await recordCasinoGame(db, {
+        userId: s.userId,
+        username: s.username,
+        mode: 'holdem',
+        result: isWinner ? (isSplit && netJades === 0 ? 'DRAW' : 'WIN') : 'LOSE',
+        bet: s.totalBet,
+        won: totalWon,
+        net: netJades,
+        beatAventurine,
+      }).catch(() => {});
     }
   }
 
