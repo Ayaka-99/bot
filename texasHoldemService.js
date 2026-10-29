@@ -1669,28 +1669,13 @@ async function executeNpcTurn(session) {
   const callAmount = session.currentHighestBet - activeSeat.roundBet;
   let actionText = '';
 
-  let trickPrefix = '';
-  if (decision.trick === 'OVERBET') {
-    trickPrefix = '💥 **【超額巨注震懾 (Overbet)】** ';
-  } else if (decision.trick === 'CHECK_RAISE') {
-    trickPrefix = '⚠️ **【埋伏過牌加注 (Check-Raise)】** ';
-  } else if (decision.trick === 'SCARE_BLUFF') {
-    trickPrefix = '🎭 **【藉牌威嚇詐唬 (Scare Bluff)】** ';
-  } else if (decision.trick === 'RIVER_SHOVE') {
-    trickPrefix = '💀 **【河牌極限梭哈 (River Shove)】** ';
-  } else if (decision.trick === 'BLIND_DEFENSE') {
-    trickPrefix = '📈 **【大盲資產防衛 (Blind Defense)】** ';
-  } else if (decision.trick === 'DOUBLE_BARREL') {
-    trickPrefix = '🔥 **【轉牌連續重擊 (Double Barrel)】** ';
-  }
-
   if (decision.action === 'FOLD') {
     activeSeat.isFolded = true;
     activeSeat.hasActedThisRound = true;
-    actionText = `${trickPrefix}🏳️ **${activeSeat.username}** 蓋牌認輸 **(Fold)**！\n> *「${decision.quote}」*`;
+    actionText = `🏳️ **${activeSeat.username}** 蓋牌認輸 **(Fold)**！\n> *「${decision.quote}」*`;
   } else if (decision.action === 'CHECK') {
     activeSeat.hasActedThisRound = true;
-    actionText = `${trickPrefix}🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。\n> *「${decision.quote}」*`;
+    actionText = `🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。\n> *「${decision.quote}」*`;
   } else if (decision.action === 'CALL') {
     const pay = Math.min(activeSeat.chips, callAmount);
     activeSeat.chips -= pay;
@@ -1700,8 +1685,8 @@ async function executeNpcTurn(session) {
     if (activeSeat.chips === 0) activeSeat.isAllIn = true;
     activeSeat.hasActedThisRound = true;
     actionText = pay === 0
-      ? `${trickPrefix}🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。`
-      : `${trickPrefix}🛡️ **${activeSeat.username}** 跟注 **${pay.toLocaleString()}** 星瓊 **(Call)**。\n> *「${decision.quote}」*`;
+      ? `🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。`
+      : `🛡️ **${activeSeat.username}** 跟注 **${pay.toLocaleString()}** 星瓊 **(Call)**。\n> *「${decision.quote}」*`;
   } else if (decision.action === 'RAISE') {
     const actualRaise = Math.min(activeSeat.chips, decision.amount);
     activeSeat.chips -= actualRaise;
@@ -1713,7 +1698,7 @@ async function executeNpcTurn(session) {
     if (activeSeat.chips === 0) activeSeat.isAllIn = true;
     activeSeat.hasActedThisRound = true;
     if (session.stage === 'PRE_FLOP') session.preflopAggressor = activeSeat.seatIndex;
-    actionText = `${trickPrefix}📈 **${activeSeat.username}** 加注 **+${actualRaise.toLocaleString()}** 星瓊！\n> *「${decision.quote}」*`;
+    actionText = `📈 **${activeSeat.username}** 加注 **+${actualRaise.toLocaleString()}** 星瓊！\n> *「${decision.quote}」*`;
   } else if (decision.action === 'ALL_IN') {
     const pay = activeSeat.chips;
     activeSeat.chips = 0;
@@ -1725,7 +1710,7 @@ async function executeNpcTurn(session) {
     }
     activeSeat.isAllIn = true;
     activeSeat.hasActedThisRound = true;
-    actionText = `${trickPrefix}🔥 **${activeSeat.username}** 梭哈全押 **+${pay.toLocaleString()}** 星瓊 (All-in)！\n> *「${decision.quote}」*`;
+    actionText = `🔥 **${activeSeat.username}** 梭哈全押 **+${pay.toLocaleString()}** 星瓊 (All-in)！\n> *「${decision.quote}」*`;
   }
 
   await triggerNextAction(session, actionText);
