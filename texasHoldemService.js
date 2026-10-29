@@ -1643,9 +1643,11 @@ async function concludeUncontestedWin(session, winner) {
   } else {
     let allInCapNote = '';
     const rawProfit = winPool - winner.totalBet;
-    if (rawProfit > 0) {
+    const isAllInGame = session.isAllIn || (winner.isAllIn && winner.totalBet > MAX_BET * 5);
+    if (isAllInGame && rawProfit > 0) {
       const texasVault = await getVault(db, 'texas');
-      const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
+      const vaultJades = Math.max(25000, texasVault.currentJades);
+      const payoutCap = Math.floor(Math.min(MAX_BET * 5, vaultJades * 0.20));
       if (rawProfit > payoutCap) {
         const excessProfit = rawProfit - payoutCap;
         winPool = winner.totalBet + payoutCap;
@@ -1791,9 +1793,11 @@ async function concludeShowdown(session) {
       let allInCapNote = '';
 
       const rawProfit = share - w.totalBet;
-      if (rawProfit > 0) {
+      const isAllInGame = session.isAllIn || (w.isAllIn && w.totalBet > MAX_BET * 5);
+      if (isAllInGame && rawProfit > 0) {
         const texasVault = await getVault(db, 'texas');
-        const payoutCap = Math.floor(Math.min(MAX_BET * 5, texasVault.currentJades * 0.20));
+        const vaultJades = Math.max(25000, texasVault.currentJades);
+        const payoutCap = Math.floor(Math.min(MAX_BET * 5, vaultJades * 0.20));
         if (rawProfit > payoutCap) {
           const excessProfit = rawProfit - payoutCap;
           share = w.totalBet + payoutCap;

@@ -356,6 +356,82 @@ async function runTests() {
     cashDb.close();
   }
 
+  
+  // ----------------------------------------------------
+  // 7. 測試常規牌局（非 All-in 局）絕不觸發天花板截斷與底池銷毀 (692 底池實得全額)
+  // ----------------------------------------------------
+  console.log('▶ [7/7] 測試常規對局（非 All-in 局）絕不被天花板截斷，全額贏得底池...');
+  const testDb = new sqlite3.Database(':memory:');
+  try {
+    const { initCasinoVaults, getVault } = require('./casinoVaultService');
+    const { initCasinoStatsTable } = require('./casinoStatsService');
+    await initCasinoStatsTable(testDb);
+    const { concludeShowdown } = require('./texasHoldemService');
+    await initCasinoVaults(testDb);
+
+    // 模擬生產環境異常低金庫 (僅 40 星瓊)
+    await new Promise((res) => {
+      testDb.run('UPDATE casino_vaults SET currentJades = 40, totalBurned = 0 WHERE vaultType = "texas"', () => res());
+    });
+
+    const regularSession = {
+      sessionId: 'reg_session_692',
+      db: testDb,
+      pot: 692, // 總底池 692
+      isAllIn: false, // 常規牌桌，非 All-in
+      isContinuous: true,
+      isCasualTable: false,
+      communityCards: [
+        { suit: '♣', rank: 'K', value: 13 },
+        { suit: '♠', rank: '9', value: 9 },
+        { suit: '♦', rank: '6', value: 6 },
+        { suit: '♠', rank: '8', value: 8 },
+        { suit: '♠', rank: '6', value: 6 },
+      ],
+      seats: [
+        // 玩家持有同花 Q 高
+        {
+          seatIndex: 1,
+          userId: 'user_lance',
+          username: 'lance_508',
+          isNpc: false,
+          chips: 622, // 初始 923 - 301
+          totalBet: 301,
+          isAllIn: false,
+          isFolded: false,
+          holeCards: [{ suit: '♠', rank: 'Q', value: 12 }, { suit: '♠', rank: '2', value: 2 }],
+        },
+        // 砂金持有單對 6
+        {
+          seatIndex: 2,
+          userId: 'aventurine_npc',
+          username: '砂金',
+          isNpc: true,
+          chips: 102,
+          totalBet: 391,
+          isAllIn: false,
+          isFolded: false,
+          holeCards: [{ suit: '♣', rank: '10', value: 10 }, { suit: '♥', rank: 'A', value: 14 }],
+        },
+      ],
+      consoleMessage: { edit: async () => {} },
+      spectatorBets: [],
+    };
+
+    await concludeShowdown(regularSession);
+
+    // 驗證金庫銷毀為 0 (絕不銷毀常規玩家底池)
+    const vault = await getVault(testDb, 'texas');
+    assert.strictEqual(vault.totalBurned, 0, '常規對局絕不能銷毀任何底池籌碼！');
+
+    // 驗證玩家獲得全額底池 (扣除 5% 稅: 692 * 0.05 = 34，淨得 692 - 34 = 658)
+    // 玩家最終籌碼 = 622 + 658 = 1280
+    assert.strictEqual(regularSession.seats[0].chips, 622 + 658, '常規牌局玩家應全額獲得底池扣稅後全部籌碼 (658)');
+    console.log('  ✅ 常規對局 100% 保障底池收益，絕無惡意封頂截斷！\n');
+  } finally {
+    testDb.close();
+  }
+
   console.log('🎉 德州撲克 1v4 NPC 深度決策與多手連續 Cash Game 全套測試 100% 通過！');
   process.exit(0);
 }

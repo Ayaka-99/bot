@@ -53,7 +53,12 @@ function initCasinoVaults(db) {
             [TEXAS_VAULT_INIT, TEXAS_VAULT_MAX],
             (insertErr) => {
               if (insertErr) return reject(insertErr);
-              resolve();
+              // 自動修復：若德州金庫低於初始底金 25,000，自動安全補齊
+              db.run(
+                `UPDATE casino_vaults SET currentJades = ? WHERE vaultType = 'texas' AND currentJades < ?`,
+                [TEXAS_VAULT_INIT, TEXAS_VAULT_INIT],
+                () => resolve()
+              );
             }
           );
         }
