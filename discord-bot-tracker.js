@@ -167,6 +167,8 @@ const {
   handleHoldemRaiseSubmit,
   handleHoldemAllIn,
   handleHoldemFold,
+  handleHoldemNextHand,
+  handleHoldemCashOut,
   handleHoldemReplay,
   forceCloseHoldemSession,
 } = require('./texasHoldemService');
@@ -2002,6 +2004,16 @@ client.on('interactionCreate', async (interaction) => {
       if (customId.startsWith('holdem_action_fold_')) {
         const sessionId = customId.replace('holdem_action_fold_', '');
         return await handleHoldemFold(interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_next_hand_')) {
+        const sessionId = customId.replace('holdem_next_hand_', '');
+        return await handleHoldemNextHand(db, interaction, sessionId);
+      }
+
+      if (customId.startsWith('holdem_cashout_')) {
+        const sessionId = customId.replace('holdem_cashout_', '');
+        return await handleHoldemCashOut(db, interaction, sessionId);
       }
 
       if (customId.startsWith('holdem_replay_') || customId.startsWith('holdem_sub_')) {

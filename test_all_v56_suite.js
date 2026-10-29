@@ -16,6 +16,7 @@ const testScripts = [
   'test_aventurine_pve_v56.js',
   'test_holdem_allin_payout_cap.js',
   'test_aventurine_dynamic_ai.js',
+  'test_holdem_multi_npc_and_cashgame.js',
 ];
 
 console.log('====================================================');
