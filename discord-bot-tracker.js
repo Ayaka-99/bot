@@ -206,6 +206,15 @@ const {
   buildBlacklistEmbed,
 } = require('./blacklistService');
 
+// 🎮 引入 1A2B 猜數字益智小遊戲服務 (/1a2b)
+const {
+  init1A2BTable,
+  start1A2BGame,
+  handle1A2BGuessButton,
+  handle1A2BSurrenderButton,
+  handle1A2BModalSubmit,
+} = require('./game1A2BService');
+
 function buildCustomTitleModal() {
   const modal = new ModalBuilder()
     .setCustomId('custom_title_modal')
@@ -278,6 +287,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
     initRedPacketDb(db).catch(console.error);
     // 初始化閉嘴服務黑名單資料表
     initBlacklistTable(db).catch(console.error);
+    // 初始化 1A2B 猜數字小遊戲冷卻資料表
+    init1A2BTable(db).catch(console.error);
   }
 });
 
@@ -688,6 +699,16 @@ const commands = [
     .addSubcommand(sub =>
       sub.setName('查詢')
         .setDescription('查詢目前所有被列入黑名單的成員名冊')
+    ),
+
+  // 🧠 1A2B 4 碼猜數字小遊戲
+  new SlashCommandBuilder()
+    .setName('1a2b')
+    .setDescription('🧠 4 碼猜數字益智小遊戲 (猜對獲 1,500 星瓊，限時 8 回合)')
+    .addBooleanOption(option =>
+      option.setName('公開')
+        .setDescription('是否將遊戲面板公開於頻道 (預設：否，僅自己可見)')
+        .setRequired(false)
     ),
 ];
 
@@ -1773,11 +1794,23 @@ client.on('interactionCreate', async (interaction) => {
       const selectedSeatIndex = parts[4];
       return await handleHoldemHorseModalSubmit(db, interaction, sessionId, selectedSeatIndex);
     }
+
+    // 處理 1A2B 猜數字 Modal 提交
+    if (interaction.customId.startsWith('1a2b_modal_')) {
+      return await handle1A2BModalSubmit(db, interaction);
+    }
     return;
   }
 
   // 處理按鈕點擊 (觸發信箱驗證碼彈窗與砂金賭場互動)
   if (interaction.isButton()) {
+    // 處理 1A2B 猜數字按鈕 (輸入猜測 / 放棄認輸)
+    if (interaction.customId.startsWith('1a2b_guess_')) {
+      return await handle1A2BGuessButton(interaction);
+    }
+    if (interaction.customId.startsWith('1a2b_surrender_')) {
+      return await handle1A2BSurrenderButton(db, interaction);
+    }
     if (interaction.customId === 'hsr_trigger_verify_btn') {
       const session = pendingAuthSessions.get(interaction.user.id);
       if (!session || Date.now() > session.expiresAt) {
@@ -3202,6 +3235,9 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
+      case '1a2b': {
+        return await start1A2BGame(db, interaction);
+      }
 
       default:
         interaction.reply({ content: '❓ 這是什麼外星指令？', flags: MessageFlags.Ephemeral });
