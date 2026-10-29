@@ -935,6 +935,13 @@ async function lockAndStartHoldem(session) {
     session.stage = 'PRE_FLOP';
     session.activeSeatIndex = blinds.utgSeat.seatIndex;
 
+    const humanMentions = session.seats
+      .filter((s) => !s.isNpc)
+      .map((s) => `<@${s.userId}>`)
+      .join(' ');
+
+    await thread.send(`🔔 **德州撲克牌局正式開局！** 參賽選手請入席：${humanMentions}\n*(提示：點擊下方控制面板【👁️ 查看私人底牌】可私密查看手牌與聽牌提示)*`).catch(() => {});
+
     const consoleEmbed = buildConsoleEmbed(session, '📢 **牌局正式開始！底牌已分發至各選手手中。**');
     const consoleRows = buildConsoleActionRows(session);
 
@@ -2022,7 +2029,12 @@ async function autoCloseAndDisband(session, reason = '牌桌已解散') {
   activeHoldemSessions.delete(session.sessionId);
   if (session.thread) {
     threadSessions.delete(session.thread.id);
-    await session.thread.send(`⌛ **${reason}** 全體在場選手剩餘籌碼已全額返還錢包！`).catch(() => {});
+    await session.thread.send(`⌛ **${reason}** 全體在場選手剩餘籌碼已全額返還錢包！\n⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**`).catch(() => {});
+    setTimeout(async () => {
+      if (session.thread && typeof session.thread.delete === 'function') {
+        await session.thread.delete().catch(() => {});
+      }
+    }, 10000);
   }
 }
 
@@ -2375,11 +2387,20 @@ async function handleHoldemCashOut(db, interaction, sessionId) {
       .setDescription(
         `👑 房主 **${interaction.user.username}** 選擇了結算離場。\n` +
         `整張牌桌已安全解散，全體在場選手剩餘籌碼已 100% 全額返還錢包！\n` +
+        `⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**\n\n` +
         `感謝各位選手的精彩對局！`
       );
 
     if (session.consoleMessage) {
       await session.consoleMessage.edit({ embeds: [disbandEmbed], components: [] }).catch(() => {});
+    }
+
+    if (session.thread) {
+      setTimeout(async () => {
+        if (session.thread && typeof session.thread.delete === 'function') {
+          await session.thread.delete().catch(() => {});
+        }
+      }, 10000);
     }
 
     return interaction.reply({
@@ -2528,8 +2549,13 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
 
   if (session.thread) {
     await session.thread.send({
-      content: `⚠️ **【賭場管理員介入】管理員 ${actorName} 已強制解散本桌德州撲克！**\n全體選手剩餘籌碼已安全原路返還個人帳戶。`,
+      content: `⚠️ **【賭場管理員介入】管理員 ${actorName} 已強制解散本桌德州撲克！**\n全體選手剩餘籌碼已安全原路返還個人帳戶。\n⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**`,
     }).catch(() => {});
+    setTimeout(async () => {
+      if (session.thread && typeof session.thread.delete === 'function') {
+        await session.thread.delete().catch(() => {});
+      }
+    }, 10000);
   }
 
   return { success: true, sessionFound: true, refundedCount };
