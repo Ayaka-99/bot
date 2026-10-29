@@ -133,6 +133,21 @@ const AVENTURINE_QUOTES = {
     '「精彩的對局！能從我手裡贏走底池，你有資格拿到砂金的認可。」',
     '「賭徒永遠不缺再來一把的勇氣。下一次，我會全部贏回來。」',
   ],
+  overbet: [
+    '「『超額下注』？在我的賭桌上，沒有合適的注碼，只有敢不敢賭的靈魂。」',
+    '「這張公牌掉得真漂亮……現在，把你的身家交出來吧！」',
+    '「既然你想看牌，那就付出相應的代價吧——加注拉滿！」',
+  ],
+  checkRaise: [
+    '「你以為我過牌是示弱？抱歉，那是為你準備的絞刑架。」',
+    '「獵物主動走進了陷阱……現在，反手加注！」',
+    '「謝謝你幫我把底池養大，現在輪到我接管牌局了。」',
+  ],
+  scareBluff: [
+    '「看著這張高牌，你的心跳是不是漏了一拍？」',
+    '「這張面牌究竟屬於誰？用你的籌碼來向我求證吧。」',
+    '「在驚濤駭浪面前，閉上雙眼的人注定會沉入海底。」',
+  ],
 };
 
 const TOPAZ_QUOTES = {
@@ -152,6 +167,10 @@ const TOPAZ_QUOTES = {
   ],
   allIn: [
     '「頂級怪物牌，勝率超過 90%，全押清算！」',
+  ],
+  blindDefense: [
+    '「想在大盲位偷公司的盲注？資產防衛機制啟動，反加注。」',
+    '「偷盲的成本已經高過你的預期回報了，請自重。」',
   ],
 };
 
@@ -176,6 +195,14 @@ const SAMPO_QUOTES = {
   fold: [
     '「哎呀呀，看來這把玩脫了……老桑博先溜為妙，蓋牌蓋牌！」',
     '「風緊扯呼！這底池太燙手，我不玩了！」',
+  ],
+  overbet: [
+    '「來來來！老桑博帶你玩點心跳加速的！底池全給我拿來！」',
+    '「加注！再加注！只要籌碼推得夠大，沒人能看穿愚者的底牌！」',
+  ],
+  doubleBarrel: [
+    '「翻牌沒嚇跑你？那轉牌這刀你接得住嗎！」',
+    '「再推一注！老桑博字典裡可沒有半途而廢這四個字！」',
   ],
 };
 
@@ -1230,9 +1257,25 @@ function decideTopazAction(session, seat, randFn = Math.random) {
 
     const isTopTier = isTopPair || isSuitedBroadway || isBigOffsuit;
 
+    // 動態防偷盲 (Blind Defense)：若托帕身處大盲位且面對小型加注，有一定機率防禦
+    const bbAmount = Math.max(20, Math.floor((session.tableCap || 2500) * 0.05));
+    const isSmallSteal = callAmount > 0 && callAmount <= Math.floor(bbAmount * 2.5);
+    const hasDefensePotential = isSuited || (highVal >= 11 && lowVal >= 8) || (highVal - lowVal <= 2);
+
     if (!isTopTier) {
       if (callAmount <= 0) {
         return { action: 'CHECK', quote: getRandomQuote('topaz', 'call') };
+      }
+      // 大盲位遇到偷盲且手牌有潛力：動態防衛 (25% 跟注, 10% 3-Bet 反將一軍)
+      if (isSmallSteal && hasDefensePotential && session.roundRaises === 1 && seat.roundBet === bbAmount) {
+        const roll = randFn();
+        if (roll < 0.10) {
+          const raiseAmt = Math.max(20, Math.floor(callAmount * 2.2));
+          return { action: 'RAISE', amount: callAmount + raiseAmt, trick: 'BLIND_DEFENSE', quote: getRandomQuote('topaz', 'blindDefense') };
+        }
+        if (roll < 0.35) {
+          return { action: 'CALL', quote: getRandomQuote('topaz', 'call') };
+        }
       }
       return { action: 'FOLD', quote: getRandomQuote('topaz', 'fold') };
     }
@@ -1383,10 +1426,22 @@ function decideSampoAction(session, seat, randFn = Math.random) {
     return randFn() < 0.50 ? { action: 'ALL_IN', quote: getRandomQuote('sampo', 'call') } : { action: 'FOLD', quote: getRandomQuote('sampo', 'fold') };
   }
 
+  // 狂暴主動下注與動態把戲
   if (callAmount <= 0) {
+    // 翻牌 C-Bet
     if (session.stage === 'FLOP' && session.preflopAggressor === seat.seatIndex && randFn() < 0.85) {
       const raiseAmt = Math.max(10, Math.floor(session.pot * 0.50));
       return { action: 'RAISE', amount: raiseAmt, quote: getRandomQuote('sampo', 'cbet') };
+    }
+    // 轉牌 Double Barrel 連擊
+    if (session.stage === 'TURN' && session.preflopAggressor === seat.seatIndex && randFn() < 0.65) {
+      const raiseAmt = Math.max(15, Math.floor(session.pot * (0.60 + randFn() * 0.20)));
+      return { action: 'RAISE', amount: raiseAmt, trick: 'DOUBLE_BARREL', quote: getRandomQuote('sampo', 'doubleBarrel') };
+    }
+    // 河牌 Overbet 巨注詐唬
+    if (session.stage === 'RIVER' && randFn() < 0.30) {
+      const raiseAmt = Math.max(20, Math.floor(session.pot * 1.25));
+      return { action: 'RAISE', amount: raiseAmt, trick: 'OVERBET', quote: getRandomQuote('sampo', 'overbet') };
     }
     if (randFn() < 0.70) {
       const raiseAmt = Math.max(10, Math.floor(session.pot * 0.60));
@@ -1467,6 +1522,10 @@ function decideAventurineAction(session, seat, randFn = Math.random) {
   const c1 = seat.holeCards[0];
   const c2 = seat.holeCards[1];
 
+  // 動態深度比率與激進因子 (Pot-to-Stack / Cap)
+  const depthRatio = Math.min(1.0, session.pot / Math.max(1000, session.tableCap || 2500));
+  const dynamicBluffBase = 0.20 + 0.30 * depthRatio;
+
   if (session.stage === 'PRE_FLOP') {
     const isPair = c1.rank === c2.rank;
     const isSuitedConn = c1.suit === c2.suit && Math.abs(c1.value - c2.value) <= 2;
@@ -1475,10 +1534,10 @@ function decideAventurineAction(session, seat, randFn = Math.random) {
     const isGoodHand = isPair || isSuitedConn || hasHighCard;
 
     const shouldRaise = isPremium
-      ? randFn() < 0.70
+      ? randFn() < 0.75
       : isGoodHand
-      ? (session.roundRaises < 2 && randFn() < 0.45)
-      : (session.roundRaises === 1 && randFn() < 0.20);
+      ? (session.roundRaises < 2 && randFn() < (0.40 + depthRatio * 0.15))
+      : (session.roundRaises === 1 && randFn() < (0.15 + depthRatio * 0.15));
 
     if (shouldRaise && session.roundRaises < 2) {
       const dynamicPct = 0.20 + randFn() * 0.25;
@@ -1500,31 +1559,65 @@ function decideAventurineAction(session, seat, randFn = Math.random) {
   const bestHand = evaluateBestHand(knownCards);
   const isMadeHand = bestHand.tier >= HAND_TIERS.ONE_PAIR;
   const isStrongHand = bestHand.tier >= HAND_TIERS.TWO_PAIR;
+  const isMonsterHand = bestHand.tier >= HAND_TIERS.THREE_OF_A_KIND;
 
+  // 牌面威嚇度感知 (Scare Cards: A, K, 3張同花面)
+  const community = session.communityCards || [];
+  const hasHighScare = community.some((c) => c.value >= 13);
   const suitCounts = {};
-  for (const c of session.communityCards) {
+  for (const c of community) {
     suitCounts[c.suit] = (suitCounts[c.suit] || 0) + 1;
   }
   const hasFlushDrawBoard = Object.values(suitCounts).some((cnt) => cnt >= 3);
+  const isScaryBoard = hasHighScare || hasFlushDrawBoard;
 
+  // 河牌圈終極心理博弈
   if (session.stage === 'RIVER') {
     if (!isMadeHand) {
-      const bluffProb = hasFlushDrawBoard || session.pot >= 25000 ? 0.35 : 0.20;
+      // 空氣牌動態全押詐唬
+      const bluffProb = Math.min(0.65, dynamicBluffBase + (isScaryBoard ? 0.15 : 0.05));
       if (randFn() < bluffProb) {
-        return { action: 'ALL_IN', quote: getRandomQuote('aventurine', 'riverBluff') };
+        return { action: 'ALL_IN', trick: 'RIVER_SHOVE', quote: getRandomQuote('aventurine', 'riverBluff') };
       }
-      if (callAmount > session.pot * 0.50) {
+      if (callAmount > session.pot * 0.45) {
         return { action: 'FOLD', quote: getRandomQuote('aventurine', 'lose') };
       }
-    } else if (isMadeHand && callAmount === 0 && randFn() < 0.45 && session.roundRaises < 2) {
-      const valueBetPct = 0.25 + randFn() * 0.12;
+    } else if (isMonsterHand) {
+      // 怪物牌過額下注榨取
+      if (session.roundRaises < 2 && randFn() < 0.60) {
+        const overbetPct = 1.15 + randFn() * 0.35;
+        const raiseAmt = Math.max(20, Math.floor(session.pot * overbetPct));
+        return { action: 'RAISE', amount: callAmount + raiseAmt, trick: 'OVERBET', quote: getRandomQuote('aventurine', 'overbet') };
+      }
+    } else if (isMadeHand && callAmount === 0 && randFn() < 0.50 && session.roundRaises < 2) {
+      const valueBetPct = 0.25 + randFn() * 0.15;
       const raiseAmt = Math.max(10, Math.floor(session.pot * valueBetPct));
       return { action: 'RAISE', amount: raiseAmt, quote: getRandomQuote('aventurine', 'midRoundRaise') };
     }
   }
 
+  // 翻牌與轉牌陷阱 (Check-Raise 埋伏)
+  if (isMonsterHand && session.roundRaises < 2) {
+    if (callAmount <= 0) {
+      // 40% 示弱過牌埋伏 (Trap / Slow Play)
+      if (randFn() < 0.40) {
+        return { action: 'CHECK', quote: getRandomQuote('aventurine', 'probeBet') };
+      }
+    } else if (callAmount > 0 && randFn() < 0.70) {
+      // 反手過牌加注伏擊 (Check-Raise)
+      const crPct = 0.45 + randFn() * 0.35;
+      const raiseAmt = Math.max(20, Math.floor(session.pot * crPct));
+      return { action: 'RAISE', amount: callAmount + raiseAmt, trick: 'CHECK_RAISE', quote: getRandomQuote('aventurine', 'checkRaise') };
+    }
+  }
+
   if (isStrongHand) {
-    if (session.roundRaises < 2 && randFn() < 0.65) {
+    if (session.roundRaises < 2 && randFn() < (0.50 + depthRatio * 0.25)) {
+      // 轉牌有 25% 機率發動超額下注嚇阻 (Overbet)
+      if (session.stage === 'TURN' && randFn() < 0.25) {
+        const overbetAmt = Math.max(30, Math.floor(session.pot * (1.15 + randFn() * 0.25)));
+        return { action: 'RAISE', amount: callAmount + overbetAmt, trick: 'OVERBET', quote: getRandomQuote('aventurine', 'overbet') };
+      }
       const dynamicPct = 0.35 + randFn() * 0.30;
       const raiseAmt = Math.max(10, Math.floor(session.pot * dynamicPct));
       return { action: 'RAISE', amount: callAmount + raiseAmt, quote: getRandomQuote('aventurine', 'midRoundRaise') };
@@ -1533,24 +1626,25 @@ function decideAventurineAction(session, seat, randFn = Math.random) {
   }
 
   if (isMadeHand) {
-    if (callAmount === 0 && randFn() < 0.35 && session.roundRaises < 2) {
-      const probePct = 0.25 + randFn() * 0.10;
+    if (callAmount === 0 && randFn() < 0.40 && session.roundRaises < 2) {
+      const probePct = 0.25 + randFn() * 0.15;
       const raiseAmt = Math.max(10, Math.floor(session.pot * probePct));
       return { action: 'RAISE', amount: raiseAmt, quote: getRandomQuote('aventurine', 'probeBet') };
     }
     return callAmount <= 0 ? { action: 'CHECK', quote: getRandomQuote('aventurine', 'probeBet') } : { action: 'CALL', quote: getRandomQuote('aventurine', 'heroCall') };
   }
 
+  // 純空氣牌嚇唬把戲 (Scare Bluff)
   if (callAmount <= 0) {
-    if (hasFlushDrawBoard && randFn() < 0.30 && session.roundRaises < 2) {
-      const bluffPct = 0.25 + randFn() * 0.15;
+    if (isScaryBoard && randFn() < (dynamicBluffBase + 0.10) && session.roundRaises < 2) {
+      const bluffPct = 0.25 + randFn() * 0.20;
       const raiseAmt = Math.max(10, Math.floor(session.pot * bluffPct));
-      return { action: 'RAISE', amount: raiseAmt, quote: getRandomQuote('aventurine', 'semiBluff') };
+      return { action: 'RAISE', amount: raiseAmt, trick: 'SCARE_BLUFF', quote: getRandomQuote('aventurine', 'scareBluff') };
     }
     return { action: 'CHECK', quote: getRandomQuote('aventurine', 'probeBet') };
   }
 
-  if (callAmount > seat.chips * 0.35 && randFn() < 0.60) {
+  if (callAmount > seat.chips * 0.35 && randFn() < 0.55) {
     return { action: 'FOLD', quote: '這把牌不值得我冒險，蓋牌了。' };
   }
 
@@ -1575,13 +1669,28 @@ async function executeNpcTurn(session) {
   const callAmount = session.currentHighestBet - activeSeat.roundBet;
   let actionText = '';
 
+  let trickPrefix = '';
+  if (decision.trick === 'OVERBET') {
+    trickPrefix = '💥 **【超額巨注震懾 (Overbet)】** ';
+  } else if (decision.trick === 'CHECK_RAISE') {
+    trickPrefix = '⚠️ **【埋伏過牌加注 (Check-Raise)】** ';
+  } else if (decision.trick === 'SCARE_BLUFF') {
+    trickPrefix = '🎭 **【藉牌威嚇詐唬 (Scare Bluff)】** ';
+  } else if (decision.trick === 'RIVER_SHOVE') {
+    trickPrefix = '💀 **【河牌極限梭哈 (River Shove)】** ';
+  } else if (decision.trick === 'BLIND_DEFENSE') {
+    trickPrefix = '📈 **【大盲資產防衛 (Blind Defense)】** ';
+  } else if (decision.trick === 'DOUBLE_BARREL') {
+    trickPrefix = '🔥 **【轉牌連續重擊 (Double Barrel)】** ';
+  }
+
   if (decision.action === 'FOLD') {
     activeSeat.isFolded = true;
     activeSeat.hasActedThisRound = true;
-    actionText = `🏳️ **${activeSeat.username}** 蓋牌認輸 **(Fold)**！\n> *「${decision.quote}」*`;
+    actionText = `${trickPrefix}🏳️ **${activeSeat.username}** 蓋牌認輸 **(Fold)**！\n> *「${decision.quote}」*`;
   } else if (decision.action === 'CHECK') {
     activeSeat.hasActedThisRound = true;
-    actionText = `🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。\n> *「${decision.quote}」*`;
+    actionText = `${trickPrefix}🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。\n> *「${decision.quote}」*`;
   } else if (decision.action === 'CALL') {
     const pay = Math.min(activeSeat.chips, callAmount);
     activeSeat.chips -= pay;
@@ -1591,8 +1700,8 @@ async function executeNpcTurn(session) {
     if (activeSeat.chips === 0) activeSeat.isAllIn = true;
     activeSeat.hasActedThisRound = true;
     actionText = pay === 0
-      ? `🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。`
-      : `🛡️ **${activeSeat.username}** 跟注 **${pay.toLocaleString()}** 星瓊 **(Call)**。\n> *「${decision.quote}」*`;
+      ? `${trickPrefix}🛡️ **${activeSeat.username}** 敲桌 **過牌 (Check)**。`
+      : `${trickPrefix}🛡️ **${activeSeat.username}** 跟注 **${pay.toLocaleString()}** 星瓊 **(Call)**。\n> *「${decision.quote}」*`;
   } else if (decision.action === 'RAISE') {
     const actualRaise = Math.min(activeSeat.chips, decision.amount);
     activeSeat.chips -= actualRaise;
@@ -1604,7 +1713,7 @@ async function executeNpcTurn(session) {
     if (activeSeat.chips === 0) activeSeat.isAllIn = true;
     activeSeat.hasActedThisRound = true;
     if (session.stage === 'PRE_FLOP') session.preflopAggressor = activeSeat.seatIndex;
-    actionText = `📈 **${activeSeat.username}** 加注 **+${actualRaise.toLocaleString()}** 星瓊！\n> *「${decision.quote}」*`;
+    actionText = `${trickPrefix}📈 **${activeSeat.username}** 加注 **+${actualRaise.toLocaleString()}** 星瓊！\n> *「${decision.quote}」*`;
   } else if (decision.action === 'ALL_IN') {
     const pay = activeSeat.chips;
     activeSeat.chips = 0;
@@ -1616,7 +1725,7 @@ async function executeNpcTurn(session) {
     }
     activeSeat.isAllIn = true;
     activeSeat.hasActedThisRound = true;
-    actionText = `🔥 **${activeSeat.username}** 梭哈全押 **+${pay.toLocaleString()}** 星瓊 (All-in)！\n> *「${decision.quote}」*`;
+    actionText = `${trickPrefix}🔥 **${activeSeat.username}** 梭哈全押 **+${pay.toLocaleString()}** 星瓊 (All-in)！\n> *「${decision.quote}」*`;
   }
 
   await triggerNextAction(session, actionText);
@@ -1624,6 +1733,7 @@ async function executeNpcTurn(session) {
 
 // 相容舊名
 const executeAventurineTurn = executeNpcTurn;
+
 
 // ==========================================================
 // 🏆 結算與金流處理 (Settlement & Jackpot)
@@ -1707,7 +1817,10 @@ async function concludeUncontestedWin(session, winner) {
         bet: s.totalBet,
         won: isWinner ? wonAmount : 0,
         net: netJades,
-        beatAventurine: isWinner,
+        beatAventurine: isWinner && session.seats.some((x) => (x.npcType === 'aventurine' || x.userId === 'aventurine_npc' || x.seatIndex === 2) && !x.isFolded),
+        beatTopaz: isWinner && session.seats.some((x) => (x.npcType === 'topaz' || x.userId === 'topaz_npc' || (x.username && x.username.includes('托帕'))) && !x.isFolded),
+        beatSampo: isWinner && session.seats.some((x) => (x.npcType === 'sampo' || x.userId === 'sampo_npc' || (x.username && x.username.includes('桑博'))) && !x.isFolded),
+        beatTrailblazer: isWinner && session.seats.some((x) => (x.npcType === 'trailblazer' || x.userId === 'trailblazer_npc' || (x.username && x.username.includes('開拓者'))) && !x.isFolded),
       }).catch(() => {});
     }
   }
@@ -1872,7 +1985,10 @@ async function concludeShowdown(session) {
   for (const s of session.seats) {
     if (!s.isNpc) {
       const isWinner = winners.some((w) => w.seatIndex === s.seatIndex);
-      const beatAventurine = isWinner && contenders.some((c) => c.isNpc);
+      const beatAventurine = isWinner && contenders.some((c) => c.npcType === 'aventurine' || c.userId === 'aventurine_npc' || c.seatIndex === 2);
+      const beatTopaz = isWinner && contenders.some((c) => c.npcType === 'topaz' || c.userId === 'topaz_npc' || (c.username && c.username.includes('托帕')));
+      const beatSampo = isWinner && contenders.some((c) => c.npcType === 'sampo' || c.userId === 'sampo_npc' || (c.username && c.username.includes('桑博')));
+      const beatTrailblazer = isWinner && contenders.some((c) => c.npcType === 'trailblazer' || c.userId === 'trailblazer_npc' || (c.username && c.username.includes('開拓者')));
       const potWon = isWinner ? (winnerPotWonMap.get(s.seatIndex) ?? 0) : 0;
       const jpWon = winnerJackpotMap.get(s.seatIndex) || 0;
       const totalWon = potWon + jpWon;
@@ -1887,6 +2003,9 @@ async function concludeShowdown(session) {
         won: totalWon,
         net: netJades,
         beatAventurine,
+        beatTopaz,
+        beatSampo,
+        beatTrailblazer,
       }).catch(() => {});
     }
   }

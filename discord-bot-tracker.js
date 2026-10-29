@@ -188,6 +188,7 @@ const {
   recordCasinoGame,
   getUserCasinoStats,
   buildCasinoStatsEmbed,
+  buildHoldemExclusiveStatsEmbed,
   isMessageSynced,
   markMessageSynced,
   resetCasinoStats,
@@ -498,6 +499,15 @@ const commands = [
     .addUserOption(option =>
       option.setName('成員')
         .setDescription('要查詢戰績的目標成員 (留空預設為自己)')
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('德州勝率')
+    .setDescription('查詢個人或伺服器成員在 1+4 德州撲克 (石心十人桌) 的專屬勝率、奪池數與擊敗 NPC 榜單')
+    .addUserOption(option =>
+      option.setName('成員')
+        .setDescription('要查詢德州戰績的目標成員 (留空預設為自己)')
         .setRequired(false)
     ),
 
@@ -2780,6 +2790,21 @@ client.on('interactionCreate', async (interaction) => {
 
         const stats = await getUserCasinoStats(db, targetUser.id);
         const embed = buildCasinoStatsEmbed(targetUser, stats);
+        return interaction.reply({ embeds: [embed] });
+      }
+
+      case '德州勝率': {
+        const targetUser = options.getUser('成員') || user;
+
+        if (targetUser.bot) {
+          return interaction.reply({
+            content: '🤖 **機器人不上賭桌！**\n它只有一堆代碼跟冰冷的隨機數，沒有任何籌碼與戰績。',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const stats = await getUserCasinoStats(db, targetUser.id);
+        const embed = buildHoldemExclusiveStatsEmbed(targetUser, stats);
         return interaction.reply({ embeds: [embed] });
       }
 

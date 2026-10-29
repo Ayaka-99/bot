@@ -64,6 +64,9 @@ function initCasinoStatsTable(db) {
           'holdemLosses INTEGER DEFAULT 0',
           'holdemDraws INTEGER DEFAULT 0',
           'holdemBeatAventurine INTEGER DEFAULT 0',
+          'holdemBeatTopaz INTEGER DEFAULT 0',
+          'holdemBeatSampo INTEGER DEFAULT 0',
+          'holdemBeatTrailblazer INTEGER DEFAULT 0',
           'holdemNetJades INTEGER DEFAULT 0',
         ];
         holdemCols.forEach((colDef) => {
@@ -582,7 +585,7 @@ function parseBattleRoyaleMessage(msg, userMap) {
  * @param {number} data.net - 淨損益 (won - bet)
  * @param {boolean} [data.beatAventurine=false] - 德州撲克是否親手擊敗砂金
  */
-function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0, net = 0, beatAventurine = false }) {
+function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0, net = 0, beatAventurine = false, beatTopaz = false, beatSampo = false, beatTrailblazer = false }) {
   if (!db || !userId) return Promise.resolve();
 
   const isWin = result === 'WIN' ? 1 : 0;
@@ -618,6 +621,9 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
   const holdemLoss = mode === 'holdem' && isLoss ? 1 : 0;
   const holdemDraw = mode === 'holdem' && isDraw ? 1 : 0;
   const holdemBeat = mode === 'holdem' && beatAventurine ? 1 : 0;
+  const holdemBeatTopaz = mode === 'holdem' && beatTopaz ? 1 : 0;
+  const holdemBeatSampo = mode === 'holdem' && beatSampo ? 1 : 0;
+  const holdemBeatTb = mode === 'holdem' && beatTrailblazer ? 1 : 0;
   const holdemNet = mode === 'holdem' ? net : 0;
 
   const sql = `
@@ -629,7 +635,7 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
       duelGames, duelWins, duelLosses, duelDraws, duelNetJades,
       brGames, brWins, brLosses, brDraws, brNetJades,
       horseGames, horseWins, horseLosses, horseNetJades,
-      holdemGames, holdemWins, holdemLosses, holdemDraws, holdemBeatAventurine, holdemNetJades,
+      holdemGames, holdemWins, holdemLosses, holdemDraws, holdemBeatAventurine, holdemBeatTopaz, holdemBeatSampo, holdemBeatTrailblazer, holdemNetJades,
       updatedAt
     ) VALUES (
       ?, ?,
@@ -639,7 +645,7 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?,
       CURRENT_TIMESTAMP
     )
     ON CONFLICT(userId) DO UPDATE SET
@@ -675,6 +681,9 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
       holdemLosses = holdemLosses + excluded.holdemLosses,
       holdemDraws = holdemDraws + excluded.holdemDraws,
       holdemBeatAventurine = holdemBeatAventurine + excluded.holdemBeatAventurine,
+      holdemBeatTopaz = holdemBeatTopaz + excluded.holdemBeatTopaz,
+      holdemBeatSampo = holdemBeatSampo + excluded.holdemBeatSampo,
+      holdemBeatTrailblazer = holdemBeatTrailblazer + excluded.holdemBeatTrailblazer,
       holdemNetJades = holdemNetJades + excluded.holdemNetJades,
       updatedAt = CURRENT_TIMESTAMP
   `;
@@ -715,6 +724,9 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
         holdemLoss,
         holdemDraw,
         holdemBeat,
+        holdemBeatTopaz,
+        holdemBeatSampo,
+        holdemBeatTb,
         holdemNet,
       ],
       (err) => {
@@ -770,10 +782,18 @@ async function getUserCasinoStats(db, userId) {
           holdemLosses: 0,
           holdemDraws: 0,
           holdemBeatAventurine: 0,
+          holdemBeatTopaz: 0,
+          holdemBeatSampo: 0,
+          holdemBeatTrailblazer: 0,
           holdemNetJades: 0,
         });
       }
-      resolve(row);
+      resolve({
+        ...row,
+        holdemBeatTopaz: row.holdemBeatTopaz || 0,
+        holdemBeatSampo: row.holdemBeatSampo || 0,
+        holdemBeatTrailblazer: row.holdemBeatTrailblazer || 0,
+      });
     });
   });
 }
@@ -912,7 +932,7 @@ function buildCasinoStatsEmbed(user, stats) {
         inline: true,
       },
       {
-        name: '🃏 德州撲克 (Hold\'em)',
+        name: '🃏 1+4 德州 (石心十人桌)',
         value: `戰績：奪池 **${stats.holdemWins || 0}** 次 / 正式桌 **${stats.holdemGames || 0}** 場\n擊敗砂金：**${stats.holdemBeatAventurine || 0}** 次 ｜ 奪池率：\`${holdemRate}\`\n淨損益：**${(stats.holdemNetJades || 0) >= 0 ? '+' : ''}${(stats.holdemNetJades || 0).toLocaleString()}**`,
         inline: true,
       },
@@ -935,7 +955,97 @@ function buildCasinoStatsEmbed(user, stats) {
   return embed;
 }
 
+/**
+ * 構建 1+4 德州撲克專屬獨立勝率與討伐戰報 Embed (Muse 設計)
+ */
+function buildHoldemExclusiveStatsEmbed(user, stats) {
+  const displayName = user.displayName || user.username || '開拓者';
+  const games = stats.holdemGames || 0;
+  const wins = stats.holdemWins || 0;
+  const losses = stats.holdemLosses || 0;
+  const draws = stats.holdemDraws || 0;
+  const net = stats.holdemNetJades || 0;
+  const beatAve = stats.holdemBeatAventurine || 0;
+  const beatTopaz = stats.holdemBeatTopaz || 0;
+  const beatSampo = stats.holdemBeatSampo || 0;
+  const beatTb = stats.holdemBeatTrailblazer || 0;
+
+  const validGames = wins + losses;
+  const winRate = validGames > 0 ? ((wins / validGames) * 100).toFixed(1) : (games > 0 ? ((wins / games) * 100).toFixed(1) : '0.0');
+  const progressBar = buildProgressBar(parseFloat(winRate), 10);
+
+  let embedColor = 0xe6a117; // 黃金預設
+  if (net > 0) embedColor = 0x00ffa3; // 翠綠暴利
+  if (net < 0) embedColor = 0xe74c3c; // 鮮紅赤字
+
+  const netFormatted =
+    net > 0 ? `+${net.toLocaleString()}` : net < 0 ? `-${Math.abs(net).toLocaleString()}` : '0';
+  const netIcon = net > 0 ? '📈' : net < 0 ? '📉' : '⚖️';
+
+  let holdemTitle = '🎲【黃金時刻職業牌手】';
+  let holdemComment = '在 5 人桌的籌碼風暴中，算計與心理戰是你最強大的底牌。';
+
+  if (games === 0) {
+    holdemTitle = '🦝【未入席的觀光客】';
+    holdemComment = '石心十人盲注桌的荷官還在等候你拋出第一筆盲注。';
+  } else if (wins >= 20 && parseFloat(winRate) >= 40) {
+    holdemTitle = '👑【石心十人 · 盲注之神】';
+    holdemComment = '「所有的底池與盲注，最終都將如潮水般流進你的籌碼堆。」';
+  } else if (beatAve >= 5) {
+    holdemTitle = '💎【砂金的命運剋星】';
+    holdemComment = '「所有的基石與話術都被你看穿，砂金今晚得自己貼錢了。」';
+  } else if (beatSampo >= 5) {
+    holdemTitle = '🎭【愚者偷雞粉碎機】';
+    holdemComment = '「老桑博的狂暴偷雞在你面前毫無破綻可言，全被你無情抓包。」';
+  } else if (beatTopaz >= 5) {
+    holdemTitle = '📈【公司財務部最頭痛的惡夢】';
+    holdemComment = '「托帕的 EV 精算表一再破功，這筆投資公司已徹底認賠。」';
+  } else if (net >= 10000) {
+    holdemTitle = '💰【匹諾康尼底池收割機】';
+    holdemComment = '「你席捲走的星瓊，足以包下白日夢酒店最頂級的貴賓套房。」';
+  } else if (losses >= 5 && wins === 0) {
+    holdemTitle = '🗑️【開拓者的垃圾桶同好】';
+    holdemComment = '「好奇心或許害慘了籌碼堆，但下把牌的奇蹟正在發牌機裡醞釀！」';
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🃏【1+4 德州撲克 · 石心盲注桌生涯檔案】`)
+    .setDescription(
+      `👤 **牌手**：**${displayName}**\n` +
+      `🏅 **德州位階**：**${holdemTitle}**\n` +
+      `*「${holdemComment}」*\n\n` +
+      `📊 **專屬奪池率**：**${winRate}%** \`[${progressBar}]\`\n` +
+      `⚔️ **生涯手數**：共 **${games}** 手 ｜ 🏆 奪池 **${wins}** 次 ｜ 💀 蓋牌/失利 **${losses}** 次 ｜ 🤝 平局分池 **${draws}** 次\n` +
+      `${netIcon} **德州累積淨損益**：**${netFormatted}** 星瓊`
+    )
+    .setColor(embedColor)
+    .setThumbnail(user.displayAvatarURL ? user.displayAvatarURL({ dynamic: true }) : null)
+    .addFields(
+      {
+        name: '🎯 石心桌 4 位 NPC 討伐榜 (Bounty Board)',
+        value:
+          `💎 **詭弈砂金 (固定席)**：親手擊潰 **${beatAve}** 次\n` +
+          `📈 **冷血托帕 (精算師)**：親手擊潰 **${beatTopaz}** 次\n` +
+          `🎭 **狂暴桑博 (偷雞狂)**：親手擊潰 **${beatSampo}** 次\n` +
+          `🗑️ **開拓者 (好奇死跟)**：親手擊潰 **${beatTb}** 次`,
+        inline: false,
+      },
+      {
+        name: '🎲 快速開桌與功能提示',
+        value: `輸入 \`/德州撲克\` 即可開啟 1v4 NPC 錦標賽！預設攜帶 2,500 星瓊，支援連續 Cash Game、即時牌型小幫手與離場全額兌現。`,
+        inline: false,
+      }
+    )
+    .setFooter({
+      text: '🃏 匹諾康尼石心十人盲注桌 · 戰績管理局 ｜ 「全部，或一無所有。」',
+    })
+    .setTimestamp();
+
+  return embed;
+}
+
 module.exports = {
+  buildHoldemExclusiveStatsEmbed,
   initCasinoStatsTable,
   applyStatsMigrations,
   recordCasinoGame,

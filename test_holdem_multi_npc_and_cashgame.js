@@ -430,11 +430,72 @@ async function runTests() {
     console.log('  ✅ 常規對局 100% 保障底池收益，絕無惡意封頂截斷！\n');
 
     // 驗證 /勝率 戰績統計已精準寫入 (無論 tableCap 多少皆無障礙記錄)
-    const { getUserCasinoStats } = require('./casinoStatsService');
+    const { getUserCasinoStats, buildHoldemExclusiveStatsEmbed } = require('./casinoStatsService');
     const pStats = await getUserCasinoStats(testDb, 'user_lance');
     assert.strictEqual(pStats.holdemGames, 1, '真人玩家必須計入 1 場德州對局');
     assert.strictEqual(pStats.holdemWins, 1, '真人玩家必須計入 1 場德州奪池勝場');
-    console.log('  ✅ 德州撲克戰績與勝率 100% 寫入 casino_user_stats！\n');
+    assert.strictEqual(pStats.holdemBeatAventurine, 1, '擊敗砂金紀錄必須計入 1 次');
+
+    // 驗證獨立 1+4 德州專屬面板 (/德州勝率) 產物完整性
+    const holdemEmbed = buildHoldemExclusiveStatsEmbed({ username: 'lance_508', displayName: 'lance_508' }, pStats);
+    assert.ok(holdemEmbed.data.title.includes('石心盲注桌生涯檔案'), '德州獨立面板標題正確');
+    assert.ok(holdemEmbed.data.fields.some((f) => f.name.includes('討伐榜')), '德州面板必須包含 4 位 NPC 專屬討伐榜');
+    console.log('  ✅ 1+4 德州專屬獨立勝率面板 (/德州勝率) 測試驗證通過！\n');
+
+    // 驗證 NPC 動態嚇唬把戲 (Scare Tactics & Dynamic Tricks)
+    const { decideAventurineAction } = require('./texasHoldemService');
+    // A. 砂金河牌空氣牌 + 恐嚇面 + 深底池發動極限 All-in 詐唬
+    const aveAirSession = {
+      stage: 'RIVER',
+      pot: 8000,
+      tableCap: 5000,
+      currentHighestBet: 0,
+      roundRaises: 0,
+      communityCards: [
+        { suit: '♠️', rank: 'A', value: 14 },
+        { suit: '♠️', rank: 'K', value: 13 },
+        { suit: '♠️', rank: '8', value: 8 },
+        { suit: '♦️', rank: '3', value: 3 },
+        { suit: '♣️', rank: '2', value: 2 },
+      ],
+    };
+    const aveAirSeat = {
+      roundBet: 0,
+      chips: 4000,
+      holeCards: [{ suit: '♦️', rank: '4', value: 4 }, { suit: '♣️', rank: '7', value: 7 }], // 純空氣
+    };
+    const aveShove = decideAventurineAction(aveAirSession, aveAirSeat, () => 0.1);
+    assert.strictEqual(aveShove.action, 'ALL_IN', '砂金深底池空氣牌應動態發動極限 All-in 詐唬');
+    assert.strictEqual(aveShove.trick, 'RIVER_SHOVE', '應觸發 RIVER_SHOVE 動態把戲標記');
+
+    // B. 砂金轉牌暗三條埋伏過牌 (Slow Play Trap)
+    const aveMonsterSession = {
+      stage: 'TURN',
+      pot: 3000,
+      tableCap: 5000,
+      currentHighestBet: 0,
+      roundRaises: 0,
+      communityCards: [
+        { suit: '♠️', rank: 'J', value: 11 },
+        { suit: '♦️', rank: 'J', value: 11 },
+        { suit: '♣️', rank: '4', value: 4 },
+        { suit: '♥️', rank: '2', value: 2 },
+      ],
+    };
+    const aveMonsterSeat = {
+      roundBet: 0,
+      chips: 4000,
+      holeCards: [{ suit: '♣️', rank: 'J', value: 11 }, { suit: '♥️', rank: '9', value: 9 }], // 三條 J
+    };
+    const aveTrap = decideAventurineAction(aveMonsterSession, aveMonsterSeat, () => 0.2); // < 0.40
+    assert.strictEqual(aveTrap.action, 'CHECK', '砂金手握暗三條強牌時應動態埋伏過牌 (Slow Play)');
+
+    // C. 砂金轉牌暗三條面對玩家下注觸發 Check-Raise
+    aveMonsterSession.currentHighestBet = 500;
+    const aveCR = decideAventurineAction(aveMonsterSession, aveMonsterSeat, () => 0.3); // < 0.70
+    assert.strictEqual(aveCR.action, 'RAISE', '砂金強牌埋伏後應發動過牌加注反扣 (Check-Raise)');
+    assert.strictEqual(aveCR.trick, 'CHECK_RAISE');
+    console.log('  ✅ 砂金動態深底池極限 All-in 與 Check-Raise 埋伏機制驗證通過！\n');
   } finally {
     testDb.close();
   }
