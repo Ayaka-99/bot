@@ -116,7 +116,8 @@ function getVault(db, vaultType = 'bj') {
  * 2. 注入後若超過金庫容量上限 (20萬/40萬)，超出部分 100% 系統直接銷毀抹除。
  */
 function injectVaultWithBurn(db, vaultType, amount) {
-  if (!amount || amount <= 0) {
+  const safeAmount = Math.max(0, Math.floor(amount || 0));
+  if (safeAmount <= 0) {
     return Promise.resolve({ actualInjection: 0, burnedAmount: 0, newVault: 0, vaultType });
   }
 
@@ -126,8 +127,8 @@ function injectVaultWithBurn(db, vaultType, amount) {
       const maxCap = vault.maxCapacity;
 
       // 1. 單次注資上限 25,000
-      const allowableInjection = Math.min(amount, MAX_VAULT_INJECTION);
-      const excessAboveMax = amount - allowableInjection;
+      const allowableInjection = Math.min(safeAmount, MAX_VAULT_INJECTION);
+      const excessAboveMax = safeAmount - allowableInjection;
 
       // 2. 滿溢銷毀計算
       const availableSpace = Math.max(0, maxCap - vault.currentJades);
@@ -162,13 +163,14 @@ function injectVaultWithBurn(db, vaultType, amount) {
  * 記錄直接系統銷毀 (例如單挑贏家抽稅、全員爆牌沒收)
  */
 function recordDirectBurn(db, vaultType, amount) {
-  if (!amount || amount <= 0) return Promise.resolve();
+  const safeAmount = Math.max(0, Math.floor(amount || 0));
+  if (safeAmount <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     db.run(
       `UPDATE casino_vaults 
        SET totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP 
        WHERE vaultType = ?`,
-      [amount, vaultType],
+      [safeAmount, vaultType],
       (err) => {
         if (err) return reject(err);
         resolve();
@@ -180,11 +182,16 @@ function recordDirectBurn(db, vaultType, amount) {
 /**
  * 從指定金庫發放彩金 (claimJackpotVault)
  */
-function claimJackpotVault(db, vaultType, claimAmount) {
+function claimJackpotVault(db, vaultType = 'bj', claimAmount = 0) {
+  if (typeof vaultType === 'number') {
+    claimAmount = vaultType;
+    vaultType = 'bj';
+  }
   return new Promise(async (resolve, reject) => {
     try {
       const vault = await getVault(db, vaultType);
-      const payout = Math.max(0, Math.min(vault.currentJades, claimAmount));
+      const safeClaim = Math.max(0, Math.floor(claimAmount || 0));
+      const payout = Math.max(0, Math.min(vault.currentJades, safeClaim));
       const newVault = Math.max(0, vault.currentJades - payout);
 
       db.run(
@@ -394,10 +401,13 @@ function evaluateBlackjackSpecialHand(cards, score) {
  */
 function calculateBlackjackJackpot(currentVault, bet, specialHand) {
   if (!specialHand) return 0;
-  const effectiveBet = Math.min(bet, MAX_BET);
-  const vaultPortion = Math.floor(currentVault * specialHand.percent);
+  const safeVault = Math.max(0, Math.floor(currentVault || 0));
+  const safeBet = Math.max(0, Math.floor(bet || 0));
+  const effectiveBet = Math.min(safeBet, MAX_BET);
+  const vaultPortion = Math.floor(safeVault * specialHand.percent);
   const multiplierPortion = effectiveBet * specialHand.multiplier;
-  return Math.min(vaultPortion, multiplierPortion);
+  const hardCap = specialHand.hardCap || Infinity;
+  return Math.floor(Math.min(vaultPortion, multiplierPortion, hardCap));
 }
 
 /**
@@ -407,7 +417,9 @@ function calculateBlackjackJackpot(currentVault, bet, specialHand) {
  * @param {number} handTier - 德州撲克牌型位階 (from pokerEvaluator)
  */
 function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
-  const effectiveBet = Math.min(personalTotalBet, MAX_BET);
+  const safeVault = Math.max(0, Math.floor(currentVault || 0));
+  const safeBet = Math.max(0, Math.floor(personalTotalBet || 0));
+  const effectiveBet = Math.min(safeBet, MAX_BET);
   let percent = 0;
   let multiplier = 0;
   let label = '';
@@ -439,9 +451,9 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
 
   if (percent <= 0) return { payout: 0, percent: 0, multiplier: 0, label: '', hardCap: 0 };
 
-  const vaultPortion = Math.floor(currentVault * percent);
+  const vaultPortion = Math.floor(safeVault * percent);
   const multiplierPortion = effectiveBet * multiplier;
-  const payout = Math.min(vaultPortion, multiplierPortion);
+  const payout = Math.floor(Math.min(vaultPortion, multiplierPortion, hardCap));
 
   return {
     payout,

@@ -272,10 +272,12 @@ function deductJades(db, userId, amount) {
 
 // 發放籌碼
 function awardJades(db, userId, amount) {
+  const safeAmount = Math.max(0, Math.floor(amount || 0));
+  if (safeAmount <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ? WHERE userId = ?',
-      [amount, userId],
+      [safeAmount, userId],
       (err) => {
         if (err) reject(err);
         else resolve();
@@ -1918,13 +1920,13 @@ async function concludeShowdown(session) {
       const tax = isSplit
         ? (profit > 0 ? Math.floor(profit * 0.05) : 0)
         : Math.floor(share * 0.05);
-      const netWin = share - tax;
+      const netWin = Math.floor(share - tax);
       if (tax > 0) {
         await injectVaultWithBurn(db, 'texas', tax);
       }
 
       if (session.isContinuous) {
-        w.chips += netWin;
+        w.chips = Math.floor(w.chips + netWin);
       } else {
         await awardJades(db, w.userId, netWin);
       }
@@ -1939,16 +1941,18 @@ async function concludeShowdown(session) {
       // 神話牌型派彩
       if (!session.isCasualTable && w.bestHand.tier >= HAND_TIERS.FULL_HOUSE) {
         const jp = await claimHoldemJackpot(db, w.totalBet, w.bestHand.tier);
-        if (jp.payout > 0) {
+        if (jp && jp.payout > 0) {
+          const safeJpPayout = Math.floor(jp.payout);
           if (session.isContinuous) {
-            w.chips += jp.payout;
+            w.chips = Math.floor(w.chips + safeJpPayout);
           } else {
-            await awardJades(db, w.userId, jp.payout);
+            await awardJades(db, w.userId, safeJpPayout);
           }
-          winnerJackpotMap.set(w.seatIndex, (winnerJackpotMap.get(w.seatIndex) || 0) + jp.payout);
-          const ratioPercent = (jp.ratio * 100).toFixed(1);
+          winnerJackpotMap.set(w.seatIndex, (winnerJackpotMap.get(w.seatIndex) || 0) + safeJpPayout);
+          const ratioPercent = Math.round(((jp.percent || jp.ratio || 0) * 100));
+          const multStr = jp.multiplier ? ` / ${jp.multiplier} 倍投注` : '';
           jackpotNote += `\n👑 **神話誕生！開拓者 ${w.username} 打出【${jp.handLabel}】！**\n` +
-            `按個人投注 ${w.totalBet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%) 搬走金庫派彩：**+${jp.payout.toLocaleString()}** 星瓊！`;
+            `按個人投注 ${w.totalBet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%${multStr}) 搬走金庫派彩：**+${safeJpPayout.toLocaleString()}** 星瓊！`;
         }
       }
     }
@@ -2090,27 +2094,36 @@ async function settleSpectatorBets(session, winningSeatIndex) {
 }
 
 async function claimHoldemJackpot(db, personalBet, tier) {
-  let ratio = 0;
-  let handLabel = '';
-
-  if (tier === HAND_TIERS.ROYAL_FLUSH || tier === HAND_TIERS.STRAIGHT_FLUSH) {
-    ratio = Math.min(0.25, (personalBet / 1000) * 0.01);
-    handLabel = tier === HAND_TIERS.ROYAL_FLUSH ? '神話 · 皇家同花順' : '傳奇 · 同花順';
-  } else if (tier === HAND_TIERS.FOUR_OF_A_KIND) {
-    ratio = Math.min(0.125, (personalBet / 1000) * 0.005);
-    handLabel = '史詩 · 鐵支四條';
-  } else if (tier === HAND_TIERS.FULL_HOUSE) {
-    ratio = Math.min(0.05, (personalBet / 1000) * 0.002);
-    handLabel = '珍品 · 滿堂紅葫蘆';
+  if (!tier || tier < HAND_TIERS.FULL_HOUSE) {
+    return { payout: 0, percent: 0, multiplier: 0, ratio: 0, handLabel: '', hardCap: 0, newVault: 0 };
   }
 
-  if (ratio <= 0) return { payout: 0, ratio: 0, handLabel: '' };
+  const vault = await getVault(db, 'texas');
+  const jp = calculateHoldemJackpot(vault.currentJades, personalBet, tier);
 
-  const res = await claimJackpotVault(db, 'texas', ratio);
+  if (!jp || jp.payout <= 0) {
+    return {
+      payout: 0,
+      percent: jp ? jp.percent : 0,
+      multiplier: jp ? jp.multiplier : 0,
+      ratio: jp ? jp.percent : 0,
+      handLabel: jp ? jp.label : '',
+      hardCap: jp ? jp.hardCap : 0,
+      newVault: vault.currentJades,
+    };
+  }
+
+  const claimAmount = Math.max(0, Math.floor(jp.payout));
+  const res = await claimJackpotVault(db, 'texas', claimAmount);
+  const finalPayout = Math.max(0, Math.floor(res.payout));
+
   return {
-    payout: res.payout,
-    ratio: res.ratio,
-    handLabel,
+    payout: finalPayout,
+    percent: jp.percent,
+    multiplier: jp.multiplier,
+    ratio: jp.percent,
+    handLabel: jp.label,
+    hardCap: jp.hardCap,
     newVault: res.newVault,
   };
 }

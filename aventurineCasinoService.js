@@ -865,13 +865,13 @@ async function startCasinoGame(db, interaction, user, betInput) {
       const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(bet, 5000), specialHand);
       if (calculated > 0) {
         const jp = await claimJackpotVault(db, 'bj', calculated);
-        jackpotClaimed = jp.payout;
+        jackpotClaimed = Math.floor(jp.payout);
         extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
           `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
       }
     }
 
-    const winAmount = bet + winProfit + jackpotClaimed;
+    const winAmount = Math.floor(bet + winProfit + jackpotClaimed);
 
     // 發放星瓊
     db.run(
@@ -1094,13 +1094,13 @@ async function handlePlayerHit(db, session, interaction) {
       const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
       if (calculated > 0) {
         const jp = await claimJackpotVault(db, 'bj', calculated);
-        jackpotClaimed = jp.payout;
+        jackpotClaimed = Math.floor(jp.payout);
         extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
           `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
       }
     }
 
-    const totalReturn = session.bet + winProfit + jackpotClaimed;
+    const totalReturn = Math.floor(session.bet + winProfit + jackpotClaimed);
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -1263,13 +1263,13 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
       const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
       if (calculated > 0) {
         const jp = await claimJackpotVault(db, 'bj', calculated);
-        jackpotClaimed = jp.payout;
+        jackpotClaimed = Math.floor(jp.payout);
         extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
           `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
       }
     }
 
-    const totalReturn = session.bet + winProfit + jackpotClaimed;
+    const totalReturn = Math.floor(session.bet + winProfit + jackpotClaimed);
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',

@@ -108,10 +108,12 @@ function deductJades(db, userId, amount) {
 
 // 增加籌碼
 function awardJades(db, userId, amount) {
+  const safeAmount = Math.max(0, Math.floor(amount || 0));
+  if (safeAmount <= 0) return Promise.resolve(true);
   return new Promise((resolve, reject) => {
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-      [amount, userId],
+      [safeAmount, userId],
       function (err) {
         if (err) return reject(err);
         resolve(this.changes > 0);

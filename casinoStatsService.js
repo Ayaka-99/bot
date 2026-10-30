@@ -588,6 +588,10 @@ function parseBattleRoyaleMessage(msg, userMap) {
 function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0, net = 0, beatAventurine = false, beatTopaz = false, beatSampo = false, beatTrailblazer = false }) {
   if (!db || !userId) return Promise.resolve();
 
+  const safeBet = Math.max(0, Math.floor(bet || 0));
+  const safeWon = Math.max(0, Math.floor(won || 0));
+  const safeNet = Math.floor(net !== undefined && !isNaN(net) ? net : (safeWon - safeBet));
+
   const isWin = result === 'WIN' ? 1 : 0;
   const isLoss = result === 'LOSE' ? 1 : 0;
   const isDraw = result === 'DRAW' ? 1 : 0;
@@ -597,24 +601,24 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
   const pveWin = mode === 'pve' && isWin ? 1 : 0;
   const pveLoss = mode === 'pve' && isLoss ? 1 : 0;
   const pveDraw = mode === 'pve' && isDraw ? 1 : 0;
-  const pveNet = mode === 'pve' ? net : 0;
+  const pveNet = mode === 'pve' ? safeNet : 0;
 
   const duelGame = mode === 'duel' ? 1 : 0;
   const duelWin = mode === 'duel' && isWin ? 1 : 0;
   const duelLoss = mode === 'duel' && isLoss ? 1 : 0;
   const duelDraw = mode === 'duel' && isDraw ? 1 : 0;
-  const duelNet = mode === 'duel' ? net : 0;
+  const duelNet = mode === 'duel' ? safeNet : 0;
 
   const brGame = mode === 'br' ? 1 : 0;
   const brWin = mode === 'br' && isWin ? 1 : 0;
   const brLoss = mode === 'br' && isLoss ? 1 : 0;
   const brDraw = mode === 'br' && isDraw ? 1 : 0;
-  const brNet = mode === 'br' ? net : 0;
+  const brNet = mode === 'br' ? safeNet : 0;
 
   const horseGame = mode === 'horse' ? 1 : 0;
   const horseWin = mode === 'horse' && isWin ? 1 : 0;
   const horseLoss = mode === 'horse' && isLoss ? 1 : 0;
-  const horseNet = mode === 'horse' ? net : 0;
+  const horseNet = mode === 'horse' ? safeNet : 0;
 
   const holdemGame = mode === 'holdem' ? 1 : 0;
   const holdemWin = mode === 'holdem' && isWin ? 1 : 0;
@@ -624,7 +628,7 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
   const holdemBeatTopaz = mode === 'holdem' && beatTopaz ? 1 : 0;
   const holdemBeatSampo = mode === 'holdem' && beatSampo ? 1 : 0;
   const holdemBeatTb = mode === 'holdem' && beatTrailblazer ? 1 : 0;
-  const holdemNet = mode === 'holdem' ? net : 0;
+  const holdemNet = mode === 'holdem' ? safeNet : 0;
 
   const sql = `
     INSERT INTO casino_user_stats (
@@ -697,9 +701,9 @@ function recordCasinoGame(db, { userId, username, mode, result, bet = 0, won = 0
         isWin,
         isLoss,
         isDraw,
-        net,
-        bet,
-        won,
+        safeNet,
+        safeBet,
+        safeWon,
         pveGame,
         pveWin,
         pveLoss,

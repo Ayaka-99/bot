@@ -17,6 +17,7 @@ const testScripts = [
   'test_holdem_allin_payout_cap.js',
   'test_aventurine_dynamic_ai.js',
   'test_holdem_multi_npc_and_cashgame.js',
+  'test_v56_holdem_jackpot_and_audit.js',
 ];
 
 console.log('====================================================');
