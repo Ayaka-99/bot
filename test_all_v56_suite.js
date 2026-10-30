@@ -18,6 +18,10 @@ const testScripts = [
   'test_aventurine_dynamic_ai.js',
   'test_holdem_multi_npc_and_cashgame.js',
   'test_v56_holdem_jackpot_and_audit.js',
+  'test_holdem_raise_percentage.js',
+  'test_force_close.js',
+  'test_jackpot_stats_fix.js',
+  'test_v56_skeptical_audit.js',
 ];
 
 console.log('====================================================');

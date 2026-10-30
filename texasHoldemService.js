@@ -258,10 +258,12 @@ function getUserJades(db, userId) {
 
 // 扣除籌碼
 function deductJades(db, userId, amount) {
+  const safeAmount = Math.max(0, Math.floor(amount || 0));
+  if (safeAmount <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades - ? WHERE userId = ?',
-      [amount, userId],
+      [safeAmount, userId],
       (err) => {
         if (err) reject(err);
         else resolve();
@@ -1743,7 +1745,7 @@ async function concludeUncontestedWin(session, winner) {
     const vaultShare = Math.floor(totalPlayerLost * 0.40);
     await injectVaultWithBurn(db, 'texas', vaultShare);
     await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
-    winner.chips += winPool;
+    winner.chips = Math.floor(winner.chips + winPool);
     taxNote = `\n*(${winner.username} 通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，60% 系統直接銷毀)*`;
   } else {
     let allInCapNote = '';
@@ -1763,7 +1765,7 @@ async function concludeUncontestedWin(session, winner) {
 
     // 國際標準「No Flop, No Drop」：翻牌前全員棄牌結束，免收 5% 營運手續費，底池 100% 毫髮無損入袋
     const tax = isPreflopWin ? 0 : Math.floor(winPool * 0.05);
-    const netWinPool = winPool - tax;
+    const netWinPool = Math.floor(winPool - tax);
     finalWinnerWon = netWinPool;
     if (tax > 0) {
       await injectVaultWithBurn(db, 'texas', tax);
@@ -1773,7 +1775,7 @@ async function concludeUncontestedWin(session, winner) {
     }
 
     if (session.isContinuous) {
-      winner.chips += netWinPool;
+      winner.chips = Math.floor(winner.chips + netWinPool);
     } else {
       await awardJades(db, winner.userId, netWinPool);
     }
@@ -1888,15 +1890,23 @@ async function concludeShowdown(session) {
   const winnerPotWonMap = new Map();
   const winnerJackpotMap = new Map();
 
+  const npcWinners = winners.filter((w) => w.isNpc);
+  const totalPlayerLost = session.seats
+    .filter((s) => !s.isNpc)
+    .reduce((sum, s) => sum + s.totalBet, 0);
+  const perNpcLost = npcWinners.length > 0 ? Math.floor(totalPlayerLost / npcWinners.length) : 0;
+
   for (const w of winners) {
     if (w.isNpc) {
-      const totalPlayerLost = session.seats
-        .filter((s) => !s.isNpc)
-        .reduce((sum, s) => sum + s.totalBet, 0);
-      const vaultShare = Math.floor(totalPlayerLost * 0.40);
-      await injectVaultWithBurn(db, 'texas', vaultShare);
-      await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
-      w.chips += splitPot;
+      const vaultShare = Math.floor(perNpcLost * 0.40);
+      const burnShare = Math.floor(perNpcLost - vaultShare);
+      if (vaultShare > 0) {
+        await injectVaultWithBurn(db, 'texas', vaultShare);
+      }
+      if (burnShare > 0) {
+        await recordDirectBurn(db, 'texas', burnShare);
+      }
+      w.chips = Math.floor(w.chips + splitPot);
       taxNote += `\n*(${w.username} 獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，60% 系統直接銷毀)*`;
     } else {
       let share = splitPot;
@@ -2074,11 +2084,11 @@ async function settleSpectatorBets(session, winningSeatIndex) {
   const winnersDesc = [];
 
   for (const b of correctBets) {
-    const shareRatio = b.amount / correctSum;
+    const shareRatio = correctSum > 0 ? b.amount / correctSum : 0;
     const rawPayout = Math.floor(totalPool * shareRatio);
     const profit = rawPayout - b.amount;
     const tax = profit > 0 ? Math.floor(profit * 0.05) : 0;
-    const finalPayout = rawPayout - tax;
+    const finalPayout = Math.floor(rawPayout - tax);
 
     if (tax > 0) {
       await injectVaultWithBurn(db, 'texas', tax);
@@ -2147,7 +2157,9 @@ async function autoCloseAndDisband(session, reason = '牌桌已解散') {
   activeHoldemSessions.delete(session.sessionId);
   if (session.thread) {
     threadSessions.delete(session.thread.id);
-    await session.thread.send(`⌛ **${reason}** 全體在場選手剩餘籌碼已全額返還錢包！\n⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**`).catch(() => {});
+    if (typeof session.thread.send === 'function') {
+      await session.thread.send(`⌛ **${reason}** 全體在場選手剩餘籌碼已全額返還錢包！\n⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**`).catch(() => {});
+    }
     setTimeout(async () => {
       if (session.thread && typeof session.thread.delete === 'function') {
         await session.thread.delete().catch(() => {});
@@ -2270,15 +2282,81 @@ async function handleHoldemRaisePrompt(interaction, sessionId) {
   await interaction.showModal(modal);
 }
 
-function parseHoldemRaiseInput(input, remainingChips) {
-  const trimmed = input.trim().replace(/%/g, '');
-  const val = parseInt(trimmed, 10);
-  if (isNaN(val) || val <= 0) return null;
-
-  if (val <= 100 && input.includes('%')) {
-    return Math.max(1, Math.floor((val / 100) * remainingChips));
+/**
+ * 解析玩家輸入的加注指令 (支援剩餘籌碼百分比與具體金額)
+ */
+function parseHoldemRaiseInput(inputStr, remainingChips, roundBet = 0, currentHighestBet = 0) {
+  if (!inputStr || typeof inputStr !== 'string') {
+    return { error: '請輸入有效的加注比例或金額' };
   }
-  return val;
+  const clean = inputStr.trim().toLowerCase();
+
+  // 1. 文字 All-in 快速通道
+  if (['allin', 'all-in', 'all in', '梭哈', '全押', '拉滿', '100%', '100'].includes(clean)) {
+    return { isAllIn: true, needToPay: remainingChips, percentUsed: 100, newRoundBet: roundBet + remainingChips };
+  }
+
+  let needToPay = 0;
+  let percentUsed = null;
+
+  // 2. 判斷是否為百分比輸入 (例如 50%, 25%, 33.3%, 或 1~99 的純數字)
+  const percentMatch = clean.match(/^(\d+(?:\.\d+)?)\s*%?$/);
+  if (percentMatch) {
+    const val = parseFloat(percentMatch[1]);
+    // 若帶有 % 或數值在 1 到 100 之間，優先視為剩餘籌碼百分比
+    if (clean.includes('%') || (val >= 1 && val <= 100)) {
+      if (val >= 100) {
+        return { isAllIn: true, needToPay: remainingChips, percentUsed: 100, newRoundBet: roundBet + remainingChips };
+      }
+      if (val <= 0) {
+        return { error: '加注百分比無效，請輸入 1% 到 100% 之間的數字。' };
+      }
+      percentUsed = val;
+      needToPay = Math.floor(remainingChips * (val / 100));
+    }
+  }
+
+  // 3. 若非百分比，相容解析為具體星瓊金額 (例如 15000, 20k, 5w)
+  if (needToPay === 0 && !percentUsed) {
+    let cleanNumStr = clean.replace(/[,，]/g, '');
+    let multiplier = 1;
+    if (cleanNumStr.endsWith('k')) {
+      multiplier = 1000;
+      cleanNumStr = cleanNumStr.slice(0, -1);
+    } else if (cleanNumStr.endsWith('w') || cleanNumStr.endsWith('萬') || cleanNumStr.endsWith('万')) {
+      multiplier = 10000;
+      cleanNumStr = cleanNumStr.slice(0, -1);
+    }
+
+    const rawNum = parseFloat(cleanNumStr);
+    if (!isNaN(rawNum) && rawNum > 0) {
+      const rawTarget = Math.floor(rawNum * multiplier);
+      if (rawTarget > currentHighestBet) {
+        needToPay = rawTarget - roundBet;
+      } else if (roundBet + rawTarget > currentHighestBet) {
+        needToPay = rawTarget;
+      }
+    }
+  }
+
+  // 4. 檢驗加注額度是否合法
+  const newRoundBet = roundBet + needToPay;
+  if (needToPay <= 0 || newRoundBet <= currentHighestBet) {
+    const minPayToRaise = Math.max(1, currentHighestBet - roundBet + 1);
+    const minPercent = Math.min(100, Math.ceil((minPayToRaise / remainingChips) * 100));
+    return {
+      error: `加注額度不足！本輪當前最高注為 **${currentHighestBet.toLocaleString()}** 星瓊。\n您選擇下注 **${needToPay.toLocaleString()}** 星瓊，總注額 (${newRoundBet.toLocaleString()}) 未能超越當前最高注。\n💡 建議輸入至少 **${minPercent}%** (約 ${Math.floor(remainingChips * (minPercent / 100)).toLocaleString()} 星瓊)，或輸入 **allin** / **100%** 梭哈全押！`,
+      minPercent,
+      minPayToRaise,
+    };
+  }
+
+  // 5. 若加注額超過或等於手中全部桌上籌碼，自動以 All-in 執行
+  if (needToPay >= remainingChips) {
+    return { isAllIn: true, needToPay: remainingChips, percentUsed: 100, newRoundBet: roundBet + remainingChips };
+  }
+
+  return { isAllIn: false, needToPay, percentUsed, newRoundBet };
 }
 
 async function handleHoldemRaiseSubmit(interaction, sessionId) {
@@ -2296,21 +2374,30 @@ async function handleHoldemRaiseSubmit(interaction, sessionId) {
   }
 
   const inputStr = interaction.fields.getTextInputValue('raise_amount');
-  const parsed = parseHoldemRaiseInput(inputStr, activeSeat.chips);
+  const result = parseHoldemRaiseInput(
+    inputStr,
+    activeSeat.chips,
+    activeSeat.roundBet,
+    session.currentHighestBet
+  );
 
-  const needCall = session.currentHighestBet - activeSeat.roundBet;
-  if (!parsed || parsed <= needCall) {
+  if (result.error) {
     return interaction.reply({
-      content: `❌ **加注金額必須大於當前跟注所需 (${needCall.toLocaleString()} 星瓊)！**`,
+      content: `❌ **加注失敗！**\n${result.error}`,
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  const actualPut = Math.min(activeSeat.chips, parsed);
-  activeSeat.chips -= actualPut;
-  activeSeat.roundBet += actualPut;
-  activeSeat.totalBet += actualPut;
-  session.pot += actualPut;
+  if (result.isAllIn) {
+    return await handleHoldemAllIn(interaction, sessionId);
+  }
+
+  const { needToPay, percentUsed } = result;
+
+  activeSeat.chips -= needToPay;
+  activeSeat.roundBet += needToPay;
+  activeSeat.totalBet += needToPay;
+  session.pot += needToPay;
 
   session.currentHighestBet = activeSeat.roundBet;
   session.roundRaises++;
@@ -2321,9 +2408,9 @@ async function handleHoldemRaiseSubmit(interaction, sessionId) {
     session.preflopAggressor = activeSeat.seatIndex;
   }
 
-  const actionText = `📈 **${activeSeat.username}** 豪氣加注至 **${actualPut.toLocaleString()}** 星瓊！`;
-
   await interaction.deferUpdate().catch(() => {});
+  const percentText = percentUsed ? ` (${percentUsed}% 剩餘籌碼)` : '';
+  const actionText = `📈 **${activeSeat.username}** 加注${percentText}，總注額提升至 **${activeSeat.roundBet.toLocaleString()}** 星瓊！`;
   await triggerNextAction(session, actionText);
 }
 
@@ -2537,7 +2624,7 @@ async function handleHoldemCashOut(db, interaction, sessionId) {
   const returnedAmount = seat.chips;
   seat.chips = 0;
 
-  if (session.thread) {
+  if (session.thread && typeof session.thread.send === 'function') {
     await session.thread.send(`🏃 選手 **${seat.username}** 選擇了結算離場，帶走 **${returnedAmount.toLocaleString()}** 星瓊！`).catch(() => {});
   }
 
@@ -2639,7 +2726,7 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
   }
 
   if (!session) {
-    return { success: false, sessionFound: false, refundedCount: 0 };
+    return { success: true, sessionFound: false, refundedCount: 0 };
   }
 
   if (session.lobbyTimeout) clearTimeout(session.lobbyTimeout);
@@ -2666,9 +2753,11 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
   threadSessions.delete(threadId);
 
   if (session.thread) {
-    await session.thread.send({
-      content: `⚠️ **【賭場管理員介入】管理員 ${actorName} 已強制解散本桌德州撲克！**\n全體選手剩餘籌碼已安全原路返還個人帳戶。\n⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**`,
-    }).catch(() => {});
+    if (typeof session.thread.send === 'function') {
+      await session.thread.send({
+        content: `⚠️ **【賭場管理員介入】管理員 ${actorName} 已強制解散本桌德州撲克！**\n全體選手剩餘籌碼已安全原路返還個人帳戶。\n⏳ **本賭間討論串將於 10 秒後自動刪除銷毀。**`,
+      }).catch(() => {});
+    }
     setTimeout(async () => {
       if (session.thread && typeof session.thread.delete === 'function') {
         await session.thread.delete().catch(() => {});
@@ -2714,4 +2803,6 @@ module.exports = {
   threadSessions,
   activeHoldemPlayers,
   activeHoldemSessions,
+  deductJades,
+  awardJades,
 };

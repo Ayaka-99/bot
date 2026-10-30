@@ -420,6 +420,7 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
   const safeVault = Math.max(0, Math.floor(currentVault || 0));
   const safeBet = Math.max(0, Math.floor(personalTotalBet || 0));
   const effectiveBet = Math.min(safeBet, MAX_BET);
+  const tierNum = Number(handTier);
   let percent = 0;
   let multiplier = 0;
   let label = '';
@@ -427,22 +428,22 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
 
   // 引用牌型位階
   // 9: ROYAL_FLUSH, 8: STRAIGHT_FLUSH, 7: FOUR_OF_A_KIND, 6: FULL_HOUSE
-  if (handTier === 9) {
+  if (tierNum === 9) {
     percent = 0.50;
     multiplier = 40;
     label = '皇家同花順 (Royal Flush)';
     hardCap = 200000;
-  } else if (handTier === 8) {
+  } else if (tierNum === 8) {
     percent = 0.45;
     multiplier = 25;
     label = '同花順 (Straight Flush)';
     hardCap = 125000;
-  } else if (handTier === 7) {
+  } else if (tierNum === 7) {
     percent = 0.35;
     multiplier = 14;
     label = '四條 / 鐵支 (Four of a Kind)';
     hardCap = 70000;
-  } else if (handTier === 6) {
+  } else if (tierNum === 6) {
     percent = 0.20;
     multiplier = 6;
     label = '葫蘆 / 滿堂紅 (Full House)';

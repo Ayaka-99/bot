@@ -2,6 +2,10 @@ const assert = require('assert');
 const sqlite3 = require('sqlite3').verbose();
 const { HAND_TIERS } = require('./pokerEvaluator');
 const {
+  initCasinoVaults,
+  calculateHoldemJackpot,
+} = require('./casinoVaultService');
+const {
   claimHoldemJackpot,
   concludeShowdown,
 } = require('./texasHoldemService');
@@ -44,6 +48,7 @@ async function runTests() {
     });
   });
 
+  await initCasinoVaults(db);
   await initCasinoStatsTable(db);
 
   // -------------------------------------------------------------
@@ -172,6 +177,7 @@ async function runTests() {
     },
   };
 
+  await new Promise((res) => db.run('UPDATE casino_vaults SET currentJades = 400000 WHERE vaultType = "texas"', () => res()));
   session.db = db;
   session.threadChannel = fakeThread;
   session.consoleMessage = { edit: async () => {} };
@@ -182,11 +188,9 @@ async function runTests() {
   assert.strictEqual(p1Stats.holdemWins, 1);
   assert.strictEqual(p1Stats.holdemBeatAventurine, 1);
 
-  // 驗證 won 與 net 包含金庫派彩
-  // 金庫原為 1,000,000，扣稅 3,750 入金庫後為 1,003,750
-  // 四條派彩 12.5% = Math.floor(1,003,750 * 0.125) = 125,468
+  // 驗證 won 與 net 包含金庫派彩 (v5.6 四條 35% 金庫 / 14 倍投注，上限 70,000)
   const expectedPotWon = 75000 - Math.floor(75000 * 0.05); // 71250
-  const expectedJackpot = Math.floor((1000000 + 3750) * 0.125); // 125468
+  const expectedJackpot = calculateHoldemJackpot(400000, 25000, HAND_TIERS.FOUR_OF_A_KIND).payout; // 70000
   assert.ok(p1Stats.totalWonJades > expectedPotWon, 'totalWonJades 必須大於單純底池，代表金庫派彩已計入');
   assert.strictEqual(p1Stats.totalWonJades - expectedPotWon, expectedJackpot, '派彩應完整計入 totalWonJades');
   assert.strictEqual(p1Stats.holdemNetJades, p1Stats.totalWonJades - 25000, '淨損益應為 總取回 - 投注');
@@ -201,7 +205,7 @@ async function runTests() {
   const p2Id = '90003';
   await new Promise((r) => db.run('INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)', [p2Id, 'BoatWinner', 100000], r));
 
-  const vaultBeforeBoat = (await new Promise((r) => db.get('SELECT currentJades FROM ipc_vault WHERE id = 1', (_, row) => r(row)))).currentJades;
+  await new Promise((res) => db.run('UPDATE casino_vaults SET currentJades = 400000 WHERE vaultType = "texas"', () => res()));
 
   const sessionBoat = {
     channelId: 'ch2',
@@ -253,9 +257,8 @@ async function runTests() {
 
   const p2Stats = await getUserCasinoStats(db, p2Id);
   const expectedBoatPot = 60000 - Math.floor(60000 * 0.05); // 57000
-  // 滿注 30000 葫蘆比例 = min(0.05, 30*0.002) = 0.05 (5%)
-  // 底池 60,000 抽稅 3,000 注入金庫後再計算派彩
-  const expectedBoatPayout = Math.floor((vaultBeforeBoat + 3000) * 0.05);
+  // v5.6 滿注葫蘆派彩 30,000 (20% 金庫 / 6 倍投注，硬上限 30,000)
+  const expectedBoatPayout = calculateHoldemJackpot(400000, 30000, HAND_TIERS.FULL_HOUSE).payout; // 30000
 
   assert.strictEqual(p2Stats.totalWonJades, expectedBoatPot + expectedBoatPayout, '葫蘆獲勝者 totalWonJades 應包含底池與葫蘆派彩');
   assert.strictEqual(p2Stats.holdemNetJades, expectedBoatPot + expectedBoatPayout - 30000, '葫蘆獲勝者 holdemNetJades 應包含底池與葫蘆派彩扣除投注');
