@@ -1,0 +1,36 @@
+{
+  "features": [
+    {
+      "id": "feat-harness-baseline",
+      "name": "Harness Engineering 驗證基線與自動化入口",
+      "description": "建立 init.sh 與 init.cmd，涵蓋依賴探測、語法檢查與全套測試自動化驗證關卡",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "init.sh 與 init.cmd 執行通過，4 大驗證關卡（含 16 套件與 1A2B 測試）100% PASS"
+    },
+    {
+      "id": "feat-casino-v56-core",
+      "name": "匹諾康尼星際賭場 v5.6 核心規則與金庫結算",
+      "description": "德州撲克神話牌型彩金對齊 v5.6 階梯、翻牌前棄牌 No Flop No Drop、多 NPC 輸額均分注入金庫",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "node test_all_v56_suite.js 16/16 套件全部綠燈通過"
+    },
+    {
+      "id": "feat-game-1a2b",
+      "name": "1A2B 益智猜數字小遊戲",
+      "description": "4 碼不重複數字猜測、8 回合限制、1,500 星瓊獎勵、30 分鐘 SQLite 持久化冷卻",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "node test_1a2b_game.js 4/4 單元測試全部通過"
+    },
+    {
+      "id": "feat-backlog-template",
+      "name": "後續任務切片範本",
+      "description": "保留給後續透過 /slice 切片之原子功能擴充項目",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": ""
+    }
+  ]
+}
