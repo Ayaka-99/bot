@@ -33,6 +33,10 @@
   - 清理陰影死代碼：徹底移除 `geminiChatService.js` 中長達 60 行被遮蔽的重複砂金提示詞區塊。
   - 砂金專屬旗艦模型池升級：配置 `AVENTURINE_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite']`，對話進入砂金模式時自動分流至高階模型池，並具備自動備援降級機制；一般侍者對話維持 `gemini-3.5-flash-lite`。
   - 擴充並通過單元測試 `test_master_aventurine_yuexi.js` (6/6 PASS) 與 `test_aventurine_ratio_memory.js` (5/5 PASS)。
+- **解除砂金對月天狼私密追問限制與修復多輪記憶判定 (`feat-chat-aventurine-yuexi-intimacy-unlocked`)**:
+  - 提示詞準則解禁：在 `targetCallingRule`、`孔雀魅力與分寸感`、`ratioMemoryBlock` 明確指示，當月天狼深入追問真理醫生私密相處細節時，禁止以「商業機密」、「非公開資產」或「怕教授生氣」等藉口推託，大方具體描寫相處畫面與情感博弈。
+  - 修復多輪對話判定：在 `buildSystemInstruction` 引入 `historyMentionsRatio`，使月天狼在第二輪無「真理醫生」字眼的連續追問中，依然能正確繼承展開真理醫生記憶，不再被誤判為被動禁令。
+  - 擴充並通過單元測試 `test_aventurine_ratio_memory.js` (6/6 PASS)。
 
 ## What's In Progress
 - 當前目標已完成，等待下一階段業務需求。

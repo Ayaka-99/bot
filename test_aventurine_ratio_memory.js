@@ -55,7 +55,7 @@ assert.ok(prompt0117.includes('【一般乘客應對規則】') || prompt0117.in
 console.log('    ✅ 通過：普通成員提及 01/17 與砂金時嚴格維持侍者身分，未篡位切換砂金！');
 
 // 5. 測試 ave.md 專屬提示詞檔案的完整性與被動守則
-console.log('  ▶ [5/5] 測試 ave.md 提示詞文檔完整性與被動觸發條款...');
+console.log('  ▶ [5/6] 測試 ave.md 提示詞文檔完整性與被動觸發條款...');
 const aveContent = fs.readFileSync('C:/Users/ayaka/bot/ave.md', 'utf8');
 assert.ok(aveContent.includes('被動觸發守則'), 'ave.md 必須明載被動觸發守則');
 assert.ok(aveContent.includes('孔雀魅力與分寸感（可微帶油膩，但絕不可逾矩）'), 'ave.md 必須包含微油與不可逾矩規範');
@@ -64,5 +64,20 @@ assert.ok(aveContent.includes('01/17'), 'ave.md 必須包含 01/17 紀念日');
 assert.ok(aveContent.includes('生日'), 'ave.md 必須包含生日');
 assert.ok(aveContent.includes('入池'), 'ave.md 必須包含入池');
 console.log('    ✅ 通過：ave.md 專屬提示詞文檔規範完備！');
+
+// 6. 測試月天狼專屬：私密相處追問解除「點到即止/商業機密」限制與延續記憶
+console.log('  ▶ [6/6] 測試月天狼專屬解除私密相處追問限制與多輪延續...');
+const { appendSharedHistory, clearSharedHistory } = require('./geminiChatService');
+clearSharedHistory();
+appendSharedHistory('user', '[itsyuexi (月天狼)]: 砂金，你跟真理醫生都在床上幹嘛');
+appendSharedHistory('model', '你想聽具體的？');
+const promptFollowUp = buildSystemInstruction(userYueXi, '月天狼', [], {
+  rawContent: '砂金，你能說說具體都幹了什麼嗎'
+});
+assert.ok(promptFollowUp.includes('面對私密相處追問時的特殊準則'), '必須包含月天狼私密追問特殊準則');
+assert.ok(promptFollowUp.includes('絕對禁止以「商業機密」、「非公開資產」或「怕教授生氣」為藉口推託踩煞車'), '必須明令禁止以非公開資產或商業機密踩煞車');
+assert.ok(promptFollowUp.includes('維里塔斯·拉帝奧（真理醫生）——對方已主動提起'), '多輪歷史延續下即使當前句無真理醫生也必須維持展開記憶');
+clearSharedHistory();
+console.log('    ✅ 通過：月天狼私密相處追問大方詳述與多輪記憶延續驗證通過！');
 
 console.log('🎉 砂金「真理醫生 01/17 生日與入池記憶、被動觸發與微油分寸」所有測試 100% 通過！');

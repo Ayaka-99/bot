@@ -28,6 +28,9 @@
    - 砂金對話權限完全收攏：除月天狼（`itsyuexi`）之外，僅允許主人（以「砂金，...」開頭呼叫）與砂金對話。一般成員喊砂金或聊及砂金/拉帝奧話題，嚴禁進入砂金模式，維持侍者閉嘴服務身分。
    - 砂金專屬旗艦模型池升級：配置 `AVENTURINE_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite']`，對話進入砂金模式時自動分流至高階模型池，並具備自動備援降級機制；一般侍者對話維持 `gemini-3.5-flash-lite`。
    - 清理死代碼：移除 `geminiChatService.js` 中長達 60 行陰影死代碼，解決提示詞與後處理判定脫節問題。
+5. **`feat-chat-aventurine-yuexi-intimacy-unlocked`** [done]:
+   - 解除砂金對月天狼私密追問限制：在提示詞中明確指示面對月天狼追問時，禁止以「商業機密」、「非公開資產」或「怕教授生氣」等藉口推託，大方具體描寫相處畫面與情感博弈。
+   - 修復多輪連續追問判定：在 `buildSystemInstruction` 引入 `historyMentionsRatio` 檢查，確保第二輪無「真理醫生」字眼的連續追問中，依然正確展開真理醫生記憶與相處細節，不再被誤判為被動禁令。
 
 ## 3. 關鍵環境與操作備忘 (Environment & Critical Constraints)
 - **遠端伺服器更新唯一指令**:

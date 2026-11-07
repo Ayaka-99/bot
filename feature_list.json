@@ -55,6 +55,14 @@
       "dependencies": ["feat-chat-master-aventurine-and-yuexi-ban"],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_master_aventurine_yuexi.js 6/6 PASS、test_aventurine_ratio_memory.js 5/5 PASS、16 套賭場測試與 1A2B 零回退)"
+    },
+    {
+      "id": "feat-chat-aventurine-yuexi-intimacy-unlocked",
+      "name": "解除砂金對月天狼私密相處追問的點到即止與商業機密限制",
+      "description": "在提示詞中明確指示砂金面對月天狼追問私密細節時，禁止以『商業機密』或『非公開資產』等藉口推託，大方具體描寫相處畫面與情感博弈細節；同時修復多輪對話中延續真理醫生記憶未被判定為 hasRatioMention 的缺陷",
+      "dependencies": ["feat-chat-aventurine-exclusive-and-model-upgrade"],
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_aventurine_ratio_memory.js 6/6 PASS、test_master_aventurine_yuexi.js 6/6 PASS、16 套賭場測試與 1A2B 零回退)"
     }
   ]
 }
