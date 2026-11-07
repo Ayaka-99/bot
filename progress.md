@@ -28,6 +28,11 @@
   - 嚴格禁止主人扮演月天狼：`resolveImpersonationTarget` 遇到 `itsyuexi`、`月天狼`、`天狼` 時回傳協議保護說明，`handleBotChatMessage` 即時阻絕且維持當前扮演狀態。
   - 支援「砂金，...」開頭呼叫本尊對話：比對 `/^(?:砂金|aventurine)[，,、:：\s]+(.*)$/i`，優先於侍者閉嘴協議切換至砂金本尊對話，稱呼主人為「蘭斯」、「朋友」或「親愛的大顧問」，且絕對禁止在回覆開頭補上「主人，」前綴。
   - 新增單元測試 `test_master_aventurine_yuexi.js` (3/3 PASS)。
+- **砂金對話權限限制（僅限主人與月天狼）與專屬模型池升級 (`feat-chat-aventurine-exclusive-and-model-upgrade`)**:
+  - 權限收攏：除月天狼之外，只開放主人（需開頭呼叫砂金）能跟砂金對話，其餘成員禁止進入砂金模式（維持侍者閉嘴服務身分）。
+  - 清理陰影死代碼：徹底移除 `geminiChatService.js` 中長達 60 行被遮蔽的重複砂金提示詞區塊。
+  - 砂金專屬旗艦模型池升級：配置 `AVENTURINE_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite']`，對話進入砂金模式時自動分流至高階模型池，並具備自動備援降級機制；一般侍者對話維持 `gemini-3.5-flash-lite`。
+  - 擴充並通過單元測試 `test_master_aventurine_yuexi.js` (6/6 PASS) 與 `test_aventurine_ratio_memory.js` (5/5 PASS)。
 
 ## What's In Progress
 - 當前目標已完成，等待下一階段業務需求。
@@ -46,4 +51,4 @@
   - `test_1a2b_game.js` 4/4 項單元測試全數通過。
   - `test_chat_limits.js` 3/3 項單元測試全數通過。
   - `test_master_impersonation.js` 5/5 項單元測試全數通過。
-  - `test_master_aventurine_yuexi.js` 3/3 項單元測試全數通過 (月天狼禁令保護、砂金本尊呼叫切換無主人前綴、主人一般對話維持侍者敬稱)。
+  - `test_master_aventurine_yuexi.js` 6/6 項單元測試全數通過 (月天狼禁令保護、砂金本尊呼叫切換無主人前綴、主人一般對話維持侍者敬稱、月天狼專屬對話、非主人/非月天狼禁止進入砂金模式、旗艦模型池分流配置)。

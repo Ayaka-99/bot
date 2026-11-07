@@ -47,6 +47,14 @@
       "dependencies": ["feat-chat-master-impersonation"],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_master_aventurine_yuexi.js 3/3 PASS、test_master_impersonation.js 5/5 PASS、16 套賭場測試與 1A2B 零回退)"
+    },
+    {
+      "id": "feat-chat-aventurine-exclusive-and-model-upgrade",
+      "name": "砂金對話權限限制（僅限主人與月天狼）與專屬模型池升級",
+      "description": "限制僅主人（開頭呼叫砂金）與月天狼可與砂金對話，其餘成員禁止觸發砂金模式；升級砂金對話專屬模型池至旗艦級 gemini-3.5-flash / gemini-3.6-flash 並具備自動備援機制",
+      "dependencies": ["feat-chat-master-aventurine-and-yuexi-ban"],
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_master_aventurine_yuexi.js 6/6 PASS、test_aventurine_ratio_memory.js 5/5 PASS、16 套賭場測試與 1A2B 零回退)"
     }
   ]
 }
