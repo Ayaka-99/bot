@@ -138,6 +138,119 @@ function isSashaUser(user) {
   const username = (user.username || '').toLowerCase();
   return SPECIAL_USERS.SASHA.usernames.some(u => u.toLowerCase() === username);
 }
+// ==========================================
+// 🎭 主人專屬身分扮演狀態管理 (Impersonation State)
+// ==========================================
+let currentMasterImpersonation = null;
+
+function getMasterImpersonation() {
+  return currentMasterImpersonation;
+}
+
+function setMasterImpersonation(target) {
+  currentMasterImpersonation = target;
+}
+
+function clearMasterImpersonation() {
+  currentMasterImpersonation = null;
+}
+
+function resolveImpersonationTarget(rawTarget) {
+  if (!rawTarget) return null;
+  const t = rawTarget.trim().toLowerCase();
+
+  // 1. 還原主人
+  if (t === '主人' || t === 'lance_508' || t === 'lance') {
+    return { isMaster: true };
+  }
+
+  // 2. 特殊成員字典比對
+  if (/^(臭甲|甲甲|50萬|50w|icac|nmsl|nmsl2887)$/i.test(t)) {
+    return {
+      id: SPECIAL_USERS.NMSL.id,
+      username: SPECIAL_USERS.NMSL.usernames[0],
+      displayName: '臭甲',
+    };
+  }
+  if (/^(沙沙|selachii|selachii_lux)$/i.test(t)) {
+    return {
+      id: 'impersonated_sasha',
+      username: SPECIAL_USERS.SASHA.usernames[0],
+      displayName: '沙沙',
+    };
+  }
+  if (/^(酒鬼|xuan|xuan_05|xuan_0503)$/i.test(t)) {
+    return {
+      id: SPECIAL_USERS.XUAN.id,
+      username: SPECIAL_USERS.XUAN.usernames[0],
+      displayName: '酒鬼',
+    };
+  }
+  if (/^(月天狼|天狼|itsyuexi)$/i.test(t)) {
+    return {
+      id: 'impersonated_yuexi',
+      username: SPECIAL_USERS.YUE_XI.usernames[0],
+      displayName: '月天狼',
+    };
+  }
+  if (/^(安寶|安宝|再卷一下|eric|eric20233459)$/i.test(t)) {
+    return {
+      id: SPECIAL_USERS.ANBAO.id,
+      username: SPECIAL_USERS.ANBAO.usernames[0],
+      displayName: '安寶',
+    };
+  }
+  if (/^(夫人|蘭斯的寶|兰斯的宝|moria|moria\.ruruka|moria_ruruka)$/i.test(t)) {
+    return {
+      id: 'impersonated_moria',
+      username: SPECIAL_USERS.MORIA.usernames[0],
+      displayName: '蘭斯的寶',
+    };
+  }
+  if (/^(群主|群主大人|ct|ct群主|phamctxd|phamctxd_0826)$/i.test(t)) {
+    return {
+      id: SPECIAL_USERS.MANAGER.id,
+      username: SPECIAL_USERS.MANAGER.usernames[0],
+      displayName: '群主大人',
+    };
+  }
+  if (/^(牢大|yuuki|yuuki960401)$/i.test(t)) {
+    return {
+      id: 'impersonated_yuuki',
+      username: SPECIAL_USERS.YUUKI.usernames[0],
+      displayName: '牢大',
+    };
+  }
+  if (/^(處長|警務處長|警務處處長|shirasakia)$/i.test(t)) {
+    return {
+      id: SPECIAL_USERS.SHIRASAKIA.id,
+      username: SPECIAL_USERS.SHIRASAKIA.usernames[0],
+      displayName: '警務處處長',
+    };
+  }
+  if (/^(雪糕貓|雪糕猫|雪糕|popsicle|popsicle_cat\.?)$/i.test(t)) {
+    return {
+      id: 'impersonated_snow_cat',
+      username: SPECIAL_USERS.SNOW_CAT.usernames[0],
+      displayName: '雪糕貓',
+    };
+  }
+  if (/^(菸鬼|烟鬼|paohong|paohong\.)$/i.test(t)) {
+    return {
+      id: SPECIAL_USERS.SMOKER.id,
+      username: SPECIAL_USERS.SMOKER.usernames[0],
+      displayName: '菸鬼',
+    };
+  }
+
+  // 3. 通用動態群友包裝
+  return {
+    id: `impersonated_${t}`,
+    username: rawTarget.trim(),
+    displayName: rawTarget.trim(),
+  };
+}
+
 
 function getUserTitle(user, displayName = '') {
   if (!user) return '普通乘客';
@@ -403,6 +516,10 @@ ${ratioMemoryBlock}
 // ==========================================
 // 🌐 呼叫 Gemini REST API (雙 Key 平滑輪替負載平衡 + 多模型故障轉移)
 // ==========================================
+const apiCaller = {
+  call: callGeminiApi,
+};
+
 async function callGeminiApi(systemInstruction, contents, hasImage = false) {
   // 金鑰負載平衡：以 currentKeyIndex 為起點輪替
   const basePool = hasImage && IMAGE_API_KEY
@@ -545,11 +662,56 @@ function normalizeForComparison(text) {
 // 🚀 對外主要處理入口：handleBotChatMessage
 // ==========================================
 async function handleBotChatMessage(user, rawContent, imageData = null, displayName = '', mentionedMembers = [], context = {}) {
-  const isMaster = isMasterUser(user);
+  const realIsMaster = isMasterUser(user);
   const trimmed = (rawContent || '').trim();
+
+  // 🎭 主人身分切換與還原判定 (僅唯一主人 lance_508 有權觸發)
+  const RESTORE_MASTER_REGEX = /^(?:現在我是主人|我現在是主人|我變回主人了|恢復身[份分]|切換回主人)$/;
+  const SWITCH_IMPERSONATION_REGEX = /^(?:現在我是|我現在是|從現在開始我是)\s*([^\s,，:：]+)(?:[，,、:：\s]+(.*))?$/;
+
+  let activeUser = user;
+  let activeDisplayName = displayName;
+  let activeContent = trimmed;
+
+  if (realIsMaster) {
+    if (RESTORE_MASTER_REGEX.test(trimmed)) {
+      clearMasterImpersonation();
+      const masterReply = '主人！您回來了，至高無上的主宰 lance_508 主人。本機隨時遵從您的最高命令！';
+      appendSharedHistory('user', `[${user?.username || 'lance_508'} (主人)]: ${trimmed}`);
+      appendSharedHistory('model', masterReply);
+      return masterReply;
+    }
+
+    const switchMatch = trimmed.match(SWITCH_IMPERSONATION_REGEX);
+    if (switchMatch) {
+      const targetName = switchMatch[1];
+      const followUp = switchMatch[2]?.trim() || '';
+      const resolved = resolveImpersonationTarget(targetName);
+
+      if (resolved && resolved.isMaster) {
+        clearMasterImpersonation();
+        const masterReply = '主人！您回來了，至高無上的主宰 lance_508 主人。本機隨時遵從您的最高命令！';
+        appendSharedHistory('user', `[${user?.username || 'lance_508'} (主人)]: ${trimmed}`);
+        appendSharedHistory('model', masterReply);
+        return masterReply;
+      }
+
+      setMasterImpersonation(resolved);
+      activeUser = resolved;
+      activeDisplayName = resolved.displayName || resolved.username;
+      activeContent = followUp || '（來到了派對車廂，出現在侍者面前）';
+    } else if (currentMasterImpersonation) {
+      // 持續對話模式：只要扮演狀態有效，主人後續的所有日常發言均自動透傳為目標群友
+      activeUser = currentMasterImpersonation;
+      activeDisplayName = currentMasterImpersonation.displayName || currentMasterImpersonation.username;
+      activeContent = trimmed;
+    }
+  }
+
+  const isMaster = isMasterUser(activeUser);
   const isIndebted = Boolean(context.isIndebted);
-  const userPrefix = `[${user?.username || '未知成員'}${isMaster ? ' (主人)' : isIndebted ? ' (匹諾康尼天台排隊中・公司欠債砂奴)' : ''}]`;
-  const isSashaReply = isSashaUser(user) && Boolean(context.isReplyToBot || context.isUsingReply);
+  const userPrefix = `[${activeUser?.username || '未知成員'}${isMaster ? ' (主人)' : isIndebted ? ' (匹諾康尼天台排隊中・公司欠債砂奴)' : ''}]`;
+  const isSashaReply = isSashaUser(activeUser) && Boolean(context.isReplyToBot || context.isUsingReply);
 
   // 0. 特殊固定指令：當有人 copy 機器人的對話去回覆機器人時機器人僅會回覆「閉嘴」
   let isCopying = Boolean(context.isCopyingBot);
@@ -575,14 +737,14 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   }
 
   if (isCopying) {
-    appendSharedHistory('user', `${userPrefix}: ${trimmed}`);
+    appendSharedHistory('user', `${userPrefix}: ${activeContent}`);
     appendSharedHistory('model', '閉嘴');
     return '閉嘴';
   }
 
   // 1. 特殊固定指令：向機器人發送「晚安」
-  const cleanedGoodNight = trimmed.replace(/[\s\p{P}\p{S}]/gu, '');
-  if (cleanedGoodNight === '晚安' || trimmed === '晚安') {
+  const cleanedGoodNight = activeContent.replace(/[\s\p{P}\p{S}]/gu, '');
+  if (cleanedGoodNight === '晚安' || activeContent === '晚安') {
     let goodNightReply = isMaster ? '主人，晚安，願此行終抵群星。' : '晚安，願此行終抵群星。';
     if (isSashaReply) {
       goodNightReply = `${goodNightReply.replace(/[。！!？?～~\s]+$/, '')} 喵`;
@@ -594,7 +756,7 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   }
 
   // 2. 空訊息且無圖片之特殊處理
-  if (!trimmed && !imageData) {
+  if (!activeContent && !imageData) {
     let emptyReply = isMaster ? '主人，有什麼我可以幫忙的嗎' : '你是啞巴嗎？';
     if (isSashaReply) {
       emptyReply = `${emptyReply.replace(/[。！!？?～~\s]+$/, '')} 喵`;
@@ -603,7 +765,7 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   }
 
   // 3. 若主人詢問「我是誰」，立即以最高敬意確認主人身分
-  if (isMaster && /^(我是誰|我是谁|我到底是誰|我到底是谁|我是誰[？?呀啊啦呢~]*)$/i.test(trimmed)) {
+  if (isMaster && /^(我是誰|我是谁|我到底是誰|我到底是谁|我是誰[？?呀啊啦呢~]*)$/i.test(activeContent)) {
     let masterReply = '主人，您是在下唯一的至高主宰 lance_508 主人，整個派對車廂的最高控制者。本機隨時遵從您的吩咐！';
     appendSharedHistory('user', `${userPrefix}: ${trimmed}`);
     appendSharedHistory('model', masterReply);
@@ -611,17 +773,17 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   }
 
   // 4. 主人「手動清除記憶」指令
-  if (isMaster && (trimmed.includes('重置記憶') || trimmed.includes('清空記憶') || trimmed === '忘記對話')) {
+  if ((isMaster || realIsMaster) && (activeContent.includes('重置記憶') || activeContent.includes('清空記憶') || activeContent === '忘記對話')) {
     clearSharedHistory();
     return '主人，本機已遵命清空所有歷史記憶。隨時等待您的吩咐。';
   }
 
   // 5. 組裝 System Prompt (傳入 rawContent 以辨識是否主動提及砂金/真理醫生)
-  const systemInstruction = buildSystemInstruction(user, displayName, mentionedMembers, { ...context, rawContent });
+  const systemInstruction = buildSystemInstruction(activeUser, activeDisplayName, mentionedMembers, { ...context, rawContent: activeContent });
 
   // 6. 準備當前訊息 parts (支援純文字或 文字 + 圖片)
   const currentParts = [];
-  const textPrompt = trimmed || (isMaster ? '請主人過目，本機正為您辨識此圖片。' : '請看看這張圖片，用你的侍者風格給予評價。');
+  const textPrompt = activeContent || (isMaster ? '請主人過目，本機正為您辨識此圖片。' : '請看看這張圖片，用你的侍者風格給予評價。');
   currentParts.push({ text: `${userPrefix}: ${textPrompt}` });
 
   if (imageData && imageData.data && imageData.mimeType) {
@@ -642,10 +804,10 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
 
   // 8. 發送請求並防呆處理
   try {
-    let reply = await callGeminiApi(systemInstruction, contents, Boolean(imageData));
+    let reply = await apiCaller.call(systemInstruction, contents, Boolean(imageData));
 
-    const isYueXi = SPECIAL_USERS.YUE_XI.usernames.includes(user?.username?.toLowerCase()) || (rawContent && (rawContent.includes('月天狼') || rawContent.includes('itsyuexi')));
-    const isAventurine = isYueXi || (rawContent && (rawContent.includes('砂金') || rawContent.includes('真理醫生') || rawContent.includes('拉帝奧') || rawContent.toLowerCase().includes('ratio') || rawContent.includes('01/17') || rawContent.includes('1月17')));
+    const isYueXi = SPECIAL_USERS.YUE_XI.usernames.includes(activeUser?.username?.toLowerCase()) || (activeContent && (activeContent.includes('月天狼') || activeContent.includes('itsyuexi')));
+    const isAventurine = isYueXi || (activeContent && (activeContent.includes('砂金') || activeContent.includes('真理醫生') || activeContent.includes('拉帝奧') || activeContent.toLowerCase().includes('ratio') || activeContent.includes('01/17') || activeContent.includes('1月17')));
     // 過濾 AI 自行輸出的字數統計標記與序號標註
     reply = reply.replace(/\*+\s*\*+Character Count.*?$/i, '').replace(/（字數.*?）/g, '').replace(/\(\d+\)/g, '').trim();
 
@@ -686,7 +848,7 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     }
 
     // 將該輪對話寫入全體共享歷史 (最多 15 輪 / 30 則訊息)
-    appendSharedHistory('user', `${userPrefix}: ${trimmed || '[傳送了圖片進行辨識]'}`);
+    appendSharedHistory('user', `${userPrefix}: ${activeContent || '[傳送了圖片進行辨識]'}`);
     appendSharedHistory('model', reply);
 
     return reply;
@@ -720,4 +882,9 @@ module.exports = {
   cleanAllOrNothing,
   cleanGreasyPhrases,
   safeTruncate,
+  apiCaller,
+  getMasterImpersonation,
+  setMasterImpersonation,
+  clearMasterImpersonation,
+  resolveImpersonationTarget,
 };

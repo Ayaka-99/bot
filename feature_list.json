@@ -35,10 +35,10 @@
     {
       "id": "feat-chat-master-impersonation",
       "name": "主人專屬群友身分扮演機制",
-      "description": "允許主人 lance_508 透過語法（如『扮演 臭甲: 訊息』或『!扮演 臭甲』切換模式）以任意群友身分與機器人互動，動態置換 user 提示詞與專屬稱謂",
+      "description": "允許主人 lance_508 透過自然口語（如『現在我是XXX...』、『我現在是XXX』切換，以及『現在我是主人』還原）以任意群友身分與機器人互動，動態置換 user 提示詞與專屬稱謂",
       "dependencies": ["feat-chat-remove-length-limit"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 6 大關卡全數通過 (含 test_master_impersonation.js 5/5 PASS、16 套賭場回歸測試與 1A2B 測試零回退)"
     }
   ]
 }

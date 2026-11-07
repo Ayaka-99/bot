@@ -18,13 +18,19 @@
   - 移除 `buildSystemInstruction` 中所有角色分支 120-140 字及「嚴格不可超過 150 個字元」硬性提示。
   - 移除 `handleBotChatMessage` 中抹除段落換行的 `reply.replace(/\n+/g, ' ')`，保留多段排版。
   - 將 `safeTruncate` 預設截斷上限放寬至 Discord 安全上限 1950 字元，並為沙沙回覆末尾預留加「 喵」的安全空間 (1940)。
-  - 新增單元測試 `test_chat_limits.js` 並整合進 `init.cmd` 與 `init.sh` 驗證關卡。
+  - 新增單元測試 `test_chat_limits.js` (3/3 PASS)。
+- **主人專屬群友身分扮演機制 (`feat-chat-master-impersonation`)**:
+  - 於 `geminiChatService.js` 實裝主人身分切換與還原機制（僅限 `lance_508` 主人觸發，非主人一律視為普通文字）。
+  - 實裝目標解析字典 `resolveImpersonationTarget`，涵蓋臭甲、沙沙、酒鬼、月天狼、安寶、夫人、群主、牢大、處長、雪糕貓、菸鬼與通用動態群友包裝。
+  - 實裝自然語言切換句型（`/^(?:現在我是|我現在是|從現在開始我是)\s*([^\s,，:：]+)(?:[，,、:：\s]+(.*))?$/`）與還原主人句型（`/^(?:現在我是主人|我現在是主人|我變回主人了|恢復身[份分]|切換回主人)$/`）。
+  - 扮演狀態下支援無前綴日常對話之持續透傳，並動態解禁 `buildSystemInstruction` 角色人設與取消強制「主人，」前綴。
+  - 新增單元測試 `test_master_impersonation.js` (5/5 PASS)。
 
 ## What's In Progress
-- 當前目標已完成，等待下一功能開發。
+- 當前目標已完成，等待下一階段業務需求。
 
 ## What's Next
-- 實作 `feat-chat-master-impersonation`（主人專屬群友身分扮演機制）。
+- 等待使用者提供下一功能或優化任務。
 
 ## Blockers
 - 無。當前專案基線 100% 健康，所有語法檢查與測試套件全數通過。
@@ -32,7 +38,8 @@
 ## Evidence
 - `cmd.exe /c init.cmd` 執行通過：
   - 執行環境與套件依賴就緒。
-  - 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組，包含 `geminiChatService.js`)。
+  - 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組)。
   - `test_all_v56_suite.js` 16/16 套件全數通過 (0 失敗)。
   - `test_1a2b_game.js` 4/4 項單元測試全數通過。
-  - `test_chat_limits.js` 3/3 項單元測試全數通過 (提示詞字數解禁、safeTruncate 1950 字元截斷、沙沙加喵安全緩衝)。
+  - `test_chat_limits.js` 3/3 項單元測試全數通過。
+  - `test_master_impersonation.js` 5/5 項單元測試全數通過 (目標字典解析、臭甲/沙沙人設切換與前綴解禁、持續對話模式、還原主人確認台詞、非主人權限防禦)。
