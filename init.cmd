@@ -6,7 +6,7 @@ echo [Harness] Running Verification Gates (Fail-Fast)
 echo ====================================================
 
 :: 1. Runtime and Dependency Check
-echo [1/4] Checking runtime environment and dependencies...
+echo [1/5] Checking runtime environment and dependencies...
 where node >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
   echo [ERROR] node is not installed or not in PATH.
@@ -29,8 +29,8 @@ if not exist node_modules (
 echo   [PASS] Runtime and dependencies ready.
 
 :: 2. Syntax Check
-echo [2/4] Checking syntax for core modules (node --check)...
-set CORE_FILES=discord-bot-tracker.js texasHoldemService.js casinoVaultService.js aventurineCasinoService.js game1A2BService.js pvpCasinoService.js casinoStatsService.js transferService.js
+echo [2/5] Checking syntax for core modules (node --check)...
+set CORE_FILES=discord-bot-tracker.js texasHoldemService.js casinoVaultService.js aventurineCasinoService.js game1A2BService.js pvpCasinoService.js casinoStatsService.js transferService.js geminiChatService.js
 
 for %%F in (%CORE_FILES%) do (
   if exist %%F (
@@ -44,7 +44,7 @@ for %%F in (%CORE_FILES%) do (
 echo   [PASS] Syntax check passed.
 
 :: 3. Casino v5.6 Regression Test Suite
-echo [3/4] Running Casino v5.6 regression test suite...
+echo [3/5] Running Casino v5.6 regression test suite...
 if exist test_all_v56_suite.js (
   node test_all_v56_suite.js
   if !ERRORLEVEL! NEQ 0 (
@@ -57,11 +57,21 @@ if exist test_all_v56_suite.js (
 )
 
 :: 4. 1A2B Game Unit Tests
-echo [4/4] Running 1A2B game unit tests...
+echo [4/5] Running 1A2B game unit tests...
 if exist test_1a2b_game.js (
   node test_1a2b_game.js
   if !ERRORLEVEL! NEQ 0 (
     echo [ERROR] test_1a2b_game.js failed!
+    exit /b !ERRORLEVEL!
+  )
+)
+
+:: 5. Chat Limits and Formatting Unit Tests
+echo [5/5] Running chat limits unit tests...
+if exist test_chat_limits.js (
+  node test_chat_limits.js
+  if !ERRORLEVEL! NEQ 0 (
+    echo [ERROR] test_chat_limits.js failed!
     exit /b !ERRORLEVEL!
   )
 )

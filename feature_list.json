@@ -25,10 +25,18 @@
       "evidence": "node test_1a2b_game.js 4/4 單元測試全部通過"
     },
     {
-      "id": "feat-backlog-template",
-      "name": "後續任務切片範本",
-      "description": "保留給後續透過 /slice 切片之原子功能擴充項目",
+      "id": "feat-chat-remove-length-limit",
+      "name": "解除所有人聊天字數上限與壓縮排版",
+      "description": "移除 geminiChatService 中所有人設 120-150 字提示限制，放寬 safeTruncate 至 Discord 2000 字上限，保留對話自然分段換行",
       "dependencies": [],
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 全數通過 (含 test_chat_limits.js 3/3 通過、geminiChatService 語法檢查 PASS、16 套賭場測試與 1A2B 零回退)"
+    },
+    {
+      "id": "feat-chat-master-impersonation",
+      "name": "主人專屬群友身分扮演機制",
+      "description": "允許主人 lance_508 透過語法（如『扮演 臭甲: 訊息』或『!扮演 臭甲』切換模式）以任意群友身分與機器人互動，動態置換 user 提示詞與專屬稱謂",
+      "dependencies": ["feat-chat-remove-length-limit"],
       "status": "not-started",
       "evidence": ""
     }

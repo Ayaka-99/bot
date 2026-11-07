@@ -14,20 +14,25 @@
 - **1A2B 益智小遊戲**:
   - 實裝 `/1a2b` 指令、Modal 互動輸入、8 次上限與 1,500 星瓊獎勵發放。
   - 實裝 30 分鐘冷卻 SQLite 持久化表 `game_1a2b_cooldowns`。
+- **聊天字數解禁與排版呼吸感修復 (`feat-chat-remove-length-limit`)**:
+  - 移除 `buildSystemInstruction` 中所有角色分支 120-140 字及「嚴格不可超過 150 個字元」硬性提示。
+  - 移除 `handleBotChatMessage` 中抹除段落換行的 `reply.replace(/\n+/g, ' ')`，保留多段排版。
+  - 將 `safeTruncate` 預設截斷上限放寬至 Discord 安全上限 1950 字元，並為沙沙回覆末尾預留加「 喵」的安全空間 (1940)。
+  - 新增單元測試 `test_chat_limits.js` 並整合進 `init.cmd` 與 `init.sh` 驗證關卡。
 
 ## What's In Progress
-- 目前基線建置與初次驗收已完成，無進行中之掛起任務。
+- 當前目標已完成，等待下一功能開發。
 
 ## What's Next
-- 等待使用者提供下一階段業務功能或切片任務（可透過 `/slice` 自動分解至 `feature_list.json`）。
+- 實作 `feat-chat-master-impersonation`（主人專屬群友身分扮演機制）。
 
 ## Blockers
-- 無。當前專案基線 100% 健康，無未解決之阻礙項或失敗測試。
+- 無。當前專案基線 100% 健康，所有語法檢查與測試套件全數通過。
 
 ## Evidence
-- `init.cmd` 執行通過：
-  - 核心模組語法檢查全數通過 (`node --check`)。
+- `cmd.exe /c init.cmd` 執行通過：
+  - 執行環境與套件依賴就緒。
+  - 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組，包含 `geminiChatService.js`)。
   - `test_all_v56_suite.js` 16/16 套件全數通過 (0 失敗)。
   - `test_1a2b_game.js` 4/4 項單元測試全數通過。
-- `init.sh` (Git Bash) 執行通過：
-  - 跨平台依賴與全套測試皆以 exit code 0 結算。
+  - `test_chat_limits.js` 3/3 項單元測試全數通過 (提示詞字數解禁、safeTruncate 1950 字元截斷、沙沙加喵安全緩衝)。
