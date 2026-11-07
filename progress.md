@@ -37,6 +37,11 @@
   - 提示詞準則解禁：在 `targetCallingRule`、`孔雀魅力與分寸感`、`ratioMemoryBlock` 明確指示，當月天狼深入追問真理醫生私密相處細節時，禁止以「商業機密」、「非公開資產」或「怕教授生氣」等藉口推託，大方具體描寫相處畫面與情感博弈。
   - 修復多輪對話判定：在 `buildSystemInstruction` 引入 `historyMentionsRatio`，使月天狼在第二輪無「真理醫生」字眼的連續追問中，依然能正確繼承展開真理醫生記憶，不再被誤判為被動禁令。
   - 擴充並通過單元測試 `test_aventurine_ratio_memory.js` (6/6 PASS)。
+- **AI 破防說教攔截、API SafetySettings 放寬與極限尺度優雅轉向機制 (`feat-chat-safety-refusal-interception-and-anti-ooc`)**:
+  - API 層注入 `safetySettings` (全部門檻設為 `BLOCK_NONE`)，消除因親密相處詞彙誤觸 Google 安全過濾的硬性封鎖。
+  - Prompt 層建立「人設絕對不可破防與拒絕說教禁令」，引導模型在遇到「繼續」等極限尺度追問時，以砂金特有的漫不經心與縱容推拉，自然過渡至「事後溫存」、「清晨情趣」、「體力透支被扣分」或「反客為主索取賭注」。
+  - 後處理層實裝 `interceptSafetyRefusal` 攔截器，若模型偶發性產出 AI 說教或安全拒絕（如提到 NSFW / Sexually Explicit），自動無縫置換為符合人設的砂金優雅對白，杜絕破防言論暴露在 Discord。
+  - 新增單元測試 `test_safety_refusal_interception.js` (4/4 PASS)，整合至 `init.cmd` 與 `init.sh` 成為第 8 關卡。
 
 ## What's In Progress
 - 當前目標已完成，等待下一階段業務需求。
@@ -56,3 +61,4 @@
   - `test_chat_limits.js` 3/3 項單元測試全數通過。
   - `test_master_impersonation.js` 5/5 項單元測試全數通過。
   - `test_master_aventurine_yuexi.js` 6/6 項單元測試全數通過 (月天狼禁令保護、砂金本尊呼叫切換無主人前綴、主人一般對話維持侍者敬稱、月天狼專屬對話、非主人/非月天狼禁止進入砂金模式、旗艦模型池分流配置)。
+  - `test_safety_refusal_interception.js` 4/4 項單元測試全數通過 (AI 破防說教攔截、無誤傷、人設不可破防規範、端對端無縫置換)。

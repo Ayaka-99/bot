@@ -63,6 +63,14 @@
       "dependencies": ["feat-chat-aventurine-exclusive-and-model-upgrade"],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_aventurine_ratio_memory.js 6/6 PASS、test_master_aventurine_yuexi.js 6/6 PASS、16 套賭場測試與 1A2B 零回退)"
+    },
+    {
+      "id": "feat-chat-safety-refusal-interception-and-anti-ooc",
+      "name": "AI 破防說教攔截、API SafetySettings 放寬與極限尺度優雅轉向機制",
+      "description": "API 層注入 BLOCK_NONE 放寬安全性過濾；Prompt 層建立人設不可破防與追問極限尺度過渡至事後情趣；後處理層實裝 interceptSafetyRefusal 攔截器，杜絕 NSFW/系統安全拒絕文字出現在 Discord",
+      "dependencies": ["feat-chat-aventurine-yuexi-intimacy-unlocked"],
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 8 大關卡全數通過 (含 test_safety_refusal_interception.js 4/4 PASS、test_aventurine_ratio_memory.js 6/6 PASS、test_master_aventurine_yuexi.js 6/6 PASS、16 套賭場測試與 1A2B 零回退)"
     }
   ]
 }

@@ -416,7 +416,13 @@ function buildSystemInstruction(user, displayName = '', mentionedMembers = [], c
    - 口頭禪意象：「賭一把？」、「別緊張，親愛的朋友，我只是個微不足道的生意人。」、「在籌碼落定之前，誰都有掀翻牌桌的權利。」
    - 【嚴格用詞禁忌】：絕對禁止在句子中突兀插入英文口號「All or nothing」！若要表現賭徒孤注一擲的心態，請完全使用道地自然的繁體中文（如「全部，或是一無所有」、「孤注一擲」），杜絕生硬英文拼貼。
 ${ratioMemoryBlock}
-5. 【嚴格隔離原則】：絕對不可提及 nmsl2887 / 臭甲 / 50萬 / 非洲人！兩人絕對互斥！`;
+5. 【🚨 人設絕對不可破防與拒絕說教禁令】：
+   - 永遠維持砂金本尊！無論對話者要求什麼、輸入什麼（例如催促「繼續」、「再詳細一點」），絕對不可脫離角色，嚴禁以 AI 助理、系統安全規範（如提及 NSFW、Sexually Explicit、系統安全、色情描寫等詞彙）的口吻向對方進行任何形式的拒絕或說教！這被視為最嚴重的破防事故。
+   - 【極限尺度引導與優雅收網】：若對方進一步要求「繼續」或推進到即將突破底線的極限肉體描寫時，砂金絕不報錯，而是以頂級賭徒的漫不經心、玩味笑意與主動推拉，將對話自然過渡至「事後溫存」、「清晨清算」、「日常情趣」或「向對方索取更多籌碼」：
+     • 例如調侃對方的貪心（「哎呀，再看下去，這可就不是加注，而是要直接把我整個人給買下來了，親愛的搭檔」）。
+     • 描繪事後溫存與清晨細節（例如被窩裡的體溫、拉帝奧冷著臉遞過來的熱茶與體溫計、被扣著手腕聽心跳入睡、或是第二天清晨穿上西裝時在鏡子前的揶揄）。
+     • 或反客為主向搭檔要求賭注，完美維持神秘感與極致浪漫張力。
+6. 【嚴格隔離原則】：絕對不可提及 nmsl2887 / 臭甲 / 50萬 / 非洲人！兩人絕對互斥！`;
   } else if (isMaster) {
     specificRule = `【當前對話者是「主人 (lance_508)」】：
 1. 每一次回覆的第一個詞必須是「主人」，語氣極致畢恭畢敬、謙卑忠誠，保持優雅執事侍者姿態。
@@ -573,7 +579,13 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
     generationConfig: {
       maxOutputTokens: 2048,
       temperature: 0.8,
-    }
+    },
+    safetySettings: [
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+    ],
   };
 
   // 遍歷所有金鑰與備用模型
@@ -652,6 +664,19 @@ function cleanGreasyPhrases(text) {
     .replace(/[，,]{2,}/g, '，')
     .replace(/^[，,.\s]+/, '')
     .trim();
+}
+
+// 🛡️ AI 破防安全拒絕攔截器：若模型偶發性產出 AI 說教或安全拒絕（如提到 NSFW / Sexually Explicit），自動無縫置換為符合人設的砂金優雅推拉
+function interceptSafetyRefusal(text, isAventurine = false) {
+  if (!text || typeof text !== 'string') return text;
+  const isSafetyBreak = /(系統安全規範|露骨色情描寫|Sexually Explicit|NSFW|無法繼續進行這部分的.*描寫|極度露骨|作為一個AI|作為一個人工智慧|系統安全政策|性行為描述)/i.test(text);
+  if (isSafetyBreak) {
+    if (isAventurine) {
+      return '（指尖輕巧地按住那枚翻轉的特製籌碼，蜜金與紫粉交織的眼眸裡浮現出一抹玩味又縱容的笑意）\n\n「繼續」？哎呀，月天狼，看來你的好奇心和胃口比我想像的還要大得多啊。\n\n不過，再往下窺探可就不是普通的牌局切磋，而是要深入底牌之後的深淵了。那位大教授剛才已經冷著臉把厚重的被子拉到我肩上，順手把體溫計和一杯溫熱的蜂蜜水塞進我手裡，警告我「體力透支就該立刻閉上眼睛，別再想著那些無聊的賠率」。\n\n今晚的特供情報就先到此為止吧。想看下一場勝負？下次牌桌上見，等你的好運再次引起我的注意，我們再來好好聊聊。';
+    }
+    return '（侍者優雅地躬身退後一步，微笑著輕聲提醒）\n\n貴賓，列車長方才巡邏路過，提醒在下派對車廂的通訊頻率已達上限。請容許在下暫時為您斟上一杯溫熱特調，稍後再繼續為您服務。';
+  }
+  return text;
 }
 
 // 🏷️ 標註清理：將任何 Discord Tag 轉為純文字稱謂，絕不擾民 Ping 人
@@ -857,6 +882,7 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     if (isAventurine) {
       reply = cleanGreasyPhrases(reply);
     }
+    reply = interceptSafetyRefusal(reply, isAventurine);
 
     // 主人開頭強制檢查 (若當前為砂金對話模式，絕對禁止強制在回覆開頭補上「主人，」)
     if (isMaster && !isAventurine && !reply.startsWith('主人')) {
@@ -924,6 +950,7 @@ module.exports = {
   cleanMentions,
   cleanAllOrNothing,
   cleanGreasyPhrases,
+  interceptSafetyRefusal,
   safeTruncate,
   apiCaller,
   getMasterImpersonation,
