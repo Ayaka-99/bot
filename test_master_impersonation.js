@@ -45,7 +45,7 @@ async function runTests() {
     assert.strictEqual(resolveImpersonationTarget('沙沙').username, 'selachii_lux');
     assert.strictEqual(resolveImpersonationTarget('selachii').username, 'selachii_lux');
     assert.strictEqual(resolveImpersonationTarget('酒鬼').username, 'xuan_05');
-    assert.strictEqual(resolveImpersonationTarget('月天狼').username, 'itsyuexi');
+    assert.strictEqual(resolveImpersonationTarget('月天狼').forbidden, true);
     assert.strictEqual(resolveImpersonationTarget('安寶').username, 'eric20233459');
     assert.strictEqual(resolveImpersonationTarget('夫人').username, 'moria.ruruka');
     assert.strictEqual(resolveImpersonationTarget('群主').username, 'phamctxd_0826');

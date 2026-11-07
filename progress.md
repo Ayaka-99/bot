@@ -20,11 +20,14 @@
   - 將 `safeTruncate` 預設截斷上限放寬至 Discord 安全上限 1950 字元，並為沙沙回覆末尾預留加「 喵」的安全空間 (1940)。
   - 新增單元測試 `test_chat_limits.js` (3/3 PASS)。
 - **主人專屬群友身分扮演機制 (`feat-chat-master-impersonation`)**:
-  - 於 `geminiChatService.js` 實裝主人身分切換與還原機制（僅限 `lance_508` 主人觸發，非主人一律視為普通文字）。
-  - 實裝目標解析字典 `resolveImpersonationTarget`，涵蓋臭甲、沙沙、酒鬼、月天狼、安寶、夫人、群主、牢大、處長、雪糕貓、菸鬼與通用動態群友包裝。
-  - 實裝自然語言切換句型（`/^(?:現在我是|我現在是|從現在開始我是)\s*([^\s,，:：]+)(?:[，,、:：\s]+(.*))?$/`）與還原主人句型（`/^(?:現在我是主人|我現在是主人|我變回主人了|恢復身[份分]|切換回主人)$/`）。
-  - 扮演狀態下支援無前綴日常對話之持續透傳，並動態解禁 `buildSystemInstruction` 角色人設與取消強制「主人，」前綴。
+  - 實裝主人身分切換與還原機制（僅限 `lance_508` 主人觸發，非主人一律視為普通文字）。
+  - 實裝目標解析字典 `resolveImpersonationTarget`，支援常用特殊成員與通用動態群友包裝。
+  - 實裝自然語言切換句型與還原確認台詞，支援持續對話透傳模式。
   - 新增單元測試 `test_master_impersonation.js` (5/5 PASS)。
+- **禁止主人扮演月天狼與開頭砂金呼叫對話 (`feat-chat-master-aventurine-and-yuexi-ban`)**:
+  - 嚴格禁止主人扮演月天狼：`resolveImpersonationTarget` 遇到 `itsyuexi`、`月天狼`、`天狼` 時回傳協議保護說明，`handleBotChatMessage` 即時阻絕且維持當前扮演狀態。
+  - 支援「砂金，...」開頭呼叫本尊對話：比對 `/^(?:砂金|aventurine)[，,、:：\s]+(.*)$/i`，優先於侍者閉嘴協議切換至砂金本尊對話，稱呼主人為「蘭斯」、「朋友」或「親愛的大顧問」，且絕對禁止在回覆開頭補上「主人，」前綴。
+  - 新增單元測試 `test_master_aventurine_yuexi.js` (3/3 PASS)。
 
 ## What's In Progress
 - 當前目標已完成，等待下一階段業務需求。
@@ -42,4 +45,5 @@
   - `test_all_v56_suite.js` 16/16 套件全數通過 (0 失敗)。
   - `test_1a2b_game.js` 4/4 項單元測試全數通過。
   - `test_chat_limits.js` 3/3 項單元測試全數通過。
-  - `test_master_impersonation.js` 5/5 項單元測試全數通過 (目標字典解析、臭甲/沙沙人設切換與前綴解禁、持續對話模式、還原主人確認台詞、非主人權限防禦)。
+  - `test_master_impersonation.js` 5/5 項單元測試全數通過。
+  - `test_master_aventurine_yuexi.js` 3/3 項單元測試全數通過 (月天狼禁令保護、砂金本尊呼叫切換無主人前綴、主人一般對話維持侍者敬稱)。

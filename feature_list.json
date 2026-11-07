@@ -39,6 +39,14 @@
       "dependencies": ["feat-chat-remove-length-limit"],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 6 大關卡全數通過 (含 test_master_impersonation.js 5/5 PASS、16 套賭場回歸測試與 1A2B 測試零回退)"
+    },
+    {
+      "id": "feat-chat-master-aventurine-and-yuexi-ban",
+      "name": "禁止主人扮演月天狼與開頭砂金呼叫對話",
+      "description": "禁止主人扮演月天狼（特殊協議保護拒絕切換）；當主人發言開頭為『砂金，』時，由砂金本尊現身對話，解除侍者閉嘴格式與強制『主人，』前綴",
+      "dependencies": ["feat-chat-master-impersonation"],
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_master_aventurine_yuexi.js 3/3 PASS、test_master_impersonation.js 5/5 PASS、16 套賭場測試與 1A2B 零回退)"
     }
   ]
 }
