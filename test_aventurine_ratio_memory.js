@@ -5,7 +5,7 @@ const { buildSystemInstruction, SPECIAL_USERS } = require('./geminiChatService')
 console.log('🧪 開始測試砂金「真理醫生（維里塔斯·拉帝奧）」記憶與被動觸發機制...');
 
 // 1. 測試月天狼未主動提及真理醫生時，嚴格禁止砂金主動提起
-console.log('  ▶ [1/5] 測試月天狼未提起真理醫生時的被動觸發守則...');
+console.log('  ▶ [1/7] 測試月天狼未提起真理醫生時的被動觸發守則...');
 const userYueXi = { id: '827495671031660555', username: 'itsyuexi' };
 const promptYueXiNormal = buildSystemInstruction(userYueXi, '月天狼', [], {
   rawContent: '砂金，今天運氣不錯，來賭一把？'
@@ -17,7 +17,7 @@ assert.ok(!promptYueXiNormal.includes('【核心羈絆與專屬記憶：維里�
 console.log('    ✅ 通過：月天狼未主動提及時，砂金被嚴格禁止提及真理醫生！');
 
 // 2. 測試月天狼主動提及真理醫生時，砂金自然調用專屬伴侶記憶
-console.log('  ▶ [2/5] 測試月天狼主動提起「真理醫生」時的記憶展開...');
+console.log('  ▶ [2/7] 測試月天狼主動提起「真理醫生」時的記憶展開...');
 const promptYueXiRatio = buildSystemInstruction(userYueXi, '月天狼', [], {
   rawContent: '砂金，你跟真理醫生最近有見面嗎？'
 });
@@ -34,7 +34,7 @@ assert.ok(promptYueXiRatio.includes('入池'), '必須包含入池記憶');
 console.log('    ✅ 通過：月天狼主動提及時，完整調用真理醫生專屬記憶（含 01/17 生日與入池日）！');
 
 // 3. 測試主人主動呼叫砂金並提及「拉帝奧/真理醫生」時的置換與記憶調用
-console.log('  ▶ [3/5] 測試主人主動提及「拉帝奧/真理醫生」時的置換與記憶調用...');
+console.log('  ▶ [3/7] 測試主人主動提及「拉帝奧/真理醫生」時的置換與記憶調用...');
 const masterUser = { id: SPECIAL_USERS.MASTER.id, username: SPECIAL_USERS.MASTER.usernames[0] };
 const promptRatioMention = buildSystemInstruction(masterUser, '主人', [], {
   rawContent: '砂金，真理醫生今天有罵你嗎？'
@@ -45,7 +45,7 @@ assert.ok(promptRatioMention.includes('維里塔斯·拉帝奧（真理醫生）
 console.log('    ✅ 通過：主人主動提及時成功切換砂金並調用真理醫生記憶！');
 
 // 4. 測試非主人非月天狼成員提及「01/17」或「砂金」時，嚴格禁止進入砂金模式
-console.log('  ▶ [4/5] 測試普通成員提及「01/17」或呼叫「砂金」時維持侍者閉嘴（嚴禁進入砂金模式）...');
+console.log('  ▶ [4/7] 測試普通成員提及「01/17」或呼叫「砂金」時維持侍者閉嘴（嚴禁進入砂金模式）...');
 const normalUser = { id: '123456789', username: 'random_passenger' };
 const prompt0117 = buildSystemInstruction(normalUser, '普通乘客', [], {
   rawContent: '砂金，你知道01/17是什麼日子嗎？'
@@ -55,7 +55,7 @@ assert.ok(prompt0117.includes('【一般乘客應對規則】') || prompt0117.in
 console.log('    ✅ 通過：普通成員提及 01/17 與砂金時嚴格維持侍者身分，未篡位切換砂金！');
 
 // 5. 測試 ave.md 專屬提示詞檔案的完整性與被動守則
-console.log('  ▶ [5/6] 測試 ave.md 提示詞文檔完整性與被動觸發條款...');
+console.log('  ▶ [5/7] 測試 ave.md 提示詞文檔完整性與被動觸發條款...');
 const aveContent = fs.readFileSync('C:/Users/ayaka/bot/ave.md', 'utf8');
 assert.ok(aveContent.includes('被動觸發守則'), 'ave.md 必須明載被動觸發守則');
 assert.ok(aveContent.includes('孔雀魅力與分寸感（可微帶油膩，但絕不可逾矩）'), 'ave.md 必須包含微油與不可逾矩規範');
@@ -66,7 +66,7 @@ assert.ok(aveContent.includes('入池'), 'ave.md 必須包含入池');
 console.log('    ✅ 通過：ave.md 專屬提示詞文檔規範完備！');
 
 // 6. 測試月天狼專屬：私密相處追問解除「點到即止/商業機密」限制與延續記憶
-console.log('  ▶ [6/6] 測試月天狼專屬解除私密相處追問限制與多輪延續...');
+console.log('  ▶ [6/7] 測試月天狼專屬解除私密相處追問限制與多輪延續...');
 const { appendSharedHistory, clearSharedHistory } = require('./geminiChatService');
 clearSharedHistory();
 appendSharedHistory('user', '[itsyuexi (月天狼)]: 砂金，你跟真理醫生都在床上幹嘛');
@@ -80,4 +80,17 @@ assert.ok(promptFollowUp.includes('維里塔斯·拉帝奧（真理醫生）—�
 clearSharedHistory();
 console.log('    ✅ 通過：月天狼私密相處追問大方詳述與多輪記憶延續驗證通過！');
 
-console.log('🎉 砂金「真理醫生 01/17 生日與入池記憶、被動觸發與微油分寸」所有測試 100% 通過！');
+// 7. 測試時空轉場過渡橋樑 (Bridge Transition) 與殘句續寫銜接機制提示詞規範
+console.log('  ▶ [7/7] 測試時空轉場過渡橋樑 (Bridge Transition) 與殘句續寫銜接提示詞規範...');
+const promptTransition = buildSystemInstruction(userYueXi, '月天狼', [], {
+  rawContent: '砂金，繼續'
+});
+assert.ok(promptTransition.includes('時空轉場過渡橋樑 (Bridge Transition) 與殘句續寫銜接'), 'Prompt 必須包含時空轉場過渡橋樑與殘句續寫標題');
+assert.ok(promptTransition.includes('杜絕突兀跳躍'), 'Prompt 必須包含杜絕突兀跳躍規範');
+assert.ok(promptTransition.includes('嚴禁直接時空瞬移到「第二天清晨」'), 'Prompt 必須明令嚴禁直接時空瞬移到第二天清晨');
+assert.ok(promptTransition.includes('必須提供過渡橋樑'), 'Prompt 必須要求提供過渡橋樑');
+assert.ok(promptTransition.includes('第一人稱因果相扣'), 'Prompt 必須要求清晨首句台詞以第一人稱因果相扣');
+assert.ok(promptTransition.includes('敘事閉環防截斷'), 'Prompt 必須包含敘事閉環防截斷約束');
+console.log('    ✅ 通過：時空轉場過渡橋樑、杜絕清晨瞬移、因果相扣與敘事閉環規範驗證完備！');
+
+console.log('🎉 砂金「真理醫生記憶、被動觸發、微油分寸與時空轉場過渡」所有測試 7/7 通過！');
