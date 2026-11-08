@@ -10,7 +10,7 @@
   - 1A2B 單元測試套件：4/4 通過
   - 聊天字數與截斷單元測試套件：3/3 通過
   - 主人專屬群友扮演單元測試套件：5/5 通過
-  - 主人砂金呼叫與月天狼禁令單元測試套件：6/6 通過
+  - 主人砂金呼叫與月天狼禁令單元測試套件：7/7 通過
   - 砂金真理醫生記憶單元測試套件：5/5 通過
   - AI 破防安全拒絕攔截與反 OOC 單元測試套件：4/4 通過
   - 語法靜態檢查：核心 9 個模組全數通過 (`node --check`)
@@ -38,7 +38,18 @@
    - Prompt 注入「人設絕對不可破防」與「極限收網引導」：禁止以 AI 助理說教，順勢轉為事後溫存、清晨算帳或索要籌碼等高情商互動。
    - 後處理管道實裝 `interceptSafetyRefusal`：100% 捕獲潛在 AI 助理說教詞，自動替換為砂金人設對白，杜絕破防暴露於 Discord。
 
-## 3. 關鍵環境與操作備忘 (Environment & Critical Constraints)
+7. **`feat-chat-model-quota-fallback-chain`** [done]:
+   - 升級 `AVENTURINE_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3-flash', 'gemini-3.5-flash-lite']`；普通成員聊天維持 `TEXT_MODELS = ['gemini-3.5-flash-lite']`。
+   - 重構 `callGeminiApi`：結構改為模型在外（優先階梯）、金鑰在內（金鑰池輪替）。
+   - 當前模型在遇到 429/403 額度限制時，輪替嘗試同模型的下一把金鑰；若所有金鑰均耗盡，外層自動順延降級至下一個備援模型。
+   - 遇 404 (Model 不存在) 時，直接 break 跳出內層金鑰循環，快速切換至下一個模型。
+   - 擴充單元測試 `test_master_aventurine_yuexi.js` 增加至 7/7 PASS。
+
+## 3. 下一階段交接事項 (Next Steps)
+- 目前已排定之功能清單已全部實作並全數通過驗收。
+- 等待下一階段業務需求或功能切片。
+
+## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)
 - **遠端伺服器更新唯一指令**:
   ```bash
   cd ~/bot && git pull && pm2 restart dc-bot --update-env

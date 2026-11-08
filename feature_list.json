@@ -71,6 +71,14 @@
       "dependencies": ["feat-chat-aventurine-yuexi-intimacy-unlocked"],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 8 大關卡全數通過 (含 test_safety_refusal_interception.js 4/4 PASS、test_aventurine_ratio_memory.js 6/6 PASS、test_master_aventurine_yuexi.js 6/6 PASS、16 套賭場測試與 1A2B 零回退)"
+    },
+    {
+      "id": "feat-chat-model-quota-fallback-chain",
+      "name": "砂金模型池升級 (3.8-3.6-3-3.5lite) 與跨 Key/跨 Model 自動降級路由",
+      "description": "升級 AVENTURINE_MODELS 順序為 gemini-3.8-flash -> gemini-3.6-flash -> gemini-3-flash -> gemini-3.5-flash-lite；一般成員聊天嚴格維持 TEXT_MODELS (gemini-3.5-flash-lite)；重構 callGeminiApi 調度迴圈為模型在外、Key在內，當前模型兩把 Key 均遇 429/403 額度耗盡時，自動降級切換至下一個模型，404 時直接跳過該模型",
+      "dependencies": ["feat-chat-safety-refusal-interception-and-anti-ooc"],
+      "status": "done",
+      "evidence": "cmd.exe /c init.cmd 8 大關卡全數通過 (含 test_master_aventurine_yuexi.js 7/7 PASS、429 跨 Key/Model 降級與 404 快跳全部驗證通過、16 套賭場測試與 1A2B 零回退)"
     }
   ]
 }

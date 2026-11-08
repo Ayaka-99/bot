@@ -23,7 +23,7 @@ const API_KEYS = envKeys.length > 0 ? envKeys : DEFAULT_FALLBACK_KEYS;
 const TEXT_MODELS = ['gemini-3.5-flash-lite'];
 
 // 砂金專屬旗艦模型池：採用高階 gemini-3.5-flash / gemini-3.6-flash，保有最頂級對話靈魂與孔雀魅力，並以 lite 作為備援
-const AVENTURINE_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite'];
+const AVENTURINE_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3-flash', 'gemini-3.5-flash-lite'];
 
 // 圖片辨識專用模型：
 const VISION_MODELS = ['gemini-3-flash-preview', 'gemini-3.5-flash'];
@@ -588,11 +588,10 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
     ],
   };
 
-  // 遍歷所有金鑰與備用模型
-  for (let kIdx = 0; kIdx < keyPool.length; kIdx++) {
-    const key = keyPool[kIdx];
-
-    for (const model of modelPool) {
+  // 外層遍歷模型池（優先級降級階梯），內層遍歷可用金鑰
+  for (const model of modelPool) {
+    for (let kIdx = 0; kIdx < keyPool.length; kIdx++) {
+      const key = keyPool[kIdx];
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
       try {
@@ -614,20 +613,28 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
           }
         }
 
-        // 遇到 429 (Rate Limit / Quota) 或 403 (Permission) -> 跳出換下一個 Key 並更新輪替起點
+        // 遇到 429 (Rate Limit / Quota) 或 403 (Permission) -> 記錄警告，更新輪替起點，繼續內層嘗試同模型的下一把金鑰
         if (response.status === 429 || response.status === 403) {
-          console.warn(`⚠️ [Gemini] Key ${kIdx + 1} 遇到狀態碼 ${response.status} (額度/速率限制)，嘗試下一把金鑰...`);
+          console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 遇到狀態碼 ${response.status} (額度/速率限制)，嘗試同模型的下一把金鑰...`);
           currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+          continue;
+        }
+
+        // 遇到 404 (Model 不存在) -> 記錄警告，直接 break 跳出內層，順延至下一個備援模型
+        if (response.status === 404) {
+          const errText = await response.text();
+          console.warn(`⚠️ [Gemini] Model ${model} 不存在 (404)，跳過此模型...: ${errText.slice(0, 100)}`);
           break;
         }
 
-        // 遇到 404 或 503 等狀態碼 -> 嘗試同 Key 下一個備用模型
+        // 其他狀態碼 (500, 503 等) -> 記錄警告並嘗試同模型下一把金鑰
         const errText = await response.text();
-        console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 回傳狀態碼 ${response.status}: ${errText.slice(0, 100)}，嘗試切換備用模型...`);
+        console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 回傳狀態碼 ${response.status}: ${errText.slice(0, 100)}`);
       } catch (err) {
         console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 請求失敗:`, err.message);
       }
     }
+    console.warn(`⚠️ [Gemini] Model ${model} 所有可用金鑰均受限或失敗，自動降級切換至下一個備援模型...`);
   }
 
   throw new Error('ALL_KEYS_EXHAUSTED');

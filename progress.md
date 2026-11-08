@@ -42,6 +42,11 @@
   - Prompt 層建立「人設絕對不可破防與拒絕說教禁令」，引導模型在遇到「繼續」等極限尺度追問時，以砂金特有的漫不經心與縱容推拉，自然過渡至「事後溫存」、「清晨情趣」、「體力透支被扣分」或「反客為主索取賭注」。
   - 後處理層實裝 `interceptSafetyRefusal` 攔截器，若模型偶發性產出 AI 說教或安全拒絕（如提到 NSFW / Sexually Explicit），自動無縫置換為符合人設的砂金優雅對白，杜絕破防言論暴露在 Discord。
   - 新增單元測試 `test_safety_refusal_interception.js` (4/4 PASS)，整合至 `init.cmd` 與 `init.sh` 成為第 8 關卡。
+- **砂金專屬模型池階梯升級與 429 自動降級路由 (`feat-chat-model-quota-fallback-chain`)**:
+  - 升級 `AVENTURINE_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3-flash', 'gemini-3.5-flash-lite']`；普通成員日常對話嚴格維持 `TEXT_MODELS = ['gemini-3.5-flash-lite']`。
+  - 重構 `callGeminiApi` 調度架構：改為外層遍歷 `modelPool`（旗艦降級階梯），內層遍歷 `keyPool`（金鑰輪替）。
+  - 當前模型在遇到 429/403 時記錄警告並切換下一把金鑰；若所有金鑰均受限，外層自動順延降級至下一個備援模型。遇到 404 時則直接中斷內層金鑰循環，快速切換至下一個模型。
+  - 擴充並通過單元測試 `test_master_aventurine_yuexi.js` (7/7 PASS)，涵蓋 429 跨 Key 嘗試、跨 Model 降級與 404 快跳斷言。
 
 ## What's In Progress
 - 當前目標已完成，等待下一階段業務需求。
@@ -60,5 +65,5 @@
   - `test_1a2b_game.js` 4/4 項單元測試全數通過。
   - `test_chat_limits.js` 3/3 項單元測試全數通過。
   - `test_master_impersonation.js` 5/5 項單元測試全數通過。
-  - `test_master_aventurine_yuexi.js` 6/6 項單元測試全數通過 (月天狼禁令保護、砂金本尊呼叫切換無主人前綴、主人一般對話維持侍者敬稱、月天狼專屬對話、非主人/非月天狼禁止進入砂金模式、旗艦模型池分流配置)。
+  - `test_master_aventurine_yuexi.js` 7/7 項單元測試全數通過 (含 429 跨 Key/Model 降級、404 快跳、模型常數階梯順序斷言)。
   - `test_safety_refusal_interception.js` 4/4 項單元測試全數通過 (AI 破防說教攔截、無誤傷、人設不可破防規範、端對端無縫置換)。

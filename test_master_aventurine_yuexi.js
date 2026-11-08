@@ -55,7 +55,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 1. 測試主人發送「現在我是月天狼」➜ 協議保護拒絕切換，扮演狀態不變
     // ------------------------------------------------------------------
-    console.log('▶ [1/6] 測試禁止主人扮演月天狼（特殊協議保護與拒絕切換）...');
+    console.log('▶ [1/7] 測試禁止主人扮演月天狼（特殊協議保護與拒絕切換）...');
     clearMasterImpersonation();
     const rejectReply = await handleBotChatMessage(masterUser, '現在我是月天狼');
     assert.strictEqual(
@@ -88,7 +88,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 2. 測試主人發送「砂金，今天運氣如何？」➜ 切換砂金本尊，回覆不帶「主人，」且啟用高階模型池
     // ------------------------------------------------------------------
-    console.log('▶ [2/6] 測試主人呼叫「砂金，...」開頭對話切換為砂金本尊...');
+    console.log('▶ [2/7] 測試主人呼叫「砂金，...」開頭對話切換為砂金本尊...');
     mockReply = '親愛的大顧問，今晚想跟我賭什麼？';
     const aventurineReply = await handleBotChatMessage(masterUser, '砂金，今天運氣如何？');
 
@@ -125,7 +125,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 3. 測試主人一般發言（無砂金開頭）➜ 維持侍者閉嘴與「主人，」前綴，不啟用砂金模型
     // ------------------------------------------------------------------
-    console.log('▶ [3/6] 測試主人一般發言（無砂金開頭，如「侍者來杯咖啡」）維持侍者閉嘴服務...');
+    console.log('▶ [3/7] 測試主人一般發言（無砂金開頭，如「侍者來杯咖啡」）維持侍者閉嘴服務...');
     mockReply = '這就為您奉上最醇厚的特調咖啡。';
     const butlerReply = await handleBotChatMessage(masterUser, '侍者來杯咖啡');
 
@@ -147,7 +147,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 4. 測試月天狼發言 ➜ 允許與砂金對話並啟用砂金模式
     // ------------------------------------------------------------------
-    console.log('▶ [4/6] 測試月天狼發言 ➜ 允許與砂金對話...');
+    console.log('▶ [4/7] 測試月天狼發言 ➜ 允許與砂金對話...');
     mockReply = '月天狼，好久不見，今晚手氣如何？';
     const yuexiReply = await handleBotChatMessage(yueXiUser, '早安');
 
@@ -165,7 +165,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 5. 測試非主人且非月天狼發言（如臭甲、普通乘客）➜ 嚴格禁止進入砂金模式
     // ------------------------------------------------------------------
-    console.log('▶ [5/6] 測試非主人且非月天狼發言（喊砂金、聊砂金）➜ 嚴格禁止進入砂金模式...');
+    console.log('▶ [5/7] 測試非主人且非月天狼發言（喊砂金、聊砂金）➜ 嚴格禁止進入砂金模式...');
     mockReply = '在下是閉嘴，為您服務。';
 
     // 5a. 臭甲呼叫「砂金，你在嗎」
@@ -200,16 +200,112 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 6. 測試模型池常數定義與完整性
     // ------------------------------------------------------------------
-    console.log('▶ [6/6] 測試模型池設定（旗艦升級與常規分流）...');
+    console.log('▶ [6/7] 測試模型池設定（旗艦升級與常規分流）...');
     assert.ok(Array.isArray(AVENTURINE_MODELS), 'AVENTURINE_MODELS 必須為陣列');
-    assert.ok(AVENTURINE_MODELS.includes('gemini-3.5-flash'), '砂金專屬模型池必須包含 gemini-3.5-flash');
-    assert.ok(AVENTURINE_MODELS.includes('gemini-3.6-flash'), '砂金專屬模型池必須包含 gemini-3.6-flash');
-    assert.ok(AVENTURINE_MODELS.includes('gemini-3.5-flash-lite'), '砂金專屬模型池必須具備 lite 備援');
+    assert.deepStrictEqual(
+      AVENTURINE_MODELS,
+      ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3-flash', 'gemini-3.5-flash-lite'],
+      'AVENTURINE_MODELS 必須依序為 3.8-flash, 3.6-flash, 3-flash, 3.5-flash-lite'
+    );
     assert.strictEqual(TEXT_MODELS[0], 'gemini-3.5-flash-lite', '普通侍者對話必須維持 lite 模型');
     console.log('  ✅ 砂金專屬旗艦模型池與日常模型池配置驗證通過！');
 
+    // ------------------------------------------------------------------
+    // 7. 測試調度器 429 跨 Key / 跨 Model 自動降級路由與 404 快跳機制
+    // ------------------------------------------------------------------
+    console.log('▶ [7/7] 測試調度器 429 跨 Key / 跨 Model 自動降級路由與 404 快跳機制...');
+    apiCaller.call = originalApiCall; // 還原至真實 callGeminiApi 邏輯以測試排程調度
+    const originalFetch = globalThis.fetch;
+
+    try {
+      // 7a. 測試 429 遍歷所有 Key 後自動降級至下一模型
+      const fetchCalls = [];
+      globalThis.fetch = async (url, options) => {
+        fetchCalls.push({ url, options });
+        if (url.includes('gemini-3.8-flash')) {
+          return { status: 429, text: async () => 'Rate limit exceeded' };
+        }
+        if (url.includes('gemini-3.6-flash')) {
+          const callsTo36 = fetchCalls.filter((c) => c.url.includes('gemini-3.6-flash')).length;
+          if (callsTo36 === 1) {
+            return { status: 429, text: async () => 'Quota exhausted for key 1' };
+          }
+          return {
+            status: 200,
+            json: async () => ({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: '降級成功回覆：由 gemini-3.6-flash 次席金鑰順利回覆' }],
+                  },
+                },
+              ],
+            }),
+          };
+        }
+        return { status: 500, text: async () => 'Unexpected server error' };
+      };
+
+      const fallbackReply = await apiCaller.call(
+        'System prompt',
+        [{ role: 'user', parts: [{ text: '測試 429 降級' }] }],
+        false,
+        true // isAventurine = true
+      );
+
+      assert.strictEqual(
+        fallbackReply,
+        '降級成功回覆：由 gemini-3.6-flash 次席金鑰順利回覆',
+        '調度器必須成功在第二個模型的第二把 Key 取得回覆'
+      );
+
+      const callsTo38 = fetchCalls.filter((c) => c.url.includes('gemini-3.8-flash')).length;
+      const callsTo36 = fetchCalls.filter((c) => c.url.includes('gemini-3.6-flash')).length;
+      assert.ok(callsTo38 >= 2, `gemini-3.8-flash 遇到 429 必須完整嘗試所有金鑰 (至少 2 把，實際嘗試: ${callsTo38})`);
+      assert.strictEqual(callsTo36, 2, '降級至 gemini-3.6-flash 後，第一把 429 需繼續嘗試第二把金鑰並順利取得回覆');
+
+      // 7b. 測試 404 模型不存在時，立即 break 跳過該模型剩餘 Key，直接順延下一模型
+      fetchCalls.length = 0;
+      globalThis.fetch = async (url, options) => {
+        fetchCalls.push({ url, options });
+        if (url.includes('gemini-3.8-flash')) {
+          return { status: 404, text: async () => 'Model not found' };
+        }
+        if (url.includes('gemini-3.6-flash')) {
+          return {
+            status: 200,
+            json: async () => ({
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: '404 快跳成功' }],
+                  },
+                },
+              ],
+            }),
+          };
+        }
+        return { status: 500, text: async () => 'Error' };
+      };
+
+      const fastSkipReply = await apiCaller.call(
+        'System prompt',
+        [{ role: 'user', parts: [{ text: '測試 404 快跳' }] }],
+        false,
+        true
+      );
+
+      assert.strictEqual(fastSkipReply, '404 快跳成功');
+      const callsTo38Fast = fetchCalls.filter((c) => c.url.includes('gemini-3.8-flash')).length;
+      assert.strictEqual(callsTo38Fast, 1, '遇到 404 必須立即中斷該模型內層金鑰循環，只嘗試 1 次即換下一模型');
+
+      console.log('  ✅ 429 跨 Key / 跨 Model 自動降級與 404 快跳機制驗證 100% 通過！');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
     console.log('====================================================');
-    console.log('🎉 [SUCCESS] 禁止扮演月天狼與砂金專屬對話全套單元測試 6/6 通過！');
+    console.log('🎉 [SUCCESS] 禁止扮演月天狼與砂金專屬對話全套單元測試 7/7 通過！');
     console.log('====================================================');
   } finally {
     apiCaller.call = originalApiCall;
