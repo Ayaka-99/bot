@@ -20,6 +20,7 @@ const {
   TextInputStyle,
   MessageFlags,
 } = require('discord.js');
+const { checkAndRedeemDebt } = require('./aventurineCasinoService');
 
 const MAX_ATTEMPTS = 8;
 const GAME_COOLDOWN_MS = 30 * 60 * 1000; // 30 分鐘
@@ -500,6 +501,12 @@ async function handle1A2BModalSubmit(db, interaction) {
 
     // 發放 1,500 星瓊並啟動 30 分鐘冷卻
     await award1A2BJades(db, session.userId, session.username, WIN_JADES_REWARD);
+    const updatedUser = await new Promise((res) =>
+      db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [session.userId], (_, row) => res(row))
+    );
+    if (updatedUser) {
+      await checkAndRedeemDebt(db, interaction?.member || null, session.userId, updatedUser.stellarJades).catch(() => {});
+    }
     await record1A2BGameEnd(db, session.userId, session.username, true);
 
     const embed = build1A2BEmbed(session, true, 'WON');

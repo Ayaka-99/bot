@@ -17,19 +17,17 @@ const {
   MessageFlags,
 } = require('discord.js');
 
-// IPC 金庫注資輔助函式 (獨立定義以避免循環引用)
+const { injectVaultWithBurn } = require('./casinoVaultService');
+
+// IPC 金庫注資輔助函式 (向後相容保留)
 function addToIpcVault(db, amount) {
   if (!amount || amount <= 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    db.run(
-      'UPDATE ipc_vault SET currentJades = currentJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
-      [amount],
-      (err) => {
-        if (err) return reject(err);
-        resolve();
-      }
-    );
-  });
+  const bjShare = Math.floor(amount * 0.40);
+  const texasShare = Math.floor(amount * 0.60);
+  return Promise.all([
+    bjShare > 0 ? injectVaultWithBurn(db, 'bj', bjShare) : Promise.resolve(),
+    texasShare > 0 ? injectVaultWithBurn(db, 'texas', texasShare) : Promise.resolve(),
+  ]);
 }
 
 const AVENTURINE_AVATAR = 'https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/avatar/1304.png';
@@ -146,21 +144,36 @@ function getCasinoTycoon(db) {
 
       // 每日 00:00 (UTC+8) 重置
       if (row.updatedDate !== dateStr) {
-        db.run(
-          `UPDATE casino_tycoon SET userId = NULL, username = '星際和平公司 (IPC)', bidAmount = 5000, tauntMessage = '這裡由我包場了，各位開拓者請便。', updatedDate = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1`,
-          [dateStr],
-          (updateErr) => {
-            if (updateErr) console.error('重置賭場大亨失敗:', updateErr);
+        // v6.0 大亨每日結算：資金 40% 注入 bj 金庫、60% 注入 texas 金庫
+        (async () => {
+          try {
+            if (row.userId && row.bidAmount > 0) {
+              const bjShare = Math.floor(row.bidAmount * 0.40);
+              const texasShare = Math.floor(row.bidAmount * 0.60);
+              if (bjShare > 0) await injectVaultWithBurn(db, 'bj', bjShare);
+              if (texasShare > 0) await injectVaultWithBurn(db, 'texas', texasShare);
+            }
+
+            db.run(
+              `UPDATE casino_tycoon SET userId = NULL, username = '星際和平公司 (IPC)', bidAmount = 5000, tauntMessage = '這裡由我包場了，各位開拓者請便。', updatedDate = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1`,
+              [dateStr],
+              (updateErr) => {
+                if (updateErr) console.error('重置賭場大亨失敗:', updateErr);
+                resolve({
+                  id: 1,
+                  userId: null,
+                  username: '星際和平公司 (IPC)',
+                  bidAmount: 5000,
+                  tauntMessage: '這裡由我包場了，各位開拓者請便。',
+                  updatedDate: dateStr,
+                });
+              }
+            );
+          } catch (e) {
+            reject(e);
           }
-        );
-        return resolve({
-          id: 1,
-          userId: null,
-          username: '星際和平公司 (IPC)',
-          bidAmount: 5000,
-          tauntMessage: '這裡由我包場了，各位開拓者請便。',
-          updatedDate: dateStr,
-        });
+        })();
+        return;
       }
 
       resolve(row);
@@ -401,7 +414,7 @@ async function buyTitle(db, user, titleId, customTitleName = '') {
     };
   }
 
-  // 扣款並注入 40% 入 IPC 金庫，60% 回收銷毀
+  // 扣款並注入 40% 入 BJ 金庫、60% 入 Texas 金庫
   await new Promise((resolve, reject) => {
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades - ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -409,7 +422,10 @@ async function buyTitle(db, user, titleId, customTitleName = '') {
       (err) => (err ? reject(err) : resolve())
     );
   });
-  await addToIpcVault(db, Math.floor(finalPrice * 0.40));
+  const bjShare = Math.floor(finalPrice * 0.40);
+  const texasShare = Math.floor(finalPrice * 0.60);
+  if (bjShare > 0) await injectVaultWithBurn(db, 'bj', bjShare);
+  if (texasShare > 0) await injectVaultWithBurn(db, 'texas', texasShare);
 
   // 存入背包
   await new Promise((resolve, reject) => {

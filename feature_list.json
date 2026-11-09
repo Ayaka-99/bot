@@ -95,6 +95,46 @@
       "dependencies": ["feat-casino-v56-core"],
       "status": "done",
       "evidence": "node test_v60_vault_jackpot.js 6/6 PASS 且 cmd.exe /c init.cmd 8 大關卡全數通過 (含金庫擴容 1000w/2000w、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、富人稅雙階梯地板保護無斷崖倒掛，16 套既有賭場回歸測試與對話測試零回退)"
+    },
+    {
+      "id": "feat-v60-migration-compensation-and-vault-opening",
+      "name": "v6.0 全服補償、天台清空與雙金庫開池遷移",
+      "description": "資料庫啟動與 aventurineCasinoService 加入 migration_v60_economy_overhaul_and_compensation：清空天台欠債紀錄與前綴；星瓊 < 50,000 者回補至 50,000；全體開拓者發放 +30,000 星瓊；雙金庫水位開池設定為 bj 1,000,000 / texas 2,000,000",
+      "dependencies": ["feat-v60-vault-core-and-jackpot-math"],
+      "status": "done",
+      "evidence": "node test_v60_migration_compensation.js 5/5 PASS (含破產回補80000、天台前綴與記錄清空、大亨+30000至280000、金庫開池100w/200w、冪等性防呆) 且 cmd.exe /c init.cmd 8 大關卡全數通過"
+    },
+    {
+      "id": "feat-v60-daily-wealth-tax-pipeline",
+      "name": "v6.0 星際和平公司午夜富人稅定時排程與全資產穿透計稅管線",
+      "description": "實作午夜富人稅排程 (每日 00:00:00 Asia/Taipei)；全資產穿透式掃描計稅 (錢包 + 德州桌面籌碼 + 21點對局 + 場外買馬)；順序扣款 (先扣錢包，不足強制扣除德州牌桌籌碼)；40% 注入 BJ 金庫、60% 注入德州金庫；自動產生並發送富人稅公報戰報 Embed",
+      "dependencies": ["feat-v60-migration-compensation-and-vault-opening"],
+      "status": "done",
+      "evidence": "node test_v60_wealth_tax_pipeline.js 6/6 PASS (含免稅、12%扣款、德州桌面強制扣款防逃稅、20%巨鯨880w地板保護、21點與買馬穿透掃描、Embed推播) 且 cmd.exe /c init.cmd 8 大關卡全數通過"
+    },
+    {
+      "id": "feat-v60-pve-aventurine-overhaul",
+      "name": "v6.0 /詭弈砂金 PvE 核心大修、注資無上限與金庫動態彩金整合",
+      "description": "/詭弈砂金 移除 25,000 上限與 10% 懲罰稅；下注上限放寬至 1,000,000 與 All-in 全押；Double Down 解禁 10,000 上限；輸局與比骰未超越砂金沒收籌碼 100% 注入 bj 金庫；獲勝常規點數利潤由 bj 金庫支應 (上限 max(50000, floor(BJ_Vault * 0.20)))，特殊牌型發放身家佔比動態彩金",
+      "dependencies": ["feat-v60-daily-wealth-tax-pipeline"],
+      "status": "done",
+      "evidence": "node test_v60_aventurine_pve.js 6/6 PASS (含 100萬滿注、Double Down 解禁、輸局 100% 入庫、常規利潤金庫支應與 20% 安全閥保護、同花 BJ 動態彩金派彩、命運比骰決鬥扣庫與入庫) 且 16 套既有測試無損相容"
+    },
+    {
+      "id": "feat-v60-pvp-blackjack-and-texas-overhaul",
+      "name": "v6.0 PvP 21點與德州撲克 0% 抽稅、團滅入庫、防作弊三鐵律與四級神話彩金",
+      "description": "/單挑21點 (上限 5,000,000) 與 /大逃殺21點 (上限 2,000,000) 全面 0% 抽稅，雙爆牌與全員團滅 100% 沒收注入 bj 金庫，特殊牌型發放動態彩金；/德州撲克 全面 0% 抽水 (翻牌後奪池與場外買馬免 5%)，移除單局 25,000 封頂，NPC 奪池真人淨輸額 100% 注入 texas 金庫，落實防作弊三鐵律 (未跟注溢額扣除、Showdown 獲勝、至少 1 張私有底牌參與) 與四級神話彩金提領",
+      "dependencies": ["feat-v60-pve-aventurine-overhaul"],
+      "status": "done",
+      "evidence": "node test_v60_pvp_and_holdem.js 6/6 PASS (含單挑500w上限與雙爆入庫、大逃殺200w上限與全員團滅入庫、德州NPC奪池100%入庫、真人奪池免25k封頂且0%抽稅、防作弊三鐵律、皇家同花順100%搬空) 且 16 套既有測試全數通過"
+    },
+    {
+      "id": "feat-v60-peripheral-and-anti-evasion",
+      "name": "v6.0 周邊經濟金流導流、轉帳與紅包風控限額與全通道自動贖身防禦",
+      "description": "黑市稱號購買與大亨結算資金 40% 注入 bj 金庫、60% 注入 texas 金庫；紅包單包上限 200,000、單日上限 500,000；轉帳單次上限 50,000 與 4 小時冷卻；全通道掛載 checkAndRedeemDebt 破產自動贖身",
+      "dependencies": ["feat-v60-pvp-blackjack-and-texas-overhaul"],
+      "status": "done",
+      "evidence": "node test_v60_peripheral.js 5/5 PASS (黑市稱號與今日大亨 40%/60% 注資金庫、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、全通道掛載 checkAndRedeemDebt 自動贖身) 且 init.cmd 8/8 關卡 100% PASS"
     }
   ]
 }

@@ -62,11 +62,33 @@
      • $W \le 400\text{w}$ 免稅，$400\text{w} < W < 1000\text{w}$ 徵收 $12\%$（$400\text{w}$ 地板保護），$W \ge 1000\text{w}$ 徵收 $20\%$（$880\text{w}$ 地板保護）。
    - 新增單元測試 `test_v60_vault_jackpot.js` (6/6 PASS)。
 
+10. **`feat-v60-migration-compensation-and-vault-opening`** [done]:
+    - 在 `aventurineCasinoService.js` 加入一次性遷移 `migration_v60_economy_overhaul_and_compensation`：
+      • 清空天台欠債紀錄與前綴；所有星瓊 `< 50,000` 者回補至 `50,000`；全體已建檔開拓者發放 `+30,000` 星瓊；雙金庫水位開池設定為 `bj` 1,000,000 / `texas` 2,000,000。
+    - 新增單元測試 `test_v60_migration_compensation.js` (5/5 PASS)。
+11. **`feat-v60-daily-wealth-tax-pipeline`** [done]:
+    - `casinoVaultService.js` 實作午夜富人稅排程與計稅管線：每日 00:00:00 (Asia/Taipei) 執行，穿透掃描總資產 $W = W_{\text{wallet}} + W_{\text{texas\_table}} + W_{\text{bj\_session}} + W_{\text{pvp\_session}} + W_{\text{spectator\_bet}}$。
+    - 扣款優先序：先扣錢包，不足時強制穿透扣除桌面籌碼防逃稅。
+    - 徵收稅金分流：$40\%$ 注入 `bj` 金庫，$60\%$ 注入 `texas` 金庫，滿溢銷毀。
+    - 新增單元測試 `test_v60_wealth_tax_pipeline.js` (6/6 PASS)。
+12. **`feat-v60-pve-aventurine-overhaul`** [done]:
+    - `/詭弈砂金`：移除 25,000 限制與 10% 懲罰稅；下注上限放寬至 1,000,000 與 All-in；Double Down 解禁 10,000 上限；輸局與比骰落敗 100% 注入 `bj` 金庫；獲勝常規點數利潤由 `bj` 金庫支應（上限 $\max(50000, \lfloor \text{BJ\_Vault} \times 0.20 \rfloor)$），特殊牌型提領身家佔比動態彩金；二階段命運比骰決鬥（砂金先攻，勝者 1.2 倍勝者獎勵由金庫支應，落敗/平手扣除 50% 且 100% 注入金庫）；快捷按鈕升級為滿注開局 1,000,000。
+    - 新增單元測試 `test_v60_aventurine_pve.js` (6/6 PASS)。
+13. **`feat-v60-pvp-blackjack-and-texas-overhaul`** [done]:
+    - `/單挑21點`（上限 500 萬）與 `/大逃殺21點`（上限 200 萬）：全面 0% 抽稅，雙爆牌/全員團滅 100% 沒收注入 `bj` 金庫；勝者達成特殊牌型提領動態彩金。
+    - `/德州撲克`：全面 0% 抽水（翻牌後奪池與場外買馬免 5%）；移除單局 25,000 封頂；NPC 奪池真人淨輸額 100% 注入 `texas` 金庫；實作防作弊三鐵律（未跟注退回扣除、Showdown 獲勝、至少 1 張私有底牌參與）；四級神話彩金發放。
+    - 新增單元測試 `test_v60_pvp_and_holdem.js` (6/6 PASS)。
+14. **`feat-v60-peripheral-and-anti-evasion`** [done]:
+    - `blackMarketService.js`：稱號與大亨結算資金 40% 注入 `bj`、60% 注入 `texas`。
+    - `redPacketService.js`：單包上限 200,000、單日上限 500,000。
+    - `transferService.js`：單次上限 50,000 與 4 小時冷卻。
+    - 全通道掛載 `checkAndRedeemDebt` 自動贖身（轉帳、紅包、1A2B、德州撲克、21點對決）。
+    - 新增單元測試 `test_v60_peripheral.js` (5/5 PASS)。
+
 ## 3. 下一階段交接事項 (Next Steps)
-- **v6.0「星際和平公司・財富重分配協議」改版接續**：
-  - **下一施工微任務**：`feat-v60-aventurine-pve-economy` (或接續各業務模組對接)
-    - 目標：`aventurineCasinoService.js` 開池注資補償 Migration（補齊 5w 普發 3w）、常規單注放寬至 100 萬、Double Down 解禁、輸局 100% 注入 `bj` 金庫與紀錄賽前身家。
-    - 關鍵檔案：`aventurineCasinoService.js`。
+- **v6.0「星際和平公司・財富重分配協議」全數交付完成**：
+  - 目前所有 6 大微任務皆已實作且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、v6.0 專屬 6 組測試套件 34/34 測試全數 PASS）。
+  - 若需部署至遠端正式伺服器，直接執行專屬一行流指令。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)
 - **遠端伺服器更新唯一指令**:
@@ -74,5 +96,5 @@
   cd ~/bot && git pull && pm2 restart dc-bot --update-env
   ```
 - **代碼修改防禦**:
-  - 嚴禁改動賭場與金庫計算邏輯。
-  - 扮演狀態僅儲存於記憶體變數，重啟或手動切換回主人後即可安全復原。
+  - 金庫派彩一律以整數星瓊請領，嚴禁直傳比例或浮點數。
+  - 德州撲克防作弊三鐵律需始終保持有效，確保私有底牌參與。

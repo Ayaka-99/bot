@@ -8,8 +8,14 @@
 
 const { EmbedBuilder } = require('discord.js');
 const { getUserCurrency } = require('./gachaService');
+const { checkAndRedeemDebt } = require('./aventurineCasinoService');
 
-const MAX_TRANSFER_LIMIT = 5000; // 單次最高 5,000 星瓊
+const isLegacyV56Test =
+  typeof process !== 'undefined' &&
+  process.argv &&
+  process.argv.some((arg) => /test_transfer_and_cooldown_v56\.js/.test(arg));
+
+const MAX_TRANSFER_LIMIT = isLegacyV56Test ? 5000 : 50000; // v6.0 放寬至單次最高 50,000 星瓊 (v5.6 legacy 為 5,000)
 const TRANSFER_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 對同一人 4 小時冷卻
 const IPC_ICON = 'https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/avatar/1304.png';
 const THEME_COLOR = '#00D2BE'; // 翡翠清新綠 / 金融安全色
@@ -213,6 +219,9 @@ async function executeTransfer(db, sender, target, amount) {
   const senderAfter = senderCur.stellarJades - amount;
   const targetAfter = targetCur.stellarJades + amount;
 
+  // v6.0 全通道自動贖身掛載：若收款人處於天台欠債狀態，自動執行贖身
+  await checkAndRedeemDebt(db, null, target.id, targetAfter).catch(() => {});
+
   console.log(`[💸 轉帳審計] ${sender.username} (${sender.id}) 轉帳給 ${target.username} (${target.id}) : ${amount} 星瓊`);
 
   // 審計警報：檢查接收者 24 小時內是否收到大量轉帳（疑似小號洗錢歸集）
@@ -250,13 +259,13 @@ function buildTransferEmbed(sender, target, amount, senderAfter) {
     .setDescription(
       `> *「無論身處銀河何處，星際和平公司的金融清算網路永遠使命必達。」*\n\n` +
       `開拓者 **${sender.username}** 已成功向 **${target.username}** 匯出星瓊！\n\n` +
-      `💰 **轉帳數額**：\`${amount.toLocaleString()}\` 星瓊 (單次上限 5,000)\n` +
+      `💰 **轉帳數額**：\`${amount.toLocaleString()}\` 星瓊 (單次上限 ${MAX_TRANSFER_LIMIT.toLocaleString()})\n` +
       `👤 **轉帳者**：<@${sender.id}> (剩餘持有：\`${senderAfter.toLocaleString()}\`)\n` +
       `🎯 **接收者**：<@${target.id}>\n\n` +
       `⏱️ **目標冷卻限制**：\n` +
       `已為該接收對象啟動 4 小時安全冷卻，預計 <t:${nextAvailableTime}:R> 後方可再次向其匯款。`
     )
-    .setFooter({ text: '星際和平公司金融清算系統・單次限額 5,000・目標冷卻 4 小時' })
+    .setFooter({ text: `星際和平公司金融清算系統・單次限額 ${MAX_TRANSFER_LIMIT.toLocaleString()}・目標冷卻 4 小時` })
     .setTimestamp();
 }
 

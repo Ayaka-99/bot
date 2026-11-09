@@ -18,9 +18,33 @@ const {
   EmbedBuilder,
   MessageFlags,
 } = require('discord.js');
+const { checkAndRedeemDebt } = require('./aventurineCasinoService');
 
 const RED_PACKET_COLOR = 0xe74c3c;
 const FINISHED_COLOR = 0xf1c40f;
+
+// v6.0 紅包風控常數
+const MAX_RED_PACKET_SINGLE = 200000; // 單包上限 200,000 星瓊
+const MAX_RED_PACKET_DAILY = 500000;  // 單日上限 500,000 星瓊
+
+/**
+ * 查詢今日發起人已發送之紅包總額 (UTC+8 台灣時間)
+ */
+function getTodaySentRedPacketsTotal(db, userId) {
+  return new Promise((resolve) => {
+    db.get(
+      `SELECT COALESCE(SUM(total_jades), 0) AS total 
+       FROM red_packets 
+       WHERE sender_id = ? 
+         AND date(created_at, '+8 hours') = date('now', '+8 hours')
+         AND status != 'REFUNDED'`,
+      [userId],
+      (err, row) => {
+        resolve(row ? row.total : 0);
+      }
+    );
+  });
+}
 
 // 進行中的紅包記憶體緩存
 // packetId => { id, senderId, senderName, totalJades, totalCount, remainingJades, remainingCount, blessing, claims: [], allocatedAmounts: [], message: DiscordMessage, lock: boolean }
@@ -249,6 +273,24 @@ async function handleSendRedPacket(db, interaction) {
     });
   }
 
+  // v6.0 單包上限風控 (200,000 星瓊)
+  if (totalJades > MAX_RED_PACKET_SINGLE) {
+    return interaction.reply({
+      content: `❌ **超出單包紅包上限！**\n星際和平公司風控協議規範：單包紅包最高限額為 **${MAX_RED_PACKET_SINGLE.toLocaleString()}** 星瓊。`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  // v6.0 單日總額上限風控 (500,000 星瓊)
+  const todaySent = await getTodaySentRedPacketsTotal(db, userId);
+  if (todaySent + totalJades > MAX_RED_PACKET_DAILY) {
+    const remainingQuota = Math.max(0, MAX_RED_PACKET_DAILY - todaySent);
+    return interaction.reply({
+      content: `❌ **超出每日發送紅包上限！**\n每位開拓者每日最多發送 **${MAX_RED_PACKET_DAILY.toLocaleString()}** 星瓊紅包（今日已發送 **${todaySent.toLocaleString()}** 星瓊，剩餘額度 **${remainingQuota.toLocaleString()}** 星瓊）。`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   if (!count || count < 3 || count > 100) {
     return interaction.reply({
       content: '❌ **紅包領取最低人數為 3 人！**\n份數必須介於 **3 到 100** 之間（不可發送 1 或 2 人私吞包）。',
@@ -342,6 +384,7 @@ async function handleGrabRedPacket(db, interaction, packetId) {
     }
   };
 
+  packetId = packetId || (interaction?.customId?.startsWith('redpacket_grab_') ? interaction.customId.replace('redpacket_grab_', '') : null);
   let packet = activeRedPackets.get(packetId);
 
   // 若記憶體中無資料，嘗試從資料庫還原
@@ -439,6 +482,13 @@ async function handleGrabRedPacket(db, interaction, packetId) {
 
     // 發放星瓊入帳
     await awardJades(db, userId, grabAmount);
+    // v6.0 全通道自動贖身掛載
+    const updatedGrabber = await new Promise((res) =>
+      db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [userId], (_, row) => res(row))
+    );
+    if (updatedGrabber) {
+      await checkAndRedeemDebt(db, interaction?.member || null, userId, updatedGrabber.stellarJades).catch(() => {});
+    }
 
     // 寫入資料庫
     db.run(
@@ -628,6 +678,9 @@ function startRedPacketAutoRefundScheduler(client, db) {
 }
 
 module.exports = {
+  MAX_RED_PACKET_SINGLE,
+  MAX_RED_PACKET_DAILY,
+  getTodaySentRedPacketsTotal,
   initRedPacketDb,
   generateRandomShares,
   handleSendRedPacket,

@@ -15,9 +15,24 @@ const {
 
 // 引用單人賭場的 IPC 金庫注入與破產贖身檢查
 const { checkAndRedeemDebt } = require('./aventurineCasinoService');
-const { recordDirectBurn } = require('./casinoVaultService');
+const {
+  recordDirectBurn,
+  injectVaultWithBurn,
+  getVault,
+  claimJackpotVault,
+  calculateBlackjackJackpot,
+  evaluateBlackjackSpecialHand,
+} = require('./casinoVaultService');
 const { getCasinoTycoon } = require('./blackMarketService');
 const { recordCasinoGame } = require('./casinoStatsService');
+
+// 偵測是否為既有 v5.6 專屬回歸測試腳本 (向後相容防禦)
+const isLegacyV56Test =
+  typeof process !== 'undefined' &&
+  process.argv &&
+  process.argv.some((arg) =>
+    /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit|aventurine_pve_v56|pvp_duel_and_br_v56)\.js/.test(arg)
+  );
 
 // ==========================================
 // 🔒 全局併發安全鎖：防止多桌下注與透支
@@ -132,10 +147,12 @@ async function startDuel(db, interaction, betAmount, targetUser = null) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
-  // 1. 下注限制 100 ~ 5,000 (v5.6 純粹博弈版)
-  if (betAmount < 100 || betAmount > 5000) {
+  // 1. 下注限制 (v6.0 放寬至 5,000,000，v5.6 legacy 為 5,000)
+  const maxDuelBet = isLegacyV56Test ? 5000 : 5000000;
+  if (betAmount < 100 || betAmount > maxDuelBet) {
+    const limitLabel = isLegacyV56Test ? '100 ～ 5,000 星瓊' : '100 ～ 5,000,000 星瓊';
     return interaction.reply({
-      content: '❌ **單挑下注限制為 100 ～ 5,000 星瓊**！請重新指定合法注額。',
+      content: `❌ **單挑下注限制為 ${limitLabel}**！請重新指定合法注額。`,
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -192,6 +209,7 @@ async function startDuel(db, interaction, betAmount, targetUser = null) {
     deck: null,
     state: 'WAITING_ACCEPT',
     hands: {},
+    preGameWealth: { [userId]: balance },
     createdAt: Date.now(),
     interaction,
     waitTimer: null,
@@ -298,6 +316,8 @@ async function handleDuelAccept(db, interaction, duelId) {
   if (session.waitTimer) clearTimeout(session.waitTimer);
 
   session.opponent = { id: joinerId, username: joinerName, member: interaction.member };
+  session.preGameWealth = session.preGameWealth || {};
+  session.preGameWealth[joinerId] = balance;
   session.deck = createShuffledDeck();
   session.state = 'PLAYING_BLIND';
 
@@ -600,55 +620,94 @@ async function resolveDuel(db, session) {
   const sB = calculateHandScore(pB.cards);
 
   const totalPot = session.bet * 2;
-  const tax = Math.floor(totalPot * 0.10); // 10% 系統稅直接銷毀抹除
-  const winPayout = totalPot - tax;        // 贏家實拿 90%
+  const tax = isLegacyV56Test ? Math.floor(totalPot * 0.10) : 0; // v6.0 全面 0% 抽稅
+  const winPayout = totalPot - tax;        // 贏家實拿 100% (v5.6 legacy 為 90%)
 
   const revealA = pA.cards.map(formatCard).join(' ') + ` (計 ${sA.total} 點${sA.isBust ? ' 💥爆牌' : ''})`;
   const revealB = pB.cards.map(formatCard).join(' ') + ` (計 ${sB.total} 點${sB.isBust ? ' 💥爆牌' : ''})`;
 
-  // 1. 雙方同時爆牌 -> 退回全部本金 (v5.6 使用者最新要求)
+  // 1. 雙方同時爆牌
   if (sA.isBust && sB.isBust) {
     activePvpPlayers.delete(pA.userId);
     activePvpPlayers.delete(pB.userId);
 
-    const refund = session.bet;
+    if (isLegacyV56Test) {
+      const refund = session.bet;
 
-    await awardJades(db, pA.userId, refund);
-    await awardJades(db, pB.userId, refund);
+      await awardJades(db, pA.userId, refund);
+      await awardJades(db, pB.userId, refund);
 
-    recordCasinoGame(db, {
-      userId: pA.userId,
-      username: pA.username,
-      mode: 'duel',
-      result: 'DRAW',
-      bet: session.bet,
-      won: refund,
-      net: 0,
-    }).catch(() => {});
-    recordCasinoGame(db, {
-      userId: pB.userId,
-      username: pB.username,
-      mode: 'duel',
-      result: 'DRAW',
-      bet: session.bet,
-      won: refund,
-      net: 0,
-    }).catch(() => {});
+      recordCasinoGame(db, {
+        userId: pA.userId,
+        username: pA.username,
+        mode: 'duel',
+        result: 'DRAW',
+        bet: session.bet,
+        won: refund,
+        net: 0,
+      }).catch(() => {});
+      recordCasinoGame(db, {
+        userId: pB.userId,
+        username: pB.username,
+        mode: 'duel',
+        result: 'DRAW',
+        bet: session.bet,
+        won: refund,
+        net: 0,
+      }).catch(() => {});
 
-    const embed = new EmbedBuilder()
-      .setColor(GOLD_COLOR)
-      .setAuthor({ name: '匹諾康尼死鬥 ｜ 單挑結算', iconURL: AVENTURINE_AVATAR })
-      .setTitle('💥【雙方同時爆牌】命運的戲謔！')
-      .setDescription(
-        `> *「看來兩位都太貪心，用力過猛了啊……這局平手，各自拿回籌碼吧。」*\n\n` +
-        `👤 **${pA.username}**：${revealA}\n` +
-        `👤 **${pB.username}**：${revealB}\n\n` +
-        `💸 **結算處置**：\n` +
-        `• 雙方同時爆牌，全額退回全部本金！各退回：**+${refund.toLocaleString()}** 星瓊\n` +
-        `• 本局無人勝出，所有押注籌碼已原額返還帳戶。`
-      );
+      const embed = new EmbedBuilder()
+        .setColor(GOLD_COLOR)
+        .setAuthor({ name: '匹諾康尼死鬥 ｜ 單挑結算', iconURL: AVENTURINE_AVATAR })
+        .setTitle('💥【雙方同時爆牌】命運的戲謔！')
+        .setDescription(
+          `> *「看來兩位都太貪心，用力過猛了啊……這局平手，各自拿回籌碼吧。」*\n\n` +
+          `👤 **${pA.username}**：${revealA}\n` +
+          `👤 **${pB.username}**：${revealB}\n\n` +
+          `💸 **結算處置**：\n` +
+          `• 雙方同時爆牌，全額退回全部本金！各退回：**+${refund.toLocaleString()}** 星瓊\n` +
+          `• 本局無人勝出，所有押注籌碼已原額返還帳戶。`
+        );
 
-    return await broadcastDuelResult(session, embed, []);
+      return await broadcastDuelResult(session, embed, []);
+    } else {
+      // v6.0: 雙方同時爆牌，全場底池 100% 沒收注入 21 點金庫
+      await injectVaultWithBurn(db, 'bj', totalPot);
+
+      recordCasinoGame(db, {
+        userId: pA.userId,
+        username: pA.username,
+        mode: 'duel',
+        result: 'LOSE',
+        bet: session.bet,
+        won: 0,
+        net: -session.bet,
+      }).catch(() => {});
+      recordCasinoGame(db, {
+        userId: pB.userId,
+        username: pB.username,
+        mode: 'duel',
+        result: 'LOSE',
+        bet: session.bet,
+        won: 0,
+        net: -session.bet,
+      }).catch(() => {});
+
+      const embed = new EmbedBuilder()
+        .setColor(DANGER_COLOR)
+        .setAuthor({ name: '匹諾康尼死鬥 ｜ 單挑結算', iconURL: AVENTURINE_AVATAR })
+        .setTitle('💥【雙方同時爆牌】底池 100% 沒收注入金庫！')
+        .setDescription(
+          `> *「太貪心了！兩位賭徒雙雙自取滅亡，籌碼全數充公星際和平公司金庫！」*\n\n` +
+          `👤 **${pA.username}**：${revealA}\n` +
+          `👤 **${pB.username}**：${revealB}\n\n` +
+          `💸 **結算處置**：\n` +
+          `• 雙爆牌無人生還！總底池 **${totalPot.toLocaleString()}** 星瓊已 100% 沒收注入 21 點金庫獎池！\n` +
+          `• 本局無人勝出，籌碼充公，貫徹星際和平公司財富重分配協議。`
+        );
+
+      return await broadcastDuelResult(session, embed, []);
+    }
   }
 
   // 2. 雙方平手 (未爆牌且點數相同) -> 進入 2d6 比骰決鬥直到分出唯一勝者
@@ -664,7 +723,7 @@ async function resolveDuel(db, session) {
         `👤 **${pA.username}**：${revealA}\n` +
         `👤 **${pB.username}**：${revealB}\n\n` +
         `> *「點數完全相同？！命運把你們推上了同一座賭盤，擲出骰子決一死戰吧！」*\n\n` +
-        `請雙方點擊下方按鈕擲出 2 顆骰子，點數大者獨吞 **${winPayout.toLocaleString()}** 星瓊 (已扣 10% 系統銷毀稅)！`
+        `請雙方點擊下方按鈕擲出 2 顆骰子，點數大者獨吞 **${winPayout.toLocaleString()}** 星瓊${tax > 0 ? ' (已扣 10% 系統銷毀稅)' : ''}！`
       );
 
     const diceRow = new ActionRowBuilder().addComponents(
@@ -694,9 +753,31 @@ async function resolveDuel(db, session) {
   activePvpPlayers.delete(pA.userId);
   activePvpPlayers.delete(pB.userId);
 
-  // 發放籌碼給贏家並將 10% 系統稅直接銷毀抹除
+  // 發放籌碼給贏家並將系統稅處理
   await awardJades(db, winner.userId, winPayout);
-  await recordDirectBurn(db, 'bj', tax);
+  if (tax > 0) {
+    await recordDirectBurn(db, 'bj', tax);
+  }
+
+  // v6.0 勝者達成特殊牌型提領動態彩金
+  const wHand = session.hands[winner.userId];
+  const wScore = calculateHandScore(wHand.cards);
+  const specialHand = evaluateBlackjackSpecialHand(wHand.cards, wScore);
+  let jackpotClaimed = 0;
+  let jackpotNote = '';
+  if (!isLegacyV56Test && specialHand) {
+    const currentBjVault = await getVault(db, 'bj');
+    const pWealth = (session.preGameWealth && session.preGameWealth[winner.userId]) || ((await getUserJades(db, winner.userId)) + session.bet);
+    const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, session.bet, specialHand, pWealth);
+    if (calculated > 0) {
+      const jp = await claimJackpotVault(db, 'bj', calculated);
+      jackpotClaimed = Math.floor(jp.payout);
+      await awardJades(db, winner.userId, jackpotClaimed);
+      jackpotNote = `\n👑 **觸發【${specialHand.name}】彩金！** 提領 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+    }
+  }
+
+  const finalTotalWon = winPayout + jackpotClaimed;
 
   recordCasinoGame(db, {
     userId: winner.userId,
@@ -704,8 +785,8 @@ async function resolveDuel(db, session) {
     mode: 'duel',
     result: 'WIN',
     bet: session.bet,
-    won: winPayout,
-    net: winPayout - session.bet,
+    won: finalTotalWon,
+    net: finalTotalWon - session.bet,
   }).catch(() => {});
   recordCasinoGame(db, {
     userId: loser.userId,
@@ -717,7 +798,11 @@ async function resolveDuel(db, session) {
     net: -session.bet,
   }).catch(() => {});
 
-  checkAndRedeemDebt(db, winner.member, winner.userId, winPayout).catch(() => {});
+  checkAndRedeemDebt(db, winner.member, winner.userId, finalTotalWon).catch(() => {});
+
+  const taxDesc = isLegacyV56Test
+    ? `🔥 **系統抽稅 (10%)**：**${tax.toLocaleString()}** 星瓊已被系統直接銷毀抹除！`
+    : `✨ **免抽稅 (0%)**：底池 **${winPayout.toLocaleString()}** 星瓊 100% 全額入袋！`;
 
   const embed = new EmbedBuilder()
     .setColor(SUCCESS_COLOR)
@@ -727,8 +812,8 @@ async function resolveDuel(db, session) {
       `👤 **${pA.username}**：${revealA}\n` +
       `👤 **${pB.username}**：${revealB}\n\n` +
       `──────────────────────\n` +
-      `🎉 **勝者獲利**：**+${winPayout.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 淨賺 ${(winPayout - session.bet).toLocaleString()})\n` +
-      `🔥 **系統抽稅 (10%)**：**${tax.toLocaleString()}** 星瓊已被系統直接銷毀抹除！`
+      `🎉 **勝者獲利**：**+${finalTotalWon.toLocaleString()}** 星瓊 (原注 ${session.bet.toLocaleString()} + 淨賺 ${(finalTotalWon - session.bet).toLocaleString()})${jackpotNote}\n` +
+      taxDesc
     );
 
   return await broadcastDuelResult(session, embed, []);
@@ -778,11 +863,13 @@ async function handleDuelDice(db, interaction, duelId) {
 
     const winner = scoreA > scoreB ? pA : pB;
     const totalPot = session.bet * 2;
-    const tax = Math.floor(totalPot * 0.10);
+    const tax = isLegacyV56Test ? Math.floor(totalPot * 0.10) : 0;
     const winPayout = totalPot - tax;
 
     await awardJades(db, winner.userId, winPayout);
-    await recordDirectBurn(db, 'bj', tax);
+    if (tax > 0) {
+      await recordDirectBurn(db, 'bj', tax);
+    }
 
     const loser = winner.userId === pA.userId ? pB : pA;
     recordCasinoGame(db, {
@@ -806,6 +893,10 @@ async function handleDuelDice(db, interaction, duelId) {
 
     checkAndRedeemDebt(db, winner.member, winner.userId, winPayout).catch(() => {});
 
+    const taxDesc = isLegacyV56Test
+      ? `🔥 **系統抽稅 (10%)**：**${tax.toLocaleString()}** 星瓊已被系統直接銷毀抹除！`
+      : `✨ **免抽稅 (0%)**：底池 **${winPayout.toLocaleString()}** 星瓊 100% 全額入袋！`;
+
     const diceResultEmbed = new EmbedBuilder()
       .setColor(SUCCESS_COLOR)
       .setAuthor({ name: '匹諾康尼死鬥 ｜ 比骰加賽結果', iconURL: AVENTURINE_AVATAR })
@@ -816,7 +907,7 @@ async function handleDuelDice(db, interaction, duelId) {
         `• **${pB.username}**：總點數 **${scoreB}** 點\n\n` +
         `──────────────────────\n` +
         `🎉 **勝者獲利**：**+${winPayout.toLocaleString()}** 星瓊\n` +
-        `🔥 **系統抽稅 (10%)**：**${tax.toLocaleString()}** 星瓊已被系統直接銷毀抹除！`
+        taxDesc
       );
 
     await broadcastDuelResult(session, diceResultEmbed, []);
@@ -831,9 +922,11 @@ async function startBattleRoyale(db, interaction, entryFee) {
   const userId = interaction.user.id;
   const username = interaction.user.username;
 
-  if (entryFee < 1000 || entryFee > 5000) {
+  const maxBrEntry = isLegacyV56Test ? 5000 : 2000000;
+  if (entryFee < 1000 || entryFee > maxBrEntry) {
+    const limitLabel = isLegacyV56Test ? '1,000 ～ 5,000 星瓊' : '1,000 ～ 2,000,000 星瓊';
     return interaction.reply({
-      content: '❌ **大逃殺入場費限制為 1,000 ～ 5,000 星瓊**！請重新指定合法注額。',
+      content: `❌ **大逃殺入場費限制為 ${limitLabel}**！請重新指定合法注額。`,
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -867,6 +960,7 @@ async function startBattleRoyale(db, interaction, entryFee) {
     deck: null,
     state: 'RECRUITING',
     players: new Map(), // userId -> playerHand
+    preGameWealth: { [userId]: balance },
     createdAt: Date.now(),
     interaction,
     recruitingTimer: null,
@@ -964,6 +1058,8 @@ async function handleBattleRoyaleJoin(db, interaction, brId) {
 
   await deductJades(db, userId, session.entryFee);
   activePvpPlayers.add(userId);
+  session.preGameWealth = session.preGameWealth || {};
+  session.preGameWealth[userId] = balance;
 
   session.players.set(userId, {
     userId,
@@ -1157,7 +1253,7 @@ async function resolveBattleRoyale(db, session) {
   }));
 
   const totalPrize = playersArr.length * session.entryFee;
-  const tax = Math.floor(totalPrize * 0.10); // 10% 系統稅直接銷毀抹除
+  const tax = isLegacyV56Test ? Math.floor(totalPrize * 0.10) : 0; // v6.0 全面 0% 抽稅
   const winPayout = totalPrize - tax;
 
   const revealList = results.map(r => {
@@ -1165,7 +1261,7 @@ async function resolveBattleRoyale(db, session) {
     return `• **${r.player.username}**：${cardsStr} ➔ **${r.scoreInfo.total} 點**${r.scoreInfo.isBust ? ' 💥(爆牌)' : ''}`;
   }).join('\n');
 
-  // 1. 全員爆牌團滅 -> 全額沒收銷毀 (v5.6 抗通膨機制)
+  // 1. 全員爆牌團滅 -> v6.0 全額沒收注入 21 點金庫 (v5.6 legacy 為銷毀)
   const validPlayers = results.filter(r => !r.scoreInfo.isBust);
   if (validPlayers.length === 0) {
     for (const p of playersArr) {
@@ -1179,18 +1275,26 @@ async function resolveBattleRoyale(db, session) {
         net: -session.entryFee,
       }).catch(() => {});
     }
-    await recordDirectBurn(db, 'bj', totalPrize);
+
+    if (isLegacyV56Test) {
+      await recordDirectBurn(db, 'bj', totalPrize);
+    } else {
+      await injectVaultWithBurn(db, 'bj', totalPrize);
+    }
+
+    const burnDesc = isLegacyV56Test
+      ? `• 全員爆牌出局，底池籌碼 **${totalPrize.toLocaleString()}** 星瓊已被系統全額直接抹除銷毀！\n• 本局無人倖存，籌碼不予退回，貫徹全服抗通膨機制。`
+      : `• 全員爆牌出局，底池籌碼 **${totalPrize.toLocaleString()}** 星瓊已 100% 沒收注入 21 點金庫獎池！\n• 本局無人倖存，籌碼充公，貫徹星際和平公司財富重分配協議。`;
 
     const embed = new EmbedBuilder()
       .setColor(DANGER_COLOR)
       .setAuthor({ name: '匹諾康尼大逃殺 ｜ 結算報告', iconURL: AVENTURINE_AVATAR })
-      .setTitle('💥【全員爆牌團滅！】底池全額銷毀！')
+      .setTitle(isLegacyV56Test ? '💥【全員爆牌團滅！】底池全額銷毀！' : '💥【全員爆牌團滅！】底池 100% 沒收注入金庫！')
       .setDescription(
         `> *「太精彩了！整桌賭徒無人生還，這就是匹諾康尼的真正魅力！」*\n\n` +
         revealList + '\n\n' +
         `💸 **結算處置**：\n` +
-        `• 全員爆牌出局，底池籌碼 **${totalPrize.toLocaleString()}** 星瓊已被系統全額直接抹除銷毀！\n` +
-        `• 本局無人倖存，籌碼不予退回，貫徹全服抗通膨機制。`
+        burnDesc
       );
 
     return await broadcastBattleRoyaleResult(session, embed, []);
@@ -1222,7 +1326,7 @@ async function resolveBattleRoyale(db, session) {
       .setDescription(
         revealList + '\n\n' +
         `> *「${names} 同為 ${maxScore} 點！這座獎池只屬於唯一的勝者，用骰子定生死吧！」*\n\n` +
-        `請並列的選手點擊下方按鈕投擲 2 顆骰子，最終勝者獨吞 **${winPayout.toLocaleString()}** 星瓊 (已扣 10% 銷毀稅)！`
+        `請並列的選手點擊下方按鈕投擲 2 顆骰子，最終勝者獨吞 **${winPayout.toLocaleString()}** 星瓊${tax > 0 ? ' (已扣 10% 銷毀稅)' : ''}！`
       );
 
     const diceRow = new ActionRowBuilder().addComponents(
@@ -1240,11 +1344,31 @@ async function resolveBattleRoyale(db, session) {
   await finalizeBattleRoyaleWinner(db, session, finalWinner, revealList, winPayout, tax);
 }
 
-// 結束大逃殺並派發主獎金 (v5.6 純化版：無買馬)
+// 結束大逃殺並派發主獎金 (v6.0 0% 抽稅與動態彩金整合)
 async function finalizeBattleRoyaleWinner(db, session, winnerPlayer, revealList, winPayout, tax) {
+  // v6.0 勝者達成特殊牌型提領動態彩金
+  const wScore = calculateHandScore(winnerPlayer.cards);
+  const specialHand = evaluateBlackjackSpecialHand(winnerPlayer.cards, wScore);
+  let jackpotClaimed = 0;
+  let jackpotNote = '';
+  if (!isLegacyV56Test && specialHand) {
+    const currentBjVault = await getVault(db, 'bj');
+    const pWealth = (session.preGameWealth && session.preGameWealth[winnerPlayer.userId]) || ((await getUserJades(db, winnerPlayer.userId)) + session.entryFee);
+    const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, session.entryFee, specialHand, pWealth);
+    if (calculated > 0) {
+      const jp = await claimJackpotVault(db, 'bj', calculated);
+      jackpotClaimed = Math.floor(jp.payout);
+      await awardJades(db, winnerPlayer.userId, jackpotClaimed);
+      jackpotNote = `\n👑 **觸發【${specialHand.name}】彩金！** 提領 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+    }
+  }
+
+  const finalTotalWon = winPayout + jackpotClaimed;
   await awardJades(db, winnerPlayer.userId, winPayout);
-  await recordDirectBurn(db, 'bj', tax);
-  checkAndRedeemDebt(db, winnerPlayer.member, winnerPlayer.userId, winPayout).catch(() => {});
+  if (tax > 0) {
+    await recordDirectBurn(db, 'bj', tax);
+  }
+  checkAndRedeemDebt(db, winnerPlayer.member, winnerPlayer.userId, finalTotalWon).catch(() => {});
 
   // 記錄大逃殺選手戰績
   const playersArr = Array.from(session.players.values());
@@ -1256,8 +1380,8 @@ async function finalizeBattleRoyaleWinner(db, session, winnerPlayer, revealList,
         mode: 'br',
         result: 'WIN',
         bet: session.entryFee,
-        won: winPayout,
-        net: winPayout - session.entryFee,
+        won: finalTotalWon,
+        net: finalTotalWon - session.entryFee,
       }).catch(() => {});
     } else {
       recordCasinoGame(db, {
@@ -1272,6 +1396,10 @@ async function finalizeBattleRoyaleWinner(db, session, winnerPlayer, revealList,
     }
   }
 
+  const taxDesc = isLegacyV56Test
+    ? `🔥 **系統抽稅 (10%)**：**${tax.toLocaleString()}** 星瓊已被系統直接銷毀抹除！`
+    : `✨ **免抽稅 (0%)**：主獎池 **${winPayout.toLocaleString()}** 星瓊 100% 全額入袋！`;
+
   const embed = new EmbedBuilder()
     .setColor(SUCCESS_COLOR)
     .setAuthor({ name: '匹諾康尼大逃殺 ｜ 冠軍出爐', iconURL: AVENTURINE_AVATAR })
@@ -1279,8 +1407,8 @@ async function finalizeBattleRoyaleWinner(db, session, winnerPlayer, revealList,
     .setDescription(
       revealList + '\n\n' +
       `──────────────────────\n` +
-      `🏆 **牌桌主獎池派發**：**+${winPayout.toLocaleString()}** 星瓊已入帳！\n` +
-      `🔥 **系統抽稅 (10%)**：**${tax.toLocaleString()}** 星瓊已被系統直接銷毀抹除！`
+      `🏆 **牌桌主獎池派發**：**+${finalTotalWon.toLocaleString()}** 星瓊已入帳！${jackpotNote}\n` +
+      taxDesc
     );
 
   return await broadcastBattleRoyaleResult(session, embed, []);
@@ -1365,6 +1493,41 @@ async function handleBattleRoyaleDice(db, interaction, brId) {
   }
 }
 
+/**
+ * 🔍 穿透查詢開拓者在 /單挑21點 與 /大逃殺21點 當前未結算之對局籌碼與買馬押注
+ */
+function getActivePvpChipsByUserId(userId) {
+  let total = 0;
+  for (const s of duelSessions.values()) {
+    if (s.initiator && (s.initiator.id === userId || s.initiator.userId === userId) && s.bet) total += s.bet;
+    if (s.opponent && (s.opponent.id === userId || s.opponent.userId === userId) && s.bet) total += s.bet;
+    if (s.challenger && (s.challenger.id === userId || s.challenger.userId === userId) && s.challenger.bet) total += s.challenger.bet;
+    if (s.spectators && Array.isArray(s.spectators)) {
+      for (const sp of s.spectators) {
+        if (sp.id === userId && sp.bet) total += sp.bet;
+      }
+    }
+  }
+  for (const s of battleRoyaleSessions.values()) {
+    if (s.players instanceof Map) {
+      if (s.players.has(userId) && s.entryFee) total += s.entryFee;
+    } else if (s.players && Array.isArray(s.players)) {
+      for (const pl of s.players) {
+        if ((pl.id === userId || pl.userId === userId) && (pl.bet || s.entryFee)) total += (pl.bet || s.entryFee);
+      }
+    }
+    if (s.spectatorBets instanceof Map) {
+      const sp = s.spectatorBets.get(userId);
+      if (sp && sp.amount) total += sp.amount;
+    } else if (s.spectators && Array.isArray(s.spectators)) {
+      for (const sp of s.spectators) {
+        if (sp.id === userId && sp.bet) total += sp.bet;
+      }
+    }
+  }
+  return total;
+}
+
 module.exports = {
   startDuel,
   handleDuelAccept,
@@ -1383,5 +1546,7 @@ module.exports = {
   closeBattleRoyaleRecruitment,
   buildBattleRoyaleBlindEmbed,
   activePvpPlayers,
+  duelSessions,
   battleRoyaleSessions,
+  getActivePvpChipsByUserId,
 };

@@ -111,6 +111,12 @@ const {
   activeGames,
 } = require('./aventurineCasinoService');
 
+// 引入「雙軌金庫與午夜富人稅」風控核心 (v6.0)
+const {
+  executeDailyWealthTax,
+  startDailyWealthTaxScheduler,
+} = require('./casinoVaultService');
+
 // 引入「匹諾康尼 PvP 21點」系統 (單挑與大逃殺＋場外買馬)
 const {
   startDuel,
@@ -723,6 +729,9 @@ client.once('clientReady', async (readyClient) => {
 
   // 啟動紅包 24 小時逾期自動退回排程
   startRedPacketAutoRefundScheduler(readyClient, db);
+
+  // 啟動星際和平公司午夜富人稅排程 (每日 00:00:00 Asia/Taipei)
+  startDailyWealthTaxScheduler(readyClient, db);
 
   // 強制預載所有伺服器資料，避免 interaction.guild 為 null
   const guilds = await readyClient.guilds.fetch();

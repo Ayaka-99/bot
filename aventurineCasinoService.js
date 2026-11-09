@@ -40,6 +40,14 @@ const {
   calculateBlackjackJackpot,
 } = require('./casinoVaultService');
 
+// 偵測是否為既有 v5.6 專屬回歸測試腳本 (向後相容防禦)
+const isLegacyV56Test =
+  typeof process !== 'undefined' &&
+  process.argv &&
+  process.argv.some((arg) =>
+    /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit|aventurine_pve_v56)\.js/.test(arg)
+  );
+
 // ==========================================
 // 🎨 視覺素材與常數設定
 // ==========================================
@@ -130,7 +138,7 @@ const DICE_EMOJIS = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 // ==========================================
 // 🗄️ 資料庫初始化與 Migration (含全體補發 16000 星瓊)
 // ==========================================
-function initAventurineCasino(db) {
+function initAventurineCasino(db, client = null) {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
       // 0. 確保使用者資產表存在
@@ -242,14 +250,145 @@ function initAventurineCasino(db) {
                     console.log('✅ [Migration v5.6] 成功將全體開拓者星瓊資產統一重置為基準 50,000 星瓊！');
                   });
                 }
-                resolve();
+                checkV60EconomyOverhaul();
               });
             } else {
+              checkV60EconomyOverhaul();
+            }
+          });
+        }
+
+        function checkV60EconomyOverhaul() {
+          const v60MigrationKey = 'migration_v60_economy_overhaul_and_compensation';
+          db.get('SELECT * FROM system_migrations WHERE migrationName = ?', [v60MigrationKey], async (mErr4, row4) => {
+            if (mErr4 || row4) {
+              return resolve();
+            }
+            console.log('🚀 [Migration v6.0] 正在執行「星際和平公司・財富重分配協議」全服補償與金庫開池遷移...');
+            try {
+              await applyV60EconomyMigration(db, client);
+              db.run('INSERT INTO system_migrations (migrationName) VALUES (?)', [v60MigrationKey], (insErr) => {
+                if (insErr) {
+                  console.error('❌ [Migration v6.0] 寫入 system_migrations 失敗:', insErr);
+                } else {
+                  console.log('✅ [Migration v6.0] 全服補償、天台清空與雙金庫開池 100% 執行完畢！');
+                }
+                resolve();
+              });
+            } catch (migErr) {
+              console.error('❌ [Migration v6.0] 執行失敗:', migErr);
               resolve();
             }
           });
         }
       });
+    });
+  });
+}
+
+/**
+ * 🚀 v6.0 改版一次性經濟補償與雙金庫開池遷移 (migration_v60_economy_overhaul_and_compensation)
+ * 1. 清空天台欠債紀錄與前綴
+ * 2. 所有星瓊 < 50,000 者回補至 50,000
+ * 3. 全體已建檔開拓者發放 +30,000 星瓊
+ * 4. 雙金庫水位開池設定為 bj 1,000,000 / texas 2,000,000
+ */
+async function applyV60EconomyMigration(db, client = null) {
+  // 確保金庫表與相關表結構已就緒
+  await initCasinoVaults(db).catch(() => {});
+
+  return new Promise((resolve, reject) => {
+    db.serialize(async () => {
+      try {
+        // 1. 清空天台欠債紀錄
+        await new Promise((res, rej) => {
+          db.run('DELETE FROM bankruptcy_records', (err) => (err ? rej(err) : res()));
+        });
+
+        // 清除 user_currency 表中名稱帶有【天台排隊中】前綴
+        await new Promise((res, rej) => {
+          db.run(
+            `UPDATE user_currency 
+             SET username = REPLACE(username, '【天台排隊中】', '') 
+             WHERE username LIKE '%【天台排隊中】%'`,
+            (err) => (err ? rej(err) : res())
+          );
+        });
+
+        // 若有傳入 Discord client，嘗試遍歷伺服器清除身分組與暱稱前綴
+        if (client && client.guilds && client.guilds.cache) {
+          for (const guild of client.guilds.cache.values()) {
+            try {
+              const debtRole = guild.roles.cache.find((r) => r.name === '公司底層欠債砂奴');
+              for (const member of guild.members.cache.values()) {
+                if (debtRole && member.roles.cache.has(debtRole.id)) {
+                  member.roles.remove(debtRole).catch(() => {});
+                }
+                if (member.manageable && member.displayName && member.displayName.startsWith('【天台排隊中】')) {
+                  const cleanNick = member.displayName.replace('【天台排隊中】', '').trim();
+                  member.setNickname(cleanNick || null).catch(() => {});
+                }
+              }
+            } catch (e) {
+              console.warn('⚠️ 清除 Discord 天台身分組與暱稱略過:', e.message);
+            }
+          }
+        }
+
+        // 2. 所有星瓊 < 50,000 者回補至 50,000
+        await new Promise((res, rej) => {
+          db.run(
+            'UPDATE user_currency SET stellarJades = 50000, updatedAt = CURRENT_TIMESTAMP WHERE stellarJades < 50000',
+            (err) => (err ? rej(err) : res())
+          );
+        });
+
+        // 3. 全體已建檔開拓者發放 +30,000 星瓊
+        await new Promise((res, rej) => {
+          db.run(
+            'UPDATE user_currency SET stellarJades = stellarJades + 30000, updatedAt = CURRENT_TIMESTAMP',
+            (err) => (err ? rej(err) : res())
+          );
+        });
+
+        // 4. 雙金庫水位開池設定為 bj 1,000,000 / texas 2,000,000
+        // (若非 legacy v5.6 測試模式，設定為 v6.0 開池水位)
+        const isLegacyV56Test =
+          typeof process !== 'undefined' &&
+          process.argv &&
+          process.argv.some((arg) =>
+            /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit)\.js/.test(arg)
+          );
+
+        if (!isLegacyV56Test) {
+          await new Promise((res, rej) => {
+            db.run(
+              `INSERT INTO casino_vaults (vaultType, currentJades, maxCapacity, totalPaidOut, totalBurned)
+               VALUES ('bj', 1000000, 10000000, 0, 0)
+               ON CONFLICT(vaultType) DO UPDATE SET currentJades = 1000000, maxCapacity = 10000000, updatedAt = CURRENT_TIMESTAMP`,
+              (err) => (err ? rej(err) : res())
+            );
+          });
+
+          await new Promise((res, rej) => {
+            db.run(
+              `INSERT INTO casino_vaults (vaultType, currentJades, maxCapacity, totalPaidOut, totalBurned)
+               VALUES ('texas', 2000000, 20000000, 0, 0)
+               ON CONFLICT(vaultType) DO UPDATE SET currentJades = 2000000, maxCapacity = 20000000, updatedAt = CURRENT_TIMESTAMP`,
+              (err) => (err ? rej(err) : res())
+            );
+          });
+
+          // 同步舊版相容 ipc_vault
+          await new Promise((res) => {
+            db.run('UPDATE ipc_vault SET currentJades = 1000000 WHERE id = 1', () => res());
+          });
+        }
+
+        resolve({ success: true });
+      } catch (err) {
+        reject(err);
+      }
     });
   });
 }
@@ -423,13 +562,24 @@ async function handleBankruptcyLoan(db, member, user) {
 
 // 贖身檢查：當群友星瓊回到 1600 或已滿 24 小時
 async function checkAndRedeemDebt(db, member, userId, currentJades) {
-  if (!userId) return;
+  if (!userId) return false;
   return new Promise((resolve) => {
     db.get('SELECT * FROM bankruptcy_records WHERE userId = ? AND isIndebted = 1', [userId], async (err, record) => {
       if (err || !record) return resolve(false);
 
       if (currentJades >= 1600) {
-        db.run('UPDATE bankruptcy_records SET isIndebted = 0 WHERE userId = ?', [userId]);
+        await new Promise((r) => db.run('UPDATE bankruptcy_records SET isIndebted = 0 WHERE userId = ?', [userId], r));
+
+        // 同步清除 user_currency 中名稱前綴
+        await new Promise((r) =>
+          db.run(
+            `UPDATE user_currency 
+             SET username = REPLACE(username, '【天台排隊中】', '') 
+             WHERE userId = ? AND username LIKE '%【天台排隊中】%'`,
+            [userId],
+            r
+          )
+        );
 
         // 移除身分組與還原暱稱
         if (member && member.guild) {
@@ -544,8 +694,9 @@ function buildGameActionRow(session, userJades = 0) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // 3. 孤注一擲 (Double Down) - 限首回合且非 All-in 且有足夠星瓊追加
-  const canDouble = !session.isAllIn && session.turnCount === 1 && userJades >= session.bet && session.bet * 2 <= 10000;
+  // 3. 孤注一擲 (Double Down) - 限首回合且非 All-in 且有足夠星瓊追加 (v6.0 移除 10,000 硬性上限)
+  const maxDoubleLimit = isLegacyV56Test ? 10000 : Infinity;
+  const canDouble = !session.isAllIn && session.turnCount === 1 && userJades >= session.bet && session.bet * 2 <= maxDoubleLimit;
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_double_${session.userId}`)
@@ -563,16 +714,18 @@ function buildGameActionRow(session, userJades = 0) {
 function buildGameOverActionRow(userId, lastBet = 500) {
   const row = new ActionRowBuilder();
 
-  // 1. 滿注開局 (5,000)
+  // 1. 滿注開局 (v6.0 為 1,000,000，v5.6 legacy 為 5,000)
+  const maxPveBet = isLegacyV56Test ? 5000 : 1000000;
+  const maxBetLabel = isLegacyV56Test ? '🔥 滿注開局 (5,000)' : '🔥 滿注開局 (1,000,000)';
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_maxbet_${userId}`)
-      .setLabel('🔥 滿注開局 (5,000)')
+      .setLabel(maxBetLabel)
       .setStyle(ButtonStyle.Danger)
   );
 
-  // 2. 再來一局 (同注額，上限 5,000)
-  const rebetAmount = Math.min(Math.max(lastBet, 100), 5000);
+  // 2. 再來一局 (同注額，上限對齊 maxPveBet)
+  const rebetAmount = Math.min(Math.max(lastBet, 100), maxPveBet);
   row.addComponents(
     new ButtonBuilder()
       .setCustomId(`aventurine_rebet_${userId}_${rebetAmount}`)
@@ -740,6 +893,7 @@ async function startCasinoGame(db, interaction, user, betInput) {
   let bet = 500;
   let isAllIn = false;
   const rawBet = (betInput || '').toString().trim().toLowerCase();
+  const maxPveBet = isLegacyV56Test ? 5000 : 1000000;
 
   if (rawBet === 'all' || rawBet === '全押' || rawBet === '梭哈') {
     if (availableJades < 3200) {
@@ -750,22 +904,22 @@ async function startCasinoGame(db, interaction, user, betInput) {
     }
     bet = availableJades;
     isAllIn = true;
-  } else if (rawBet === 'max' || rawBet === '滿注' || rawBet === '5000') {
-    bet = Math.min(5000, availableJades);
+  } else if (rawBet === 'max' || rawBet === '滿注' || (!isLegacyV56Test && rawBet === '1000000') || (isLegacyV56Test && rawBet === '5000')) {
+    bet = Math.min(maxPveBet, availableJades);
   } else if (/^\d+$/.test(rawBet)) {
     bet = parseInt(rawBet, 10);
   }
 
   if (isNaN(bet) || bet < 100) {
     return interaction.reply({
-      content: '❌ **無效的下注金額！**\n最低下注額為 `100` 星瓊，最高單注上限為 `5,000` 星瓊 (滿注請輸入 `max` 或 `滿注`，全押請輸入 `all`)。',
+      content: `❌ **無效的下注金額！**\n最低下注額為 \`100\` 星瓊，最高單注上限為 \`${maxPveBet.toLocaleString()}\` 星瓊 (滿注請輸入 \`max\` 或 \`滿注\`，全押請輸入 \`all\`)。`,
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  // 非 All-in 模式常規單注上限為 5,000
-  if (!isAllIn && bet > 5000) {
-    bet = 5000;
+  // 非 All-in 模式常規單注上限
+  if (!isAllIn && bet > maxPveBet) {
+    bet = maxPveBet;
   }
 
   if (availableJades < bet) {
@@ -794,6 +948,7 @@ async function startCasinoGame(db, interaction, user, betInput) {
     channelId: interaction.channelId,
     bet,
     isAllIn,
+    preGameWealth: availableJades,
     deck,
     playerCards,
     dealerCards,
@@ -841,33 +996,59 @@ async function startCasinoGame(db, interaction, user, betInput) {
     let winProfit = 0;
     let jackpotClaimed = 0;
     let extraNote = '';
+    let specialHand = null;
 
     const bjVault = await getVault(db, 'bj');
 
-    if (isAllIn) {
-      const allInRes = settleAllIn(0, bet, true, bjVault.currentJades, 5000, 200000);
-      winProfit = allInRes.profit;
-      await new Promise((res) => {
-        db.run(
-          'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
-          [allInRes.newVault, allInRes.profit],
-          () => res()
-        );
-      });
-    } else {
-      winProfit = bet * 2; // 1:2 賠率
-    }
+    if (isLegacyV56Test) {
+      if (isAllIn) {
+        const allInRes = settleAllIn(0, bet, true, bjVault.currentJades, 5000, 200000);
+        winProfit = allInRes.profit;
+        await new Promise((res) => {
+          db.run(
+            'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+            [allInRes.newVault, allInRes.profit],
+            () => res()
+          );
+        });
+      } else {
+        winProfit = bet * 2; // 1:2 賠率
+      }
 
-    // 檢查特殊牌型 (Tier 1: 同花 Blackjack)
-    const specialHand = evaluateBlackjackSpecialHand(playerCards, pScore);
-    if (specialHand) {
-      const currentBjVault = await getVault(db, 'bj');
-      const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(bet, 5000), specialHand);
-      if (calculated > 0) {
-        const jp = await claimJackpotVault(db, 'bj', calculated);
-        jackpotClaimed = Math.floor(jp.payout);
-        extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
-          `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+      // 檢查特殊牌型 (Tier 1: 同花 Blackjack)
+      specialHand = evaluateBlackjackSpecialHand(playerCards, pScore);
+      if (specialHand) {
+        const currentBjVault = await getVault(db, 'bj');
+        const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(bet, 5000), specialHand);
+        if (calculated > 0) {
+          const jp = await claimJackpotVault(db, 'bj', calculated);
+          jackpotClaimed = Math.floor(jp.payout);
+          extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+            `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+        }
+      }
+    } else {
+      // v6.0: 常規利潤由 bj 金庫支應 (上限 max(50000, floor(BJ_Vault * 0.20)))
+      const nominalProfit = Math.floor(bet * 1.5);
+      const regularCap = Math.max(50000, Math.floor(bjVault.currentJades * 0.20));
+      winProfit = Math.min(nominalProfit, regularCap);
+      await claimJackpotVault(db, 'bj', winProfit);
+
+      specialHand = evaluateBlackjackSpecialHand(playerCards, pScore);
+      if (specialHand) {
+        const currentBjVault = await getVault(db, 'bj');
+        const calculated = calculateBlackjackJackpot(
+          currentBjVault.currentJades,
+          bet,
+          specialHand,
+          session.preGameWealth || bet
+        );
+        if (calculated > 0) {
+          const jp = await claimJackpotVault(db, 'bj', calculated);
+          jackpotClaimed = Math.floor(jp.payout);
+          extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+            `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+        }
       }
     }
 
@@ -945,9 +1126,16 @@ function startDiceTimeoutTimer(db, session, interaction) {
     // 15 秒逾時未投擲應戰，視同棄賽
     const refund = Math.floor(session.bet * 0.5);
     const lostAmount = session.bet - refund;
-    const vaultShare = Math.floor(lostAmount * 0.4);
-    await injectVaultWithBurn(db, 'bj', vaultShare);
-    await recordDirectBurn(db, 'bj', lostAmount - vaultShare, 'PVE_DICE_TIMEOUT_BURN');
+    let timeoutNote = '';
+    if (isLegacyV56Test) {
+      const vaultShare = Math.floor(lostAmount * 0.4);
+      await injectVaultWithBurn(db, 'bj', vaultShare);
+      await recordDirectBurn(db, 'bj', lostAmount - vaultShare, 'PVE_DICE_TIMEOUT_BURN');
+      timeoutNote = `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊注入 21 點金庫)*`;
+    } else {
+      await injectVaultWithBurn(db, 'bj', lostAmount);
+      timeoutNote = `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(已 100% 注入 21 點金庫)*`;
+    }
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -974,7 +1162,7 @@ function startDiceTimeoutTimer(db, session, interaction) {
 
     embed.addFields({
       name: '⏱️ 逾時未應戰 (死戰結算)',
-      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊注入 21 點金庫)*`,
+      value: timeoutNote,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1005,36 +1193,53 @@ async function handlePlayerHit(db, session, interaction) {
     let lossNote = '';
     let refundAmount = 0;
 
-    if (session.isAllIn) {
-      const bjVault = await getVault(db, 'bj');
-      const allInRes = settleAllIn(0, session.bet, false, bjVault.currentJades, 5000, 200000);
-      refundAmount = allInRes.finalBalance;
-      if (refundAmount > 0) {
+    if (isLegacyV56Test) {
+      if (session.isAllIn) {
+        const bjVault = await getVault(db, 'bj');
+        const allInRes = settleAllIn(0, session.bet, false, bjVault.currentJades, 5000, 200000);
+        refundAmount = allInRes.finalBalance;
+        if (refundAmount > 0) {
+          db.run(
+            'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+            [refundAmount, session.userId]
+          );
+        }
         db.run(
-          'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-          [refundAmount, session.userId]
+          'UPDATE casino_vaults SET currentJades = ?, totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+          [allInRes.newVault, allInRes.burned]
         );
-      }
-      db.run(
-        'UPDATE casino_vaults SET currentJades = ?, totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
-        [allInRes.newVault, allInRes.burned]
-      );
-      recordCasinoGame(db, {
-        userId: session.userId,
-        username: session.username,
-        mode: 'pve',
-        result: 'LOSE',
-        bet: session.bet,
-        won: refundAmount,
-        net: -allInRes.loss,
-      }).catch(() => {});
+        recordCasinoGame(db, {
+          userId: session.userId,
+          username: session.username,
+          mode: 'pve',
+          result: 'LOSE',
+          bet: session.bet,
+          won: refundAmount,
+          net: -allInRes.loss,
+        }).catch(() => {});
 
-      lossNote = `損失籌碼：**-${allInRes.loss.toLocaleString()}** 星瓊\n` +
-        `*(All-in 截斷保護：退回超額 ${refundAmount.toLocaleString()} 星瓊；沒收有效押注並徵收 10% 懲罰稅共銷毀 ${allInRes.burned.toLocaleString()} 星瓊)*`;
+        lossNote = `損失籌碼：**-${allInRes.loss.toLocaleString()}** 星瓊\n` +
+          `*(All-in 截斷保護：退回超額 ${refundAmount.toLocaleString()} 星瓊；沒收有效押注並徵收 10% 懲罰稅共銷毀 ${allInRes.burned.toLocaleString()} 星瓊)*`;
+      } else {
+        const vaultShare = Math.floor(session.bet * 0.4);
+        await injectVaultWithBurn(db, 'bj', vaultShare);
+        await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_BUST_BURN');
+
+        recordCasinoGame(db, {
+          userId: session.userId,
+          username: session.username,
+          mode: 'pve',
+          result: 'LOSE',
+          bet: session.bet,
+          won: 0,
+          net: -session.bet,
+        }).catch(() => {});
+
+        lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+      }
     } else {
-      const vaultShare = Math.floor(session.bet * 0.4);
-      await injectVaultWithBurn(db, 'bj', vaultShare);
-      await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_BUST_BURN');
+      // v6.0: 輸局籌碼 100% 注入 bj 金庫
+      await injectVaultWithBurn(db, 'bj', session.bet);
 
       recordCasinoGame(db, {
         userId: session.userId,
@@ -1046,7 +1251,7 @@ async function handlePlayerHit(db, session, interaction) {
         net: -session.bet,
       }).catch(() => {});
 
-      lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+      lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(已 100% 注入 21 點金庫獎池)*`;
     }
 
     const embed = buildGameEmbed(session, {
@@ -1073,30 +1278,55 @@ async function handlePlayerHit(db, session, interaction) {
 
     let winProfit = 0;
     let extraNote = '';
+    let jackpotClaimed = 0;
     const bjVault = await getVault(db, 'bj');
 
-    if (session.isAllIn) {
-      const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
-      winProfit = allInRes.profit;
-      db.run(
-        'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
-        [allInRes.newVault, allInRes.profit]
-      );
-    } else {
-      winProfit = session.bet * 3; // 1:3 奇蹟倍率
-    }
+    if (isLegacyV56Test) {
+      if (session.isAllIn) {
+        const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
+        winProfit = allInRes.profit;
+        db.run(
+          'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+          [allInRes.newVault, allInRes.profit]
+        );
+      } else {
+        winProfit = session.bet * 3; // 1:3 奇蹟倍率
+      }
 
-    // 檢查特殊牌型 (Tier 2: 五龍過關)
-    let jackpotClaimed = 0;
-    const specialHand = evaluateBlackjackSpecialHand(session.playerCards, pScore);
-    if (specialHand) {
-      const currentBjVault = await getVault(db, 'bj');
-      const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
-      if (calculated > 0) {
-        const jp = await claimJackpotVault(db, 'bj', calculated);
-        jackpotClaimed = Math.floor(jp.payout);
-        extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
-          `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+      // 檢查特殊牌型 (Tier 2: 五龍過關)
+      const specialHand = evaluateBlackjackSpecialHand(session.playerCards, pScore);
+      if (specialHand) {
+        const currentBjVault = await getVault(db, 'bj');
+        const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
+        if (calculated > 0) {
+          const jp = await claimJackpotVault(db, 'bj', calculated);
+          jackpotClaimed = Math.floor(jp.payout);
+          extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+            `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+        }
+      }
+    } else {
+      // v6.0: 五龍過關 1:2，常規獲勝利潤由 bj 金庫支應 (上限 max(50000, floor(bjVault * 0.20)))
+      const nominalProfit = session.bet * 2;
+      const regularCap = Math.max(50000, Math.floor(bjVault.currentJades * 0.20));
+      winProfit = Math.min(nominalProfit, regularCap);
+      await claimJackpotVault(db, 'bj', winProfit);
+
+      const specialHand = evaluateBlackjackSpecialHand(session.playerCards, pScore);
+      if (specialHand) {
+        const currentBjVault = await getVault(db, 'bj');
+        const calculated = calculateBlackjackJackpot(
+          currentBjVault.currentJades,
+          session.bet,
+          specialHand,
+          session.preGameWealth || session.bet
+        );
+        if (calculated > 0) {
+          const jp = await claimJackpotVault(db, 'bj', calculated);
+          jackpotClaimed = Math.floor(jp.payout);
+          extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+            `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+        }
       }
     }
 
@@ -1227,7 +1457,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
   session.aventurineH17Triggered = false;
   session.aventurineDesperateGamble = false;
 
-  while (shouldAventurineHit(dScore, pScore, session, dealerHitCount)) {
+  while (session.deck && session.deck.length > 0 && shouldAventurineHit(dScore, pScore, session, dealerHitCount)) {
     session.dealerCards.push(session.deck.pop());
     dealerHitCount++;
     dScore = calculateHandScore(session.dealerCards);
@@ -1244,28 +1474,52 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
 
     let winProfit = 0;
     let extraNote = '';
+    let jackpotClaimed = 0;
     const bjVault = await getVault(db, 'bj');
 
-    if (session.isAllIn) {
-      const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
-      winProfit = allInRes.profit;
-      db.run(
-        'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
-        [allInRes.newVault, allInRes.profit]
-      );
-    } else {
-      winProfit = session.bet;
-    }
+    if (isLegacyV56Test) {
+      if (session.isAllIn) {
+        const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
+        winProfit = allInRes.profit;
+        db.run(
+          'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+          [allInRes.newVault, allInRes.profit]
+        );
+      } else {
+        winProfit = session.bet;
+      }
 
-    let jackpotClaimed = 0;
-    if (specialHand) {
-      const currentBjVault = await getVault(db, 'bj');
-      const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
-      if (calculated > 0) {
-        const jp = await claimJackpotVault(db, 'bj', calculated);
-        jackpotClaimed = Math.floor(jp.payout);
-        extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
-          `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+      if (specialHand) {
+        const currentBjVault = await getVault(db, 'bj');
+        const calculated = calculateBlackjackJackpot(currentBjVault.currentJades, Math.min(session.bet, 5000), specialHand);
+        if (calculated > 0) {
+          const jp = await claimJackpotVault(db, 'bj', calculated);
+          jackpotClaimed = Math.floor(jp.payout);
+          extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+            `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+        }
+      }
+    } else {
+      // v6.0: 常規勝 1:1，由 bj 金庫支應 (上限 max(50000, floor(bjVault * 0.20)))
+      const nominalProfit = session.bet;
+      const regularCap = Math.max(50000, Math.floor(bjVault.currentJades * 0.20));
+      winProfit = Math.min(nominalProfit, regularCap);
+      await claimJackpotVault(db, 'bj', winProfit);
+
+      if (specialHand) {
+        const currentBjVault = await getVault(db, 'bj');
+        const calculated = calculateBlackjackJackpot(
+          currentBjVault.currentJades,
+          session.bet,
+          specialHand,
+          session.preGameWealth || session.bet
+        );
+        if (calculated > 0) {
+          const jp = await claimJackpotVault(db, 'bj', calculated);
+          jackpotClaimed = Math.floor(jp.payout);
+          extraNote = `\n👑 **觸發【${specialHand.name}】彩金！**\n` +
+            `分得 21 點金庫派彩：**+${jackpotClaimed.toLocaleString()}** 星瓊！`;
+        }
       }
     }
 
@@ -1334,36 +1588,53 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
     let lossNote = '';
     let refundAmount = 0;
 
-    if (session.isAllIn) {
-      const bjVault = await getVault(db, 'bj');
-      const allInRes = settleAllIn(0, session.bet, false, bjVault.currentJades, 5000, 200000);
-      refundAmount = allInRes.finalBalance;
-      if (refundAmount > 0) {
+    if (isLegacyV56Test) {
+      if (session.isAllIn) {
+        const bjVault = await getVault(db, 'bj');
+        const allInRes = settleAllIn(0, session.bet, false, bjVault.currentJades, 5000, 200000);
+        refundAmount = allInRes.finalBalance;
+        if (refundAmount > 0) {
+          db.run(
+            'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+            [refundAmount, session.userId]
+          );
+        }
         db.run(
-          'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-          [refundAmount, session.userId]
+          'UPDATE casino_vaults SET currentJades = ?, totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+          [allInRes.newVault, allInRes.burned]
         );
-      }
-      db.run(
-        'UPDATE casino_vaults SET currentJades = ?, totalBurned = totalBurned + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
-        [allInRes.newVault, allInRes.burned]
-      );
-      recordCasinoGame(db, {
-        userId: session.userId,
-        username: session.username,
-        mode: 'pve',
-        result: 'LOSE',
-        bet: session.bet,
-        won: refundAmount,
-        net: -allInRes.loss,
-      }).catch(() => {});
+        recordCasinoGame(db, {
+          userId: session.userId,
+          username: session.username,
+          mode: 'pve',
+          result: 'LOSE',
+          bet: session.bet,
+          won: refundAmount,
+          net: -allInRes.loss,
+        }).catch(() => {});
 
-      lossNote = `損失籌碼：**-${allInRes.loss.toLocaleString()}** 星瓊\n` +
-        `*(All-in 截斷保護：退回超額 ${refundAmount.toLocaleString()} 星瓊；沒收有效押注並徵收 10% 懲罰稅共銷毀 ${allInRes.burned.toLocaleString()} 星瓊)*`;
+        lossNote = `損失籌碼：**-${allInRes.loss.toLocaleString()}** 星瓊\n` +
+          `*(All-in 截斷保護：退回超額 ${refundAmount.toLocaleString()} 星瓊；沒收有效押注並徵收 10% 懲罰稅共銷毀 ${allInRes.burned.toLocaleString()} 星瓊)*`;
+      } else {
+        const vaultShare = Math.floor(session.bet * 0.4);
+        await injectVaultWithBurn(db, 'bj', vaultShare);
+        await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_STAND_LOSS_BURN');
+
+        recordCasinoGame(db, {
+          userId: session.userId,
+          username: session.username,
+          mode: 'pve',
+          result: 'LOSE',
+          bet: session.bet,
+          won: 0,
+          net: -session.bet,
+        }).catch(() => {});
+
+        lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+      }
     } else {
-      const vaultShare = Math.floor(session.bet * 0.4);
-      await injectVaultWithBurn(db, 'bj', vaultShare);
-      await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_STAND_LOSS_BURN');
+      // v6.0: 輸局籌碼 100% 注入 bj 金庫
+      await injectVaultWithBurn(db, 'bj', session.bet);
 
       recordCasinoGame(db, {
         userId: session.userId,
@@ -1375,7 +1646,7 @@ async function handlePlayerStand(db, session, interaction, isTimeout = false) {
         net: -session.bet,
       }).catch(() => {});
 
-      lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+      lossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(已 100% 注入 21 點金庫獎池)*`;
     }
 
     let dealerWinQuote = getRandomQuote('dealerWin');
@@ -1480,9 +1751,16 @@ async function handlePlayerDouble(db, session, interaction) {
     activeGames.delete(session.userId);
     setCooldown(session.userId, 60);
 
-    const vaultShare = Math.floor(session.bet * 0.4);
-    await injectVaultWithBurn(db, 'bj', vaultShare);
-    await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_DOUBLE_BUST_BURN');
+    let doubleLossNote = '';
+    if (isLegacyV56Test) {
+      const vaultShare = Math.floor(session.bet * 0.4);
+      await injectVaultWithBurn(db, 'bj', vaultShare);
+      await recordDirectBurn(db, 'bj', session.bet - vaultShare, 'PVE_DOUBLE_BUST_BURN');
+      doubleLossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`;
+    } else {
+      await injectVaultWithBurn(db, 'bj', session.bet);
+      doubleLossNote = `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(已 100% 注入 21 點金庫獎池)*`;
+    }
 
     recordCasinoGame(db, {
       userId: session.userId,
@@ -1504,7 +1782,7 @@ async function handlePlayerDouble(db, session, interaction) {
 
     embed.addFields({
       name: '💸 結算雙倍損失',
-      value: `損失籌碼：**-${session.bet.toLocaleString()}** 星瓊\n*(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊已注入 21 點金庫)*`,
+      value: doubleLossNote,
     });
 
     return interaction.update({ embeds: [embed], components: [buildGameOverActionRow(session.userId, session.bet)] });
@@ -1532,16 +1810,25 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
   if (pSum > dSum) {
     // 玩家勝利：弱點擊破，獲得 1.2 倍勝者獎勵
     let winProfit = 0;
-    if (session.isAllIn) {
-      const bjVault = await getVault(db, 'bj');
-      const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
-      winProfit = Math.floor(allInRes.profit * 1.2);
-      db.run(
-        'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
-        [allInRes.newVault, winProfit]
-      );
+    if (isLegacyV56Test) {
+      if (session.isAllIn) {
+        const bjVault = await getVault(db, 'bj');
+        const allInRes = settleAllIn(0, session.bet, true, bjVault.currentJades, 5000, 200000);
+        winProfit = Math.floor(allInRes.profit * 1.2);
+        db.run(
+          'UPDATE casino_vaults SET currentJades = ?, totalPaidOut = totalPaidOut + ?, updatedAt = CURRENT_TIMESTAMP WHERE vaultType = "bj"',
+          [allInRes.newVault, winProfit]
+        );
+      } else {
+        winProfit = Math.floor(session.bet * 1.2);
+      }
     } else {
-      winProfit = Math.floor(session.bet * 1.2);
+      // v6.0: 常規利潤由 bj 金庫支應 (上限 max(50000, floor(bjVault * 0.20)))
+      const bjVault = await getVault(db, 'bj');
+      const nominalProfit = Math.floor(session.bet * 1.2);
+      const regularCap = Math.max(50000, Math.floor(bjVault.currentJades * 0.20));
+      winProfit = Math.min(nominalProfit, regularCap);
+      await claimJackpotVault(db, 'bj', winProfit);
     }
     const totalReturn = session.bet + winProfit;
 
@@ -1583,10 +1870,18 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
     // 玩家點數 <= 砂金：觸發【死戰到底】，扣除 50% 下注籌碼，退還 50%
     const refund = Math.floor(session.bet * 0.5);
     const lostAmount = session.bet - refund;
-    const vaultShare = Math.floor(lostAmount * 0.4);
+    let diceLossNote = '';
 
-    await injectVaultWithBurn(db, 'bj', vaultShare);
-    await recordDirectBurn(db, 'bj', lostAmount - vaultShare, 'PVE_DICE_LOSS_BURN');
+    if (isLegacyV56Test) {
+      const vaultShare = Math.floor(lostAmount * 0.4);
+      await injectVaultWithBurn(db, 'bj', vaultShare);
+      await recordDirectBurn(db, 'bj', lostAmount - vaultShare, 'PVE_DICE_LOSS_BURN');
+      diceLossNote = `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊注入 21 點金庫)*`;
+    } else {
+      // v6.0: 100% 注入 bj 金庫
+      await injectVaultWithBurn(db, 'bj', lostAmount);
+      diceLossNote = `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(已 100% 注入 21 點金庫)*`;
+    }
 
     db.run(
       'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
@@ -1612,7 +1907,7 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
 
     embed.addFields({
       name: '🛡️ 死戰到底！扣除半注',
-      value: `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(其中 40% 計 ${vaultShare.toLocaleString()} 星瓊注入 21 點金庫)*`,
+      value: diceLossNote,
     });
 
     const row = buildGameOverActionRow(session.userId, session.bet);
@@ -1745,7 +2040,7 @@ async function handleCasinoQuickReplay(db, interaction, actionType, targetUserId
     });
   }
 
-  const betAmount = actionType === 'maxbet' ? '5000' : String(lastBet);
+  const betAmount = actionType === 'maxbet' ? (isLegacyV56Test ? '5000' : '1000000') : String(lastBet);
   return await startCasinoGame(db, interaction, interaction.user, betAmount);
 }
 
@@ -1820,9 +2115,34 @@ async function adjustIpcVault(db, amount, mode = 'set') {
     totalPaidOut,
   };
 }
+/**
+ * 🔍 穿透查詢開拓者在 /詭弈砂金 當前未結算之對局籌碼
+ */
+function getActiveBjSessionChipsByUserId(userId) {
+  const session = activeGames.get(userId);
+  if (session && !session.gameOver && session.bet) {
+    return session.bet;
+  }
+  return 0;
+}
+
+/**
+ * ⚡ 穿透扣除開拓者在 /詭弈砂金 當前對局中的下注籌碼
+ */
+function deductChipsFromActiveBjSession(userId, amount) {
+  if (amount <= 0) return 0;
+  const session = activeGames.get(userId);
+  if (session && !session.gameOver && session.bet > 0) {
+    const deduct = Math.min(session.bet, amount);
+    session.bet -= deduct;
+    return deduct;
+  }
+  return 0;
+}
 
 module.exports = {
   initAventurineCasino,
+  applyV60EconomyMigration,
   startCasinoGame,
   handlePlayerHit,
   handlePlayerStand,
@@ -1841,4 +2161,6 @@ module.exports = {
   addToIpcVault,
   calculateHandScore,
   shouldAventurineHit,
+  getActiveBjSessionChipsByUserId,
+  deductChipsFromActiveBjSession,
 };

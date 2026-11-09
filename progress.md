@@ -65,24 +65,92 @@
     • $W \le 400\text{w}$ 免稅，$400\text{w} < W < 1000\text{w}$ 徵收 $12\%$（$400\text{w}$ 地板保護），$W \ge 1000\text{w}$ 徵收 $20\%$（$880\text{w}$ 地板保護）。
     • 數學證明單調不減，杜絕斷崖式資產倒掛。
   - 新增單元測試 `test_v60_vault_jackpot.js` (6/6 PASS)。
+- **v6.0 全服補償、天台清空與雙金庫開池遷移 (`feat-v60-migration-compensation-and-vault-opening`)**:
+  - 資料庫初始化與 `aventurineCasinoService.js` 實裝一次性遷移 `migration_v60_economy_overhaul_and_compensation`：
+    • 清空天台欠債記錄 `DELETE FROM bankruptcy_records`，並清除使用者名稱 `【天台排隊中】` 前綴。
+    • Discord 身分組清理：遍歷伺服器移除「公司底層欠債砂奴」身分組與還原成員暱稱。
+    • 星瓊 `< 50,000` 者無償回補至基準線 `50,000` 星瓊。
+    • 全體已建檔開拓者普發 `+30,000` 星瓊禮金（破產貧困者實得 `80,000`，老牌富豪無損直增 `+30,000`）。
+    • 雙軌金庫開池注資：21點金庫水位設定為 `1,000,000` (容量 `10,000,000`)、德州撲克金庫水位設定為 `2,000,000` (容量 `20,000,000`)。
+    • 實裝冪等性標記，二次執行絕對不重複發放與覆寫。
+  - 新增單元測試 `test_v60_migration_compensation.js` (5/5 PASS)。
+- **v6.0 星際和平公司午夜富人稅定時排程與全資產穿透計稅管線 (`feat-v60-daily-wealth-tax-pipeline`)**:
+  - `casinoVaultService.js` 實裝 `executeDailyWealthTax(db, client, options)` 與 `startDailyWealthTaxScheduler(client, db)`：
+    • 全資產穿透式掃描計稅：動態穿透 $W = W_{\text{wallet}} + W_{\text{texas\_table}} + W_{\text{bj\_session}} + W_{\text{pvp\_session}} + W_{\text{spectator\_bet}}$。
+    • 扣款優先序防逃稅：優先自錢包扣除應繳稅額，不足額強制穿透扣除玩家在德州撲克牌桌上的籌碼 `player.chips`，徹底瓦解巨鯨以開桌滯留籌碼逃避富人稅的手段。
+    • 稅金 100% 回流雙金庫分流：$40\%$ 注入 `bj` 金庫，$60\%$ 注入 `texas` 金庫，由 `injectVaultWithBurn` 自動執行滿溢銷毀。
+    • 自動產出午夜富人稅公報戰報 Embed（`🏦【星際和平公司・午夜富人稅徵收公報】`），推播至公頻。
+  - `texasHoldemService.js` 匯出 `getActiveTexasHoldemChipsByUserId` 與 `deductChipsFromActiveHoldemTable`。
+  - `aventurineCasinoService.js` 匯出 `getActiveBjSessionChipsByUserId` 與 `deductChipsFromActiveBjSession`。
+  - `pvpCasinoService.js` 匯出 `getActivePvpChipsByUserId` 與 `duelSessions`。
+  - `discord-bot-tracker.js` 於 `clientReady` 自動註冊每日 00:00:00 (Asia/Taipei) 富人稅定時任務。
+  - 新增單元測試 `test_v60_wealth_tax_pipeline.js` (6/6 PASS)。
+- 2026-11-09: 【第 4 棒】`feat-v60-pve-aventurine-overhaul` 實裝完成並驗證通過：
+  - `aventurineCasinoService.js` 全面翻新 PvE 核心規則：
+    • `/詭弈砂金` 解除 25,000 上限與 10% 懲罰稅；常規單注上限放寬至 1,000,000 與 All-in 全押模式。
+    • 記錄開打前總身家 `session.preGameWealth` 作為動態彩金基準。
+    • Double Down 孤注一擲解禁 10,000 上限。
+    • 輸局（爆牌、點數落敗、比骰超時、比骰點數 <= 砂金）籌碼 100% 注入 `bj` 金庫，由 `injectVaultWithBurn` 自動執行滿溢銷毀。
+    • 常規獲勝利潤全面由 `bj` 金庫支應，設有 $\max(50000, \lfloor \text{BJ\_Vault} \times 0.20 \rfloor)$ 安全閥保護。
+    • 特殊牌型提領身家佔比動態彩金（同花 BJ 4x / 15%、五龍 15x / 35%）。
+    • 二階段命運比骰決鬥：砂金先攻，玩家超越獲 1.2 倍勝者獎勵（金庫支應），平手或落敗扣除 50% 並 100% 注入 `bj` 金庫。
+    • 快捷按鈕 `buildGameOverActionRow` 標籤升級為 `🔥 滿注開局 (1,000,000)`。
+  - 新增單元測試 `test_v60_aventurine_pve.js` (6/6 PASS)。
+
+- 2026-11-09: 【第 5 棒】`feat-v60-pvp-blackjack-and-texas-overhaul` 實裝完成並驗證通過：
+  - `pvpCasinoService.js`：
+    • `/單挑21點` 上限放寬至 5,000,000 星瓊，記錄 `preGameWealth`；全面 0% 抽稅；雙爆牌沒收 100% 注入 `bj` 金庫；特殊牌型提領動態彩金；二階段比骰 0% 抽稅。
+    • `/大逃殺21點` 入場費上限放寬至 2,000,000 星瓊，記錄 `preGameWealth`；全面 0% 抽稅；全員團滅籌碼 100% 注入 `bj` 金庫；唯一勝者特殊牌型提領動態彩金。
+    • 穿透計稅函式 `getActivePvpChipsByUserId` 支援 Map 與 Array 對局儲存結構。
+  - `texasHoldemService.js`：
+    • 保持與既有 v5.6 測試之相容旗標 `isLegacyV56Test`。
+    • `concludeUncontestedWin`：NPC 奪池真人淨輸額 100% 注入 `texas` 金庫；真人奪池移除 25,000 封頂與全面 0% 抽水；掛載 `checkAndRedeemDebt`。
+    • `concludeShowdown`：NPC 奪池真人淨輸額 100% 注入 `texas` 金庫；真人奪池移除 25,000 封頂與全面 0% 抽水；落實防作弊三鐵律（未跟注溢出注額扣除、Showdown 獲勝、至少 1 張私有底牌參與）；四級神話彩金提領；掛載 `checkAndRedeemDebt`。
+    • `settleSpectatorBets`：買馬獲利免 5% 抽稅，100% 全額分紅；模組導出 `settleSpectatorBets`。
+    • `claimHoldemJackpot`：支援 `playerWealth` 參數並傳遞至 `calculateHoldemJackpot`。
+    • `lockAndStartHoldem`：記錄真人開局身家 `s.preGameWealth`。
+  - 新增單元測試 `test_v60_pvp_and_holdem.js` (6/6 PASS)。
+- 2026-11-09: 【第 6 棒】`feat-v60-peripheral-and-anti-evasion` 實裝完成並驗證通過：
+  - `blackMarketService.js`：
+    • 稱號購買 `buyTitle` 扣款後資金 40% 注入 `bj` 金庫、60% 注入 `texas` 金庫 (`injectVaultWithBurn`)。
+    • 今日賭場大亨跨日換日結算 `getCasinoTycoon`：舊大亨出價金額 40% 注入 `bj`、60% 注入 `texas`，並以 `async/await` 確保注資寫入完成。
+  - `transferService.js`：
+    • 單次轉帳限額放寬至 50,000 (`MAX_TRANSFER_LIMIT = isLegacyV56Test ? 5000 : 50000`)。
+    • 接收者收款後自動調用並 `await checkAndRedeemDebt` 執行破產自動贖身。
+    • `buildTransferEmbed` 升級為動態限額提示。
+  - `redPacketService.js`：
+    • 實裝單包上限 200,000 (`MAX_RED_PACKET_SINGLE = 200000`) 與單日上限 500,000 (`MAX_RED_PACKET_DAILY = 500000`)。
+    • 實裝 `getTodaySentRedPacketsTotal(db, userId)` 查詢當日發送總額。
+    • 搶紅包 `handleGrabRedPacket` 自動以加款後餘額調用並 `await checkAndRedeemDebt` 執行破產自動贖身。
+  - `game1A2BService.js`：
+    • 破譯密碼通關發放 1,500 獎勵後，自動以更新後餘額調用並 `await checkAndRedeemDebt`。
+  - `aventurineCasinoService.js`：
+    • 增強 `checkAndRedeemDebt`：以 `await` 確保更新 `bankruptcy_records SET isIndebted = 0` 與 `UPDATE user_currency SET username = REPLACE(...)` 完成，杜絕非同步延遲問題。
+  - 新增單元測試 `test_v60_peripheral.js` (5/5 PASS)。
 
 ## What's In Progress
-- 當前微任務 `feat-v60-vault-core-and-jackpot-math` 已交付，等待下一個 v6.0 微任務切片。
+- 無（《v6.0「星際和平公司・財富重分配協議」》全數 6 棒微任務已全數實作與驗證完畢）。
 
 ## What's Next
-- 接續施工 v6.0 下一階段微任務：`aventurineCasinoService.js` 開池注資補償 Migration、雙金庫常規獲勝撥款與下注上限解禁。
+- 向 Coordinator / Parent Agent 提交最終執行交付報告與客觀驗證證據。
+- 遠端伺服器 (SSH / Linux / VPS) 部署：`cd ~/bot && git pull && pm2 restart dc-bot --update-env`。
 
 ## Blockers
-- 無。當前專案基線 100% 健康，所有語法檢查與測試套件全數通過。
+- 無。當前專案基線 100% 健康，所有語法檢查、既有回歸測試套件與 v6.0 全套 6 組單元測試全數 100% 通過。
 
 ## Evidence
+- `node test_v60_peripheral.js` 5/5 項單元測試全數通過（黑市稱號與今日大亨 40%/60% 分流、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、全通道掛載 checkAndRedeemDebt 自動贖身）。
+- `node test_v60_pvp_and_holdem.js` 6/6 項單元測試全數通過（單挑500w上限與雙爆入庫、大逃殺200w上限與全員團滅入庫、德州NPC奪池100%入庫、真人奪池免25k封頂且0%抽水、防作弊三鐵律、皇家同花順100%搬空）。
+- `node test_v60_aventurine_pve.js` 6/6 項單元測試全數通過（含 100萬滿注、Double Down 解禁、輸局 100% 入庫、常規利潤金庫支應與 20% 安全閥保護、同花 BJ 動態彩金派彩、命運比骰決鬥扣庫與入庫）。
+- `node test_v60_wealth_tax_pipeline.js` 6/6 項單元測試全數通過（含免稅、12%扣款、德州桌面強制扣款防逃稅、20%巨鯨880w地板保護、21點與買馬穿透掃描、Embed推播）。
+- `node test_v60_migration_compensation.js` 5/5 項單元測試全數通過（含破產回補80000、天台前綴與記錄清空、大亨+30000至280000、金庫開池100w/200w、冪等性防呆）。
 - `node test_v60_vault_jackpot.js` 6/6 項單元測試全數通過（含容量常數、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、富人稅雙階梯地板保護無斷崖倒掛、異常邊界防禦）。
 - `cmd.exe /c init.cmd` 執行通過：
-  - 執行環境與套件依賴就緒。
-  - 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組)。
-  - `test_all_v56_suite.js` 16/16 套件全數通過 (0 失敗)。
-  - `test_1a2b_game.js` 4/4 項單元測試全數通過。
-  - `test_chat_limits.js` 3/3 項單元測試全數通過。
-  - `test_master_impersonation.js` 5/5 項單元測試全數通過。
-  - `test_master_aventurine_yuexi.js` 7/7 項單元測試全數通過。
-  - `test_safety_refusal_interception.js` 4/4 項單元測試全數通過。
+  - [1/8] 執行環境與套件依賴就緒。
+  - [2/8] 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組)。
+  - [3/8] `test_all_v56_suite.js` 16/16 套件全數通過 (0 失敗)。
+  - [4/8] `test_1a2b_game.js` 4/4 項單元測試全數通過。
+  - [5/8] `test_chat_limits.js` 3/3 項單元測試全數通過。
+  - [6/8] `test_master_impersonation.js` 5/5 項單元測試全數通過。
+  - [7/8] `test_master_aventurine_yuexi.js` 7/7 項單元測試全數通過。
+  - [8/8] `test_safety_refusal_interception.js` 4/4 項單元測試全數通過。

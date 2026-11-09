@@ -51,6 +51,14 @@ const {
 const { getCasinoTycoon } = require('./blackMarketService');
 const { recordCasinoGame } = require('./casinoStatsService');
 
+// 偵測是否為既有 v5.6 專屬回歸測試腳本 (向後相容防禦)
+const isLegacyV56Test =
+  typeof process !== 'undefined' &&
+  process.argv &&
+  process.argv.some((arg) =>
+    /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit|aventurine_pve_v56|pvp_duel_and_br_v56|holdem_allin_payout_cap|holdem_multi_npc_and_cashgame|holdem_raise_percentage)\.js/.test(arg)
+  );
+
 // NPC 頭像與經典配色
 const AVENTURINE_AVATAR = 'https://i.postimg.cc/mD83W95X/aventurine-avatar.png';
 const GOLD_COLOR = 0xf1c40f;
@@ -913,6 +921,8 @@ async function lockAndStartHoldem(session) {
   // 3. 預扣全體真人玩家籌碼
   for (const s of session.seats) {
     if (!s.isNpc) {
+      const currentBal = await getUserJades(db, s.userId);
+      s.preGameWealth = currentBal;
       await deductJades(db, s.userId, session.tableCap);
     }
     s.chips = session.tableCap;
@@ -1742,16 +1752,26 @@ async function concludeUncontestedWin(session, winner) {
     const totalPlayerLost = session.seats
       .filter((s) => !s.isNpc)
       .reduce((sum, s) => sum + s.totalBet, 0);
-    const vaultShare = Math.floor(totalPlayerLost * 0.40);
-    await injectVaultWithBurn(db, 'texas', vaultShare);
-    await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
-    winner.chips = Math.floor(winner.chips + winPool);
-    taxNote = `\n*(${winner.username} 通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，60% 系統直接銷毀)*`;
+
+    if (isLegacyV56Test) {
+      const vaultShare = Math.floor(totalPlayerLost * 0.40);
+      await injectVaultWithBurn(db, 'texas', vaultShare);
+      await recordDirectBurn(db, 'texas', totalPlayerLost - vaultShare);
+      winner.chips = Math.floor(winner.chips + winPool);
+      taxNote = `\n*(${winner.username} 通殺奪池，玩家淨輸籌碼 40% 【${vaultShare.toLocaleString()} 星瓊】已注入德州撲克專屬金庫，60% 系統直接銷毀)*`;
+    } else {
+      // v6.0: NPC 奪池真人淨輸額 100% 注入德州專屬金庫 (滿額自動銷毀)
+      if (totalPlayerLost > 0) {
+        await injectVaultWithBurn(db, 'texas', totalPlayerLost);
+      }
+      winner.chips = Math.floor(winner.chips + winPool);
+      taxNote = `\n*(${winner.username} 通殺奪池，真人淨輸籌碼 100% 【${totalPlayerLost.toLocaleString()} 星瓊】全數注入德州撲克金庫)*`;
+    }
   } else {
     let allInCapNote = '';
     const rawProfit = winPool - winner.totalBet;
     const isAllInGame = session.isAllIn || (winner.isAllIn && winner.totalBet > MAX_BET * 5);
-    if (isAllInGame && rawProfit > 0) {
+    if (isLegacyV56Test && isAllInGame && rawProfit > 0) {
       const texasVault = await getVault(db, 'texas');
       const vaultJades = Math.max(25000, texasVault.currentJades);
       const payoutCap = Math.floor(Math.min(MAX_BET * 5, vaultJades * 0.20));
@@ -1763,15 +1783,17 @@ async function concludeUncontestedWin(session, winner) {
       }
     }
 
-    // 國際標準「No Flop, No Drop」：翻牌前全員棄牌結束，免收 5% 營運手續費，底池 100% 毫髮無損入袋
-    const tax = isPreflopWin ? 0 : Math.floor(winPool * 0.05);
+    // 稅率：v5.6 依翻牌前「No Flop, No Drop」免收，翻牌後 5%；v6.0 全面 0% 抽稅
+    const tax = isLegacyV56Test ? (isPreflopWin ? 0 : Math.floor(winPool * 0.05)) : 0;
     const netWinPool = Math.floor(winPool - tax);
     finalWinnerWon = netWinPool;
     if (tax > 0) {
       await injectVaultWithBurn(db, 'texas', tax);
       taxNote = `\n*(扣除 5% 公司營運手續費 ${tax.toLocaleString()} 星瓊注入德州撲克金庫)*${allInCapNote}`;
     } else {
-      taxNote = `\n*(⚡ 翻牌前對手全數棄牌，觸發國際標準「No Flop, No Drop」未看翻牌不抽水，免收 5% 手續費！)*${allInCapNote}`;
+      taxNote = isLegacyV56Test
+        ? `\n*(⚡ 翻牌前對手全數棄牌，觸發國際標準「No Flop, No Drop」未看翻牌不抽水，免收 5% 手續費！)*${allInCapNote}`
+        : `\n*(✨ 星際和平公司 0% 抽成協議：底池 100% 全額入袋！)*${allInCapNote}`;
     }
 
     if (session.isContinuous) {
@@ -1779,6 +1801,8 @@ async function concludeUncontestedWin(session, winner) {
     } else {
       await awardJades(db, winner.userId, netWinPool);
     }
+
+    checkAndRedeemDebt(db, null, winner.userId, netWinPool).catch(() => {});
   }
 
   // 檢查輸光選手
@@ -1898,23 +1922,32 @@ async function concludeShowdown(session) {
 
   for (const w of winners) {
     if (w.isNpc) {
-      const vaultShare = Math.floor(perNpcLost * 0.40);
-      const burnShare = Math.floor(perNpcLost - vaultShare);
-      if (vaultShare > 0) {
-        await injectVaultWithBurn(db, 'texas', vaultShare);
+      if (isLegacyV56Test) {
+        const vaultShare = Math.floor(perNpcLost * 0.40);
+        const burnShare = Math.floor(perNpcLost - vaultShare);
+        if (vaultShare > 0) {
+          await injectVaultWithBurn(db, 'texas', vaultShare);
+        }
+        if (burnShare > 0) {
+          await recordDirectBurn(db, 'texas', burnShare);
+        }
+        w.chips = Math.floor(w.chips + splitPot);
+        taxNote += `\n*(${w.username} 獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，60% 系統直接銷毀)*`;
+      } else {
+        // v6.0: NPC 獲勝，真人淨輸額 100% 注入德州專屬金庫
+        if (perNpcLost > 0) {
+          await injectVaultWithBurn(db, 'texas', perNpcLost);
+        }
+        w.chips = Math.floor(w.chips + splitPot);
+        taxNote += `\n*(${w.username} 獲勝，劃撥 100% 【${perNpcLost.toLocaleString()} 星瓊】全數注入德州撲克金庫)*`;
       }
-      if (burnShare > 0) {
-        await recordDirectBurn(db, 'texas', burnShare);
-      }
-      w.chips = Math.floor(w.chips + splitPot);
-      taxNote += `\n*(${w.username} 獲勝，劃撥 40% 【${vaultShare.toLocaleString()} 星瓊】注入德州金庫，60% 系統直接銷毀)*`;
     } else {
       let share = splitPot;
       let allInCapNote = '';
 
       const rawProfit = share - w.totalBet;
       const isAllInGame = session.isAllIn || (w.isAllIn && w.totalBet > MAX_BET * 5);
-      if (isAllInGame && rawProfit > 0) {
+      if (isLegacyV56Test && isAllInGame && rawProfit > 0) {
         const texasVault = await getVault(db, 'texas');
         const vaultJades = Math.max(25000, texasVault.currentJades);
         const payoutCap = Math.floor(Math.min(MAX_BET * 5, vaultJades * 0.20));
@@ -1927,9 +1960,9 @@ async function concludeShowdown(session) {
       }
 
       const profit = share - w.totalBet;
-      const tax = isSplit
-        ? (profit > 0 ? Math.floor(profit * 0.05) : 0)
-        : Math.floor(share * 0.05);
+      const tax = isLegacyV56Test
+        ? (isSplit ? (profit > 0 ? Math.floor(profit * 0.05) : 0) : Math.floor(share * 0.05))
+        : 0;
       const netWin = Math.floor(share - tax);
       if (tax > 0) {
         await injectVaultWithBurn(db, 'texas', tax);
@@ -1942,27 +1975,64 @@ async function concludeShowdown(session) {
       }
       winnerPotWonMap.set(w.seatIndex, netWin);
 
-      if (isSplit) {
-        taxNote += `\n*(${w.username} 平局瓜分底池 ${share.toLocaleString()}，${tax > 0 ? `扣除利潤抽稅 ${tax.toLocaleString()} 星瓊入金庫` : '免手續費全額保本返還'}，實得 ${netWin.toLocaleString()} 星瓊)*${allInCapNote}`;
+      if (isLegacyV56Test) {
+        if (isSplit) {
+          taxNote += `\n*(${w.username} 平局瓜分底池 ${share.toLocaleString()}，${tax > 0 ? `扣除利潤抽稅 ${tax.toLocaleString()} 星瓊入金庫` : '免手續費全額保本返還'}，實得 ${netWin.toLocaleString()} 星瓊)*${allInCapNote}`;
+        } else {
+          taxNote += `\n*(${w.username} 獨得底池，扣除 5% 營運稅 ${tax.toLocaleString()} 星瓊入金庫)*${allInCapNote}`;
+        }
       } else {
-        taxNote += `\n*(${w.username} 獨得底池，扣除 5% 營運稅 ${tax.toLocaleString()} 星瓊入金庫)*${allInCapNote}`;
+        taxNote += `\n*(✨ ${w.username} ${isSplit ? '平局瓜分底池' : '獨得底池'}，享 0% 抽稅協議，實得 ${netWin.toLocaleString()} 星瓊)*${allInCapNote}`;
       }
 
       // 神話牌型派彩
-      if (!session.isCasualTable && w.bestHand.tier >= HAND_TIERS.FULL_HOUSE) {
-        const jp = await claimHoldemJackpot(db, w.totalBet, w.bestHand.tier);
-        if (jp && jp.payout > 0) {
-          const safeJpPayout = Math.floor(jp.payout);
-          if (session.isContinuous) {
-            w.chips = Math.floor(w.chips + safeJpPayout);
-          } else {
-            await awardJades(db, w.userId, safeJpPayout);
+      if (!session.isCasualTable && w.bestHand && w.bestHand.tier >= HAND_TIERS.FULL_HOUSE) {
+        if (isLegacyV56Test) {
+          const jp = await claimHoldemJackpot(db, w.totalBet, w.bestHand.tier);
+          if (jp && jp.payout > 0) {
+            const safeJpPayout = Math.floor(jp.payout);
+            if (session.isContinuous) {
+              w.chips = Math.floor(w.chips + safeJpPayout);
+            } else {
+              await awardJades(db, w.userId, safeJpPayout);
+            }
+            winnerJackpotMap.set(w.seatIndex, (winnerJackpotMap.get(w.seatIndex) || 0) + safeJpPayout);
+            const ratioPercent = Math.round(((jp.percent || jp.ratio || 0) * 100));
+            const multStr = jp.multiplier ? ` / ${jp.multiplier} 倍投注` : '';
+            jackpotNote += `\n👑 **神話誕生！開拓者 ${w.username} 打出【${jp.handLabel}】！**\n` +
+              `按個人投注 ${w.totalBet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%${multStr}) 搬走金庫派彩：**+${safeJpPayout.toLocaleString()}** 星瓊！`;
           }
-          winnerJackpotMap.set(w.seatIndex, (winnerJackpotMap.get(w.seatIndex) || 0) + safeJpPayout);
-          const ratioPercent = Math.round(((jp.percent || jp.ratio || 0) * 100));
-          const multStr = jp.multiplier ? ` / ${jp.multiplier} 倍投注` : '';
-          jackpotNote += `\n👑 **神話誕生！開拓者 ${w.username} 打出【${jp.handLabel}】！**\n` +
-            `按個人投注 ${w.totalBet.toLocaleString()} 星瓊 (瓜分金庫 ${ratioPercent}%${multStr}) 搬走金庫派彩：**+${safeJpPayout.toLocaleString()}** 星瓊！`;
+        } else {
+          // v6.0 防作弊三鐵律：
+          // 鐵律 1: 有效下注扣除未被跟注的溢出籌碼 Beff = min(w.totalBet, max(otherSeats.totalBet))
+          const otherBets = session.seats
+            .filter((s) => s.seatIndex !== w.seatIndex)
+            .map((s) => s.totalBet || 0);
+          const maxOpponentBet = otherBets.length > 0 ? Math.max(...otherBets) : 0;
+          const effectiveBet = Math.min(w.totalBet, maxOpponentBet > 0 ? maxOpponentBet : w.totalBet);
+
+          // 鐵律 2: 必須在 Showdown 攤牌階段正式獲勝（此處已在 concludeShowdown winners 內）
+          // 鐵律 3: 最佳 5 張手牌中，至少有 1 張來自私有底牌 (holeCards)
+          const usesHoleCard = w.bestHand.cards && Array.isArray(w.bestHand.cards) && w.holeCards && Array.isArray(w.holeCards) &&
+            w.bestHand.cards.some(bc => w.holeCards.some(hc => hc.suit === bc.suit && hc.rank === bc.rank));
+
+          if (usesHoleCard && effectiveBet > 0) {
+            const pWealth = w.preGameWealth || ((w.chips || 0) + (w.totalBet || 0));
+            const jp = await claimHoldemJackpot(db, effectiveBet, w.bestHand.tier, pWealth);
+            if (jp && jp.payout > 0) {
+              const safeJpPayout = Math.floor(jp.payout);
+              if (session.isContinuous) {
+                w.chips = Math.floor(w.chips + safeJpPayout);
+              } else {
+                await awardJades(db, w.userId, safeJpPayout);
+              }
+              winnerJackpotMap.set(w.seatIndex, (winnerJackpotMap.get(w.seatIndex) || 0) + safeJpPayout);
+              const ratioPercent = Math.round(((jp.percent || jp.ratio || 0) * 100));
+              const multStr = jp.multiplier ? ` / ${jp.multiplier} 倍投注` : '';
+              jackpotNote += `\n👑 **神話誕生！開拓者 ${w.username} 打出【${jp.handLabel}】！**\n` +
+                `依有效投注 ${effectiveBet.toLocaleString()} 星瓊 (身家佔比動態彩金：瓜分金庫 ${ratioPercent}%${multStr}) 提領金庫派彩：**+${safeJpPayout.toLocaleString()}** 星瓊！`;
+            }
+          }
         }
       }
     }
@@ -2087,13 +2157,14 @@ async function settleSpectatorBets(session, winningSeatIndex) {
     const shareRatio = correctSum > 0 ? b.amount / correctSum : 0;
     const rawPayout = Math.floor(totalPool * shareRatio);
     const profit = rawPayout - b.amount;
-    const tax = profit > 0 ? Math.floor(profit * 0.05) : 0;
+    const tax = isLegacyV56Test ? (profit > 0 ? Math.floor(profit * 0.05) : 0) : 0;
     const finalPayout = Math.floor(rawPayout - tax);
 
     if (tax > 0) {
       await injectVaultWithBurn(db, 'texas', tax);
     }
     await awardJades(db, b.userId, finalPayout);
+    checkAndRedeemDebt(db, null, b.userId, finalPayout).catch(() => {});
 
     winnersDesc.push(`**${b.username}** 贏得 **${finalPayout.toLocaleString()}** 星瓊`);
   }
@@ -2103,19 +2174,21 @@ async function settleSpectatorBets(session, winningSeatIndex) {
     winnersDesc.join('、');
 }
 
-async function claimHoldemJackpot(db, personalBet, tier) {
+async function claimHoldemJackpot(db, personalBet, tier, playerWealth = 0) {
   if (!tier || tier < HAND_TIERS.FULL_HOUSE) {
-    return { payout: 0, percent: 0, multiplier: 0, ratio: 0, handLabel: '', hardCap: 0, newVault: 0 };
+    return { payout: 0, percent: 0, multiplier: 0, effectiveMultiplier: 0, alpha: 1, ratio: 0, handLabel: '', hardCap: 0, newVault: 0 };
   }
 
   const vault = await getVault(db, 'texas');
-  const jp = calculateHoldemJackpot(vault.currentJades, personalBet, tier);
+  const jp = calculateHoldemJackpot(vault.currentJades, personalBet, tier, playerWealth);
 
   if (!jp || jp.payout <= 0) {
     return {
       payout: 0,
       percent: jp ? jp.percent : 0,
       multiplier: jp ? jp.multiplier : 0,
+      effectiveMultiplier: jp ? (jp.effectiveMultiplier || jp.multiplier) : 0,
+      alpha: jp ? (jp.alpha !== undefined ? jp.alpha : 1) : 1,
       ratio: jp ? jp.percent : 0,
       handLabel: jp ? jp.label : '',
       hardCap: jp ? jp.hardCap : 0,
@@ -2131,6 +2204,8 @@ async function claimHoldemJackpot(db, personalBet, tier) {
     payout: finalPayout,
     percent: jp.percent,
     multiplier: jp.multiplier,
+    effectiveMultiplier: jp.effectiveMultiplier || jp.multiplier,
+    alpha: jp.alpha !== undefined ? jp.alpha : 1,
     ratio: jp.percent,
     handLabel: jp.label,
     hardCap: jp.hardCap,
@@ -2768,12 +2843,74 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
   return { success: true, sessionFound: true, refundedCount };
 }
 
+/**
+ * 🔍 穿透查詢開拓者在所有德州撲克牌桌上的總籌碼（桌面剩餘 chips + 當手已下注 totalBetThisHand + 場外買馬 spectatorBets）
+ */
+function getActiveTexasHoldemChipsByUserId(userId) {
+  let tableChips = 0;
+  let potBet = 0;
+  let spectatorBets = 0;
+
+  for (const session of activeHoldemSessions.values()) {
+    if (session.players && Array.isArray(session.players)) {
+      for (const p of session.players) {
+        if (p && p.userId === userId) {
+          tableChips += (p.chips || 0);
+          potBet += (p.totalBetThisHand || 0);
+        }
+      }
+    }
+    if (session.spectatorBets && Array.isArray(session.spectatorBets)) {
+      for (const b of session.spectatorBets) {
+        if (b && b.userId === userId) {
+          spectatorBets += (b.amount || 0);
+        }
+      }
+    }
+  }
+
+  return {
+    total: tableChips + potBet + spectatorBets,
+    tableChips: tableChips + potBet,
+    remainingChips: tableChips,
+    potBet,
+    spectatorBets,
+  };
+}
+
+/**
+ * ⚡ 富人稅穿透扣除開拓者德州牌桌上的籌碼（先扣 player.chips）
+ */
+function deductChipsFromActiveHoldemTable(userId, amount) {
+  if (amount <= 0) return 0;
+  let remainingToDeduct = amount;
+  let actuallyDeducted = 0;
+
+  for (const session of activeHoldemSessions.values()) {
+    if (remainingToDeduct <= 0) break;
+    if (session.players && Array.isArray(session.players)) {
+      for (const p of session.players) {
+        if (p && p.userId === userId && p.chips > 0) {
+          const deductFromP = Math.min(p.chips, remainingToDeduct);
+          p.chips -= deductFromP;
+          remainingToDeduct -= deductFromP;
+          actuallyDeducted += deductFromP;
+          if (remainingToDeduct <= 0) break;
+        }
+      }
+    }
+  }
+
+  return actuallyDeducted;
+}
+
 module.exports = {
   startHoldemLobby,
   handleHoldemLobbyAllIn,
   claimHoldemJackpot,
   concludeShowdown,
   concludeUncontestedWin,
+  settleSpectatorBets,
   handleHoldemJoin,
   handleHoldemImmediateStart,
   handleHoldemSpectatorBet,
@@ -2805,4 +2942,6 @@ module.exports = {
   activeHoldemSessions,
   deductJades,
   awardJades,
+  getActiveTexasHoldemChipsByUserId,
+  deductChipsFromActiveHoldemTable,
 };

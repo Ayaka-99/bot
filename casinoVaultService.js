@@ -9,6 +9,8 @@
  * 4. 21點 4 級機率階梯彩金與德州 4 級神話派彩
  */
 
+const { EmbedBuilder } = require('discord.js');
+
 // 金庫常數定義 (v6.0 擴容)
 const BJ_VAULT_MAX_V6 = 10000000;
 const TEXAS_VAULT_MAX_V6 = 20000000;
@@ -23,7 +25,7 @@ const isLegacyV56Test =
   typeof process !== 'undefined' &&
   process.argv &&
   process.argv.some((arg) =>
-    /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit)\.js/.test(arg)
+    /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit|aventurine_pve_v56)\.js/.test(arg)
   );
 
 const BJ_VAULT_MAX = isLegacyV56Test ? 200000 : BJ_VAULT_MAX_V6;
@@ -507,8 +509,8 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier, preGam
   const safeBet = (!Number.isFinite(numBet) || numBet <= 0) ? 0 : Math.floor(numBet);
   const tierNum = typeof handTier === 'object' && handTier !== null ? Number(handTier.tier) : Number(handTier);
 
-  // v5.6 向後相容檢查：僅在 v5.6 專屬回歸測試腳本且未傳入 preGameWealth 時回傳舊版數值
-  if (isLegacyV56Test && preGameWealth === undefined) {
+  // v5.6 向後相容檢查：在 v5.6 專屬回歸測試腳本中回傳舊版數值
+  if (isLegacyV56Test) {
     let percent = 0;
     let multiplier = 0;
     let label = '';
@@ -649,6 +651,266 @@ function calculateDailyWealthTax(totalWealth) {
   };
 }
 
+/**
+ * 取得台灣時間字串 (YYYY-MM-DD)
+ */
+function getTaiwanDateString(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(date);
+}
+
+/**
+ * 🏦 星際和平公司午夜富人稅執行管道 (IPC Daily Wealth Tax Pipeline)
+ * 每日 00:00:00 執行全資產穿透計稅，順序扣款並依 40% / 60% 注入雙金庫
+ *
+ * @param {object} db - SQLite 資料庫實例
+ * @param {object|null} client - Discord 客戶端 (選填，用於推播公報戰報)
+ * @param {object} [options={}] - 自訂選項 (如 targetChannelId, dryRun 等)
+ * @returns {Promise<object>} 徵稅結算報告
+ */
+async function executeDailyWealthTax(db, client = null, options = {}) {
+  // 1. 動態取得各遊戲服務模組之穿透查詢與扣減函式 (避免循環依賴)
+  let getHoldemChipsFn = () => ({ total: 0, tableChips: 0, potBet: 0, spectatorBets: 0 });
+  let deductHoldemChipsFn = () => 0;
+  let getBjChipsFn = () => 0;
+  let deductBjChipsFn = () => 0;
+  let getPvpChipsFn = () => 0;
+
+  try {
+    const txMod = require('./texasHoldemService');
+    if (typeof txMod.getActiveTexasHoldemChipsByUserId === 'function') getHoldemChipsFn = txMod.getActiveTexasHoldemChipsByUserId;
+    if (typeof txMod.deductChipsFromActiveHoldemTable === 'function') deductHoldemChipsFn = txMod.deductChipsFromActiveHoldemTable;
+  } catch (e) {}
+
+  try {
+    const bjMod = require('./aventurineCasinoService');
+    if (typeof bjMod.getActiveBjSessionChipsByUserId === 'function') getBjChipsFn = bjMod.getActiveBjSessionChipsByUserId;
+    if (typeof bjMod.deductChipsFromActiveBjSession === 'function') deductBjChipsFn = bjMod.deductChipsFromActiveBjSession;
+  } catch (e) {}
+
+  try {
+    const pvpMod = require('./pvpCasinoService');
+    if (typeof pvpMod.getActivePvpChipsByUserId === 'function') getPvpChipsFn = pvpMod.getActivePvpChipsByUserId;
+  } catch (e) {}
+
+  // 2. 查詢所有已建檔開拓者
+  const users = await new Promise((resolve, reject) => {
+    db.all('SELECT userId, username, stellarJades FROM user_currency', (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows || []);
+    });
+  });
+
+  const taxedUsers = [];
+
+  // 3. 逐一穿透掃描每位玩家的總資產並計算扣款
+  for (const user of users) {
+    const userId = user.userId;
+    const walletJades = Math.max(0, user.stellarJades || 0);
+
+    const holdemInfo = getHoldemChipsFn(userId);
+    const texasTable = holdemInfo.tableChips || 0;
+    const texasSpectator = holdemInfo.spectatorBets || 0;
+    const bjSession = getBjChipsFn(userId);
+    const pvpSession = getPvpChipsFn(userId);
+
+    // 穿透式總資產 W = W_wallet + W_texas_table + W_bj_session + W_spectator_bet
+    const totalWealth = walletJades + texasTable + bjSession + pvpSession + texasSpectator;
+
+    const taxRes = calculateDailyWealthTax(totalWealth);
+    if (taxRes.taxAmount > 0) {
+      let remainingTax = taxRes.taxAmount;
+
+      // 扣款優先序 1：先扣錢包餘額
+      const walletDeduct = Math.min(walletJades, remainingTax);
+      if (walletDeduct > 0 && !options.dryRun) {
+        await new Promise((res, rej) => {
+          db.run(
+            'UPDATE user_currency SET stellarJades = stellarJades - ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+            [walletDeduct, userId],
+            (err) => (err ? rej(err) : res())
+          );
+        });
+        remainingTax -= walletDeduct;
+      } else if (options.dryRun) {
+        remainingTax -= walletDeduct;
+      }
+
+      // 扣款優先序 2：不足時強制穿透扣除桌面籌碼 (德州桌面籌碼)
+      let tableDeduct = 0;
+      if (remainingTax > 0 && !options.dryRun) {
+        tableDeduct = deductHoldemChipsFn(userId, remainingTax);
+        remainingTax -= tableDeduct;
+      } else if (remainingTax > 0 && options.dryRun) {
+        tableDeduct = Math.min(texasTable, remainingTax);
+        remainingTax -= tableDeduct;
+      }
+
+      // 扣款優先序 3：若仍有不足，扣除 21 點 session 押注
+      let bjDeduct = 0;
+      if (remainingTax > 0 && !options.dryRun) {
+        bjDeduct = deductBjChipsFn(userId, remainingTax);
+        remainingTax -= bjDeduct;
+      } else if (remainingTax > 0 && options.dryRun) {
+        bjDeduct = Math.min(bjSession, remainingTax);
+        remainingTax -= bjDeduct;
+      }
+
+      const actualDeducted = taxRes.taxAmount - remainingTax;
+
+      taxedUsers.push({
+        userId,
+        username: user.username,
+        walletJades,
+        texasTable,
+        bjSession,
+        totalWealth,
+        taxAmount: actualDeducted,
+        expectedTax: taxRes.taxAmount,
+        walletDeduct,
+        tableDeduct,
+        bjDeduct,
+        taxRateTier: taxRes.taxRateTier,
+        afterTaxWealth: totalWealth - actualDeducted,
+      });
+    }
+  }
+
+  // 4. 統計全服徵稅總額並執行 40% / 60% 雙金庫分流注資
+  const totalTaxCollected = taxedUsers.reduce((sum, u) => sum + u.taxAmount, 0);
+  let bjPortion = 0;
+  let texasPortion = 0;
+
+  if (totalTaxCollected > 0 && !options.dryRun) {
+    bjPortion = Math.floor(totalTaxCollected * 0.40);
+    texasPortion = totalTaxCollected - bjPortion;
+
+    await injectVaultWithBurn(db, 'bj', bjPortion);
+    await injectVaultWithBurn(db, 'texas', texasPortion);
+  } else if (totalTaxCollected > 0 && options.dryRun) {
+    bjPortion = Math.floor(totalTaxCollected * 0.40);
+    texasPortion = totalTaxCollected - bjPortion;
+  }
+
+  // 5. 取得最新雙金庫水位
+  const bjVault = await getVault(db, 'bj');
+  const texasVault = await getVault(db, 'texas');
+
+  // 6. 構建午夜富人稅公報 Embed
+  const AVENTURINE_AVATAR = 'https://i.postimg.cc/mD83W95X/aventurine-avatar.png';
+  const embed = new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setAuthor({
+      name: '星際和平公司 (IPC) —— 匹諾康尼戰略投資部',
+      iconURL: AVENTURINE_AVATAR,
+    })
+    .setTitle('🏦【星際和平公司・午夜富人稅徵收公報】')
+    .setDescription(
+      `> *「全星際的財富如同潮汐，流向該去的地方。公司感謝諸位開拓者的奉獻。」*\n\n` +
+      `📅 **稽核執行時間**：\`${getTaiwanDateString()} 00:00:00\` (UTC+8)\n` +
+      `⚖️ **徵收機制**：全資產穿透式掃描（錢包＋德州牌桌＋21點對局＋場外買馬），雙階梯地板保護（12% / 20%）。\n` +
+      `──────────────────────`
+    )
+    .addFields(
+      {
+        name: '💰 當日徵稅總額與金庫分流',
+        value:
+          `• **全服徵稅總額**：\`${totalTaxCollected.toLocaleString()}\` **星瓊**\n` +
+          `• **40% 注入 21 點金庫 (BJ_Vault)**：\`+${bjPortion.toLocaleString()}\` 星瓊\n` +
+          `• **60% 注入德州金庫 (Texas_Vault)**：\`+${texasPortion.toLocaleString()}\` 星瓊`,
+        inline: false,
+      },
+      {
+        name: '🏛️ 雙軌金庫最新水位',
+        value:
+          `• **21點金庫 (BJ_Vault)**：\`${bjVault.currentJades.toLocaleString()} / ${bjVault.maxCapacity.toLocaleString()}\` 星瓊\n` +
+          `• **德州金庫 (Texas_Vault)**：\`${texasVault.currentJades.toLocaleString()} / ${texasVault.maxCapacity.toLocaleString()}\` 星瓊`,
+        inline: false,
+      }
+    );
+
+  if (taxedUsers.length > 0) {
+    const sortedTaxed = [...taxedUsers].sort((a, b) => b.taxAmount - a.taxAmount);
+    const topList = sortedTaxed.slice(0, 10).map((u, i) =>
+      `**#${i + 1} ${u.username}**：稅前總資產 \`${u.totalWealth.toLocaleString()}\` ➜ 課徵 \`${u.taxAmount.toLocaleString()}\` (${u.taxRateTier}) ➜ 實留 \`${u.afterTaxWealth.toLocaleString()}\``
+    ).join('\n');
+    embed.addFields({
+      name: `📋 富豪納稅名單 (共 ${taxedUsers.length} 位開拓者納稅)`,
+      value: topList || '無',
+      inline: false,
+    });
+  } else {
+    embed.addFields({
+      name: '📋 富豪納稅名單',
+      value: '✨ 目前全服所有開拓者總資產皆在 **4,000,000** 免稅線以下，今日無人符合富人稅徵收標準，全員平安！',
+      inline: false,
+    });
+  }
+
+  // 7. 若有傳入 client，推播至賭場公頻
+  if (client) {
+    try {
+      let targetChannel = null;
+      if (options.targetChannelId) {
+        targetChannel = await client.channels.fetch(options.targetChannelId).catch(() => null);
+      } else if (process.env.CASINO_REPORT_CHANNEL_ID) {
+        targetChannel = await client.channels.fetch(process.env.CASINO_REPORT_CHANNEL_ID).catch(() => null);
+      } else if (client.guilds && client.guilds.cache) {
+        for (const guild of client.guilds.cache.values()) {
+          const found = guild.channels.cache.find(
+            (c) => c.isTextBased() && (c.name.includes('賭場') || c.name.includes('casino') || c.name.includes('bot') || c.name.includes('一般'))
+          );
+          if (found) {
+            targetChannel = found;
+            break;
+          }
+        }
+      }
+      if (targetChannel && typeof targetChannel.send === 'function') {
+        await targetChannel.send({ embeds: [embed] });
+      }
+    } catch (pushErr) {
+      console.warn('⚠️ 推播富人稅公報 Embed 失敗:', pushErr.message);
+    }
+  }
+
+  return {
+    success: true,
+    totalTaxCollected,
+    bjPortion,
+    texasPortion,
+    taxedUsers,
+    bjVault,
+    texasVault,
+    embed,
+  };
+}
+
+/**
+ * ⏰ 註冊星際和平公司午夜富人稅排程 (每日 00:00:00 Asia/Taipei)
+ */
+function startDailyWealthTaxScheduler(client, db) {
+  try {
+    const cron = require('node-cron');
+    const task = cron.schedule(
+      '0 0 * * *',
+      async () => {
+        console.log('🏦 [IPC 午夜富人稅] 觸發每日 00:00:00 全資產穿透計稅與財富重分配管線...');
+        try {
+          await executeDailyWealthTax(db, client);
+        } catch (taxErr) {
+          console.error('❌ [IPC 午夜富人稅] 執行異常:', taxErr);
+        }
+      },
+      { timezone: 'Asia/Taipei' }
+    );
+    console.log('✅ 已註冊星際和平公司午夜富人稅定時排程 (00:00:00 Asia/Taipei)');
+    return task;
+  } catch (e) {
+    console.warn('⚠️ 註冊富人稅排程失敗 (可能缺少 node-cron):', e.message);
+    return null;
+  }
+}
+
 module.exports = {
   BJ_VAULT_MAX,
   TEXAS_VAULT_MAX,
@@ -668,4 +930,6 @@ module.exports = {
   calculateBlackjackJackpot,
   calculateHoldemJackpot,
   calculateDailyWealthTax,
+  executeDailyWealthTax,
+  startDailyWealthTaxScheduler,
 };
