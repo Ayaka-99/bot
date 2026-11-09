@@ -50,12 +50,23 @@
      • 必須提供過渡橋樑：以 1~2 句具備張力與節奏感的描寫交代深夜清算終止與透支入眠，隨後自然轉入晨光與溫存；
      • 第一人稱因果相扣：砂金清晨開口首句必須主動用台詞接住昨晚被清算的因果；
      • 敘事閉環防截斷：要求單則訊息內語意完整與標點閉合，不得在動作進行中腰斬。
-   - 擴充單元測試 `test_aventurine_ratio_memory.js` 增加至 7/7 PASS。
+    - 擴充單元測試 `test_aventurine_ratio_memory.js` 增加至 7/7 PASS。
+9. **`feat-v60-vault-core-and-jackpot-math`** [done]:
+   - 重構金庫常數：`BJ_VAULT_MAX = 10,000,000` (1,000 萬)、`TEXAS_VAULT_MAX = 20,000,000` (2,000 萬)、`BJ_VAULT_INIT = 250,000` (25 萬)、`TEXAS_VAULT_INIT = 500,000` (50 萬)、`MAX_VAULT_INJECTION = Infinity`（解除 25,000 截斷限制，滿額自動銷毀並記錄 `totalBurned`）。
+   - 實裝身家投入佔比動態彩金演算法 (Proportional Stake Jackpot)：
+     • 公式：$\alpha = \min(1, B_{\text{eff}} / W_0)$，$\text{EffectiveMultiplier} = M_{\text{max}} \times \alpha$，$\text{Bonus} = \min\left( \lfloor B_{\text{eff}} \times M_{\text{max}} \times \alpha \rfloor, \; \lfloor \text{CurrentVault} \times \text{Cap\%} \right)$。
+     • 21 點四級彩金：Tier 1 (同花 BJ: 4x / 15% Cap)、Tier 2 (五龍/雜色6-7-8: 15x / 35% Cap)、Tier 3 (同花21點/雜色7-7-7: 40x / 65% Cap)、Tier 4 (同花6-7-8/同花7-7-7: 150x / 100% Cap 搬空金庫)。
+     • 德州撲克四級神話彩金：葫蘆 (3x / 20% Cap)、四條 (20x / 50% Cap)、同花順 (80x / 80% Cap)、皇家同花順 (300x / 100% Cap 搬空金庫)，回傳完整物件結構。
+     • 向後相容防禦：當未傳入身家參數或 $\le 0$ 時，安全回退為以注額為基準計算（$\alpha = 1.0$）。
+   - 實裝午夜富人稅純計算函式 `calculateDailyWealthTax(totalWealth)`：
+     • $W \le 400\text{w}$ 免稅，$400\text{w} < W < 1000\text{w}$ 徵收 $12\%$（$400\text{w}$ 地板保護），$W \ge 1000\text{w}$ 徵收 $20\%$（$880\text{w}$ 地板保護）。
+   - 新增單元測試 `test_v60_vault_jackpot.js` (6/6 PASS)。
 
 ## 3. 下一階段交接事項 (Next Steps)
-- 目前已排定之功能清單已全數實作並通過 8 大驗證關卡。
-- 等待下一階段業務需求或功能切片。
-  - 單元測試驗證 prompt 規則到位。
+- **v6.0「星際和平公司・財富重分配協議」改版接續**：
+  - **下一施工微任務**：`feat-v60-aventurine-pve-economy` (或接續各業務模組對接)
+    - 目標：`aventurineCasinoService.js` 開池注資補償 Migration（補齊 5w 普發 3w）、常規單注放寬至 100 萬、Double Down 解禁、輸局 100% 注入 `bj` 金庫與紀錄賽前身家。
+    - 關鍵檔案：`aventurineCasinoService.js`。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)
 - **遠端伺服器更新唯一指令**:

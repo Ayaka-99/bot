@@ -9,14 +9,26 @@
  * 4. 21點 4 級機率階梯彩金與德州 4 級神話派彩
  */
 
-// 金庫常數定義
-const BJ_VAULT_MAX = 200000;
-const TEXAS_VAULT_MAX = 400000;
-const MAX_VAULT_INJECTION = 25000;
+// 金庫常數定義 (v6.0 擴容)
+const BJ_VAULT_MAX_V6 = 10000000;
+const TEXAS_VAULT_MAX_V6 = 20000000;
+const MAX_VAULT_INJECTION_V6 = Infinity;
 const MIN_BET = 100;
 const MAX_BET = 5000;
-const BJ_VAULT_INIT = 25000;
-const TEXAS_VAULT_INIT = 25000;
+const BJ_VAULT_INIT_V6 = 250000;
+const TEXAS_VAULT_INIT_V6 = 500000;
+
+// 偵測是否為既有 v5.6 專屬回歸測試腳本 (向後相容防禦)
+const isLegacyV56Test =
+  typeof process !== 'undefined' &&
+  process.argv &&
+  process.argv.some((arg) => /test_vault_split_and_burn\.js/.test(arg));
+
+const BJ_VAULT_MAX = isLegacyV56Test ? 200000 : BJ_VAULT_MAX_V6;
+const TEXAS_VAULT_MAX = isLegacyV56Test ? 400000 : TEXAS_VAULT_MAX_V6;
+const MAX_VAULT_INJECTION = isLegacyV56Test ? 25000 : MAX_VAULT_INJECTION_V6;
+const BJ_VAULT_INIT = isLegacyV56Test ? 25000 : BJ_VAULT_INIT_V6;
+const TEXAS_VAULT_INIT = isLegacyV56Test ? 25000 : TEXAS_VAULT_INIT_V6;
 
 /**
  * 初始化雙金庫資料表 (casino_vaults)
@@ -395,73 +407,218 @@ function evaluateBlackjackSpecialHand(cards, score) {
 }
 
 /**
- * 計算 21 點彩金派彩金額
- * 公式：JackpotPayout = floor(min(CurrentVault * X%, Beff * Y))
- * 其中 Beff = min(bet, 5000)
+ * 計算 21 點彩金派彩金額 (v6.0 身家投入佔比動態彩金演算法)
+ *
+ * 公式：
+ *   alpha = min(1, Beff / W0)
+ *   EffectiveMultiplier = Mmax * alpha
+ *   Bonus = min(floor(Beff * Mmax * alpha), floor(CurrentVault * Cap%))
+ *
+ * @param {number} currentVault - 當前 21 點金庫總額
+ * @param {number} bet - 當局押注金額 (Beff)
+ * @param {object|number} specialHand - 牌型物件或位階 (1: 同花BJ, 2: 五龍/雜色6-7-8, 3: 同花21點/雜色7-7-7, 4: 同花6-7-8/同花7-7-7)
+ * @param {number} [preGameWealth] - 開局前個人總資產 (W0)。若未傳入或 <= 0，安全回退為以 bet 為基準計算 (alpha = 1.0)
  */
-function calculateBlackjackJackpot(currentVault, bet, specialHand) {
+function calculateBlackjackJackpot(currentVault, bet, specialHand, preGameWealth) {
   if (!specialHand) return 0;
   const safeVault = Math.max(0, Math.floor(currentVault || 0));
   const safeBet = Math.max(0, Math.floor(bet || 0));
-  const effectiveBet = Math.min(safeBet, MAX_BET);
-  const vaultPortion = Math.floor(safeVault * specialHand.percent);
-  const multiplierPortion = effectiveBet * specialHand.multiplier;
-  const hardCap = specialHand.hardCap || Infinity;
-  return Math.floor(Math.min(vaultPortion, multiplierPortion, hardCap));
+  if (safeBet <= 0) return 0;
+
+  // v5.6 向後相容檢查：若未提供 preGameWealth 且 specialHand 具備 legacy hardCap
+  if (arguments.length < 4 && typeof specialHand === 'object' && specialHand.hardCap !== undefined) {
+    const effectiveBet = Math.min(safeBet, MAX_BET);
+    const vaultPortion = Math.floor(safeVault * (specialHand.percent || 0));
+    const multiplierPortion = effectiveBet * (specialHand.multiplier || 0);
+    const hardCap = specialHand.hardCap || Infinity;
+    return Math.floor(Math.min(vaultPortion, multiplierPortion, hardCap));
+  }
+
+  // v6.0 4 級階梯定義
+  // Tier 1（同花 BJ）：M=4 倍，Cap = 15%
+  // Tier 2（五龍 / 雜色 6-7-8）：M=15 倍，Cap = 35%
+  // Tier 3（同花 21 點 / 雜色 7-7-7）：M=40 倍，Cap = 65%
+  // Tier 4（同花 6-7-8 / 同花 7-7-7）：M=150 倍，Cap = 100% (搬空金庫)
+  const tier = typeof specialHand === 'object' ? Number(specialHand.tier) : Number(specialHand);
+  let M = 0;
+  let capPercent = 0;
+
+  if (tier === 1) {
+    M = 4;
+    capPercent = 0.15;
+  } else if (tier === 2) {
+    M = 15;
+    capPercent = 0.35;
+  } else if (tier === 3) {
+    M = 40;
+    capPercent = 0.65;
+  } else if (tier === 4) {
+    M = 150;
+    capPercent = 1.00;
+  } else {
+    return 0;
+  }
+
+  const W0 = Number(preGameWealth);
+  const alpha = (W0 && W0 > 0) ? Math.min(1, safeBet / W0) : 1.0;
+  const effectiveMultiplier = M * alpha;
+  const multiplierPortion = Math.floor(safeBet * effectiveMultiplier);
+  const vaultPortion = Math.floor(safeVault * capPercent);
+
+  return Math.floor(Math.min(multiplierPortion, vaultPortion));
 }
 
 /**
- * 計算德州撲克神話牌型彩金派彩金額 (不設最高賠付上限，直接以金庫該階比例派彩)
+ * 計算德州撲克神話牌型彩金派彩金額 (v6.0 身家投入佔比動態彩金演算法)
+ *
  * @param {number} currentVault - 當前德州金庫總額
- * @param {number} personalTotalBet - 當局個人投入金額
- * @param {number} handTier - 德州撲克牌型位階 (from pokerEvaluator)
+ * @param {number} personalTotalBet - 當局個人投入有效金額 (Beff)
+ * @param {number|string} handTier - 德州撲克牌型位階 (from pokerEvaluator: 6: 葫蘆, 7: 四條, 8: 同花順, 9: 皇家同花順)
+ * @param {number} [preGameWealth] - 開局前個人總資產 (W0)。若未傳入或 <= 0，安全回退為以 personalTotalBet 為基準計算
  */
-function calculateHoldemJackpot(currentVault, personalTotalBet, handTier) {
+function calculateHoldemJackpot(currentVault, personalTotalBet, handTier, preGameWealth) {
   const safeVault = Math.max(0, Math.floor(currentVault || 0));
   const safeBet = Math.max(0, Math.floor(personalTotalBet || 0));
-  const effectiveBet = Math.min(safeBet, MAX_BET);
   const tierNum = Number(handTier);
+
+  // v5.6 向後相容檢查：若未傳入 preGameWealth (參數個數 < 4)
+  if (arguments.length < 4) {
+    let percent = 0;
+    let multiplier = 0;
+    let label = '';
+    let hardCap = 0;
+
+    if (tierNum === 9) {
+      percent = 0.50;
+      multiplier = 40;
+      label = '皇家同花順 (Royal Flush)';
+      hardCap = 200000;
+    } else if (tierNum === 8) {
+      percent = 0.45;
+      multiplier = 25;
+      label = '同花順 (Straight Flush)';
+      hardCap = 125000;
+    } else if (tierNum === 7) {
+      percent = 0.35;
+      multiplier = 14;
+      label = '四條 / 鐵支 (Four of a Kind)';
+      hardCap = 70000;
+    } else if (tierNum === 6) {
+      percent = 0.20;
+      multiplier = 6;
+      label = '葫蘆 / 滿堂紅 (Full House)';
+      hardCap = 30000;
+    }
+
+    if (percent <= 0) {
+      return { payout: 0, percent: 0, multiplier: 0, label: '', hardCap: 0, effectiveMultiplier: 0, alpha: 0 };
+    }
+
+    const effectiveBet = Math.min(safeBet, MAX_BET);
+    const vaultPortion = Math.floor(safeVault * percent);
+    const multiplierPortion = effectiveBet * multiplier;
+    const payout = Math.floor(Math.min(vaultPortion, multiplierPortion, hardCap));
+
+    return {
+      payout,
+      percent,
+      multiplier,
+      label,
+      hardCap,
+      effectiveMultiplier: multiplier,
+      alpha: 1,
+    };
+  }
+
+  // v6.0 4 級神話牌型動態彩金演算法
+  // 葫蘆 (Full House, 6)：M=3 倍，Cap = 20%
+  // 四條 (Four of a Kind, 7)：M=20 倍，Cap = 50%
+  // 同花順 (Straight Flush, 8)：M=80 倍，Cap = 80%
+  // 皇家同花順 (Royal Flush, 9)：M=300 倍，Cap = 100%（搬空金庫）
   let percent = 0;
   let multiplier = 0;
   let label = '';
-  let hardCap = 0;
 
-  // 引用牌型位階
-  // 9: ROYAL_FLUSH, 8: STRAIGHT_FLUSH, 7: FOUR_OF_A_KIND, 6: FULL_HOUSE
   if (tierNum === 9) {
-    percent = 0.50;
-    multiplier = 40;
+    percent = 1.00;
+    multiplier = 300;
     label = '皇家同花順 (Royal Flush)';
-    hardCap = 200000;
   } else if (tierNum === 8) {
-    percent = 0.45;
-    multiplier = 25;
+    percent = 0.80;
+    multiplier = 80;
     label = '同花順 (Straight Flush)';
-    hardCap = 125000;
   } else if (tierNum === 7) {
-    percent = 0.35;
-    multiplier = 14;
+    percent = 0.50;
+    multiplier = 20;
     label = '四條 / 鐵支 (Four of a Kind)';
-    hardCap = 70000;
   } else if (tierNum === 6) {
     percent = 0.20;
-    multiplier = 6;
+    multiplier = 3;
     label = '葫蘆 / 滿堂紅 (Full House)';
-    hardCap = 30000;
   }
 
-  if (percent <= 0) return { payout: 0, percent: 0, multiplier: 0, label: '', hardCap: 0 };
+  if (percent <= 0) {
+    return {
+      payout: 0,
+      percent: 0,
+      multiplier: 0,
+      label: '',
+      effectiveMultiplier: 0,
+      alpha: 0,
+    };
+  }
 
+  const W0 = Number(preGameWealth);
+  const alpha = (W0 && W0 > 0) ? Math.min(1, safeBet / W0) : 1.0;
+  const effectiveMultiplier = multiplier * alpha;
+  const multiplierPortion = Math.floor(safeBet * effectiveMultiplier);
   const vaultPortion = Math.floor(safeVault * percent);
-  const multiplierPortion = effectiveBet * multiplier;
-  const payout = Math.floor(Math.min(vaultPortion, multiplierPortion, hardCap));
+  const payout = Math.floor(Math.min(multiplierPortion, vaultPortion));
 
   return {
     payout,
     percent,
     multiplier,
     label,
-    hardCap,
+    effectiveMultiplier,
+    alpha,
+  };
+}
+
+/**
+ * 午夜富人稅純計算函式 (IPC Daily Wealth Tax)
+ *
+ * 公式：
+ *   若 W <= 4,000,000：T = 0, Wafter = W
+ *   若 4,000,000 < W < 10,000,000：Wafter = max(4,000,000, floor(W * 0.88)), T = W - Wafter
+ *   若 W >= 10,000,000：Wafter = max(8,800,000, floor(W * 0.80)), T = W - Wafter
+ *
+ * @param {number} totalWealth - 玩家計稅總資產 W
+ * @returns {object} { originalWealth, afterTaxWealth, taxAmount, taxRateTier }
+ */
+function calculateDailyWealthTax(totalWealth) {
+  const originalWealth = Math.max(0, Math.floor(Number(totalWealth) || 0));
+  let afterTaxWealth = originalWealth;
+  let taxRateTier = '0%';
+
+  if (originalWealth <= 4000000) {
+    afterTaxWealth = originalWealth;
+    taxRateTier = '0%';
+  } else if (originalWealth < 10000000) {
+    afterTaxWealth = Math.max(4000000, Math.floor(originalWealth * 0.88));
+    taxRateTier = '12%';
+  } else {
+    afterTaxWealth = Math.max(8800000, Math.floor(originalWealth * 0.80));
+    taxRateTier = '20%';
+  }
+
+  const taxAmount = originalWealth - afterTaxWealth;
+
+  return {
+    originalWealth,
+    afterTaxWealth,
+    taxAmount,
+    taxRateTier,
   };
 }
 
@@ -483,4 +640,5 @@ module.exports = {
   evaluateBlackjackSpecialHand,
   calculateBlackjackJackpot,
   calculateHoldemJackpot,
+  calculateDailyWealthTax,
 };

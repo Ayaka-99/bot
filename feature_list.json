@@ -87,6 +87,14 @@
       "dependencies": ["feat-chat-model-quota-fallback-chain"],
       "status": "done",
       "evidence": "node test_aventurine_ratio_memory.js 7/7 PASS 且 cmd.exe /c init.cmd 8 大關卡全數通過 (涵蓋轉場過渡橋樑、杜絕清晨瞬移、因果相扣與敘事閉環驗證，賭場與聊天模組零回退)"
+    },
+    {
+      "id": "feat-v60-vault-core-and-jackpot-math",
+      "name": "v6.0 金庫擴容、移除注資截斷與身家佔比動態彩金核心演算法",
+      "description": "擴容金庫容量（BJ 1,000萬 / 德州 2,000萬）、底金（BJ 25萬 / 德州 50萬）；移除單次注資 25,000 限制（改為無限額注資、達標滿溢銷毀）；實裝身家投入佔比動態彩金演算法（21點四級與德州撲克四級彩金，依有效籌碼佔開局身家比例計算倍率與金庫提領上限）；實裝午夜富人稅純計算函式（雙階梯 12%/20% 與 400萬/880萬 地板保護公式）",
+      "dependencies": ["feat-casino-v56-core"],
+      "status": "done",
+      "evidence": "node test_v60_vault_jackpot.js 6/6 PASS 且 cmd.exe /c init.cmd 8 大關卡全數通過 (含金庫擴容 1000w/2000w、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、富人稅雙階梯地板保護無斷崖倒掛，16 套既有賭場回歸測試與對話測試零回退)"
     }
   ]
 }

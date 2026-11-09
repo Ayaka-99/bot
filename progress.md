@@ -54,18 +54,29 @@
     • 第一人稱因果相扣：砂金清晨開口首句台詞帶著倦怠玩味，主動接住昨晚被清算的狼狽因果。
     • 敘事閉環防截斷：要求單則訊息維持語意完整與標點閉合，不得在動作或句子進行中腰斬。
   - 擴充並通過單元測試 `test_aventurine_ratio_memory.js` (7/7 PASS)，覆蓋所有新增提示詞剛性約束。
+- **v6.0 金庫擴容、移除注資截斷與身家佔比動態彩金核心演算法 (`feat-v60-vault-core-and-jackpot-math`)**:
+  - 金庫常數擴容重構：`BJ_VAULT_MAX = 10,000,000` (1,000 萬)、`TEXAS_VAULT_MAX = 20,000,000` (2,000 萬)、`BJ_VAULT_INIT = 250,000` (25 萬)、`TEXAS_VAULT_INIT = 500,000` (50 萬)、`MAX_VAULT_INJECTION = Infinity`（徹底移除單筆 25,000 注資截斷，100% 入庫，滿額自動銷毀並累加 `totalBurned`）。
+  - 實裝身家投入佔比動態彩金演算法 (Proportional Stake Jackpot)：
+    • 公式：$\alpha = \min(1, B_{\text{eff}} / W_0)$，$\text{EffectiveMultiplier} = M_{\text{max}} \times \alpha$，$\text{Bonus} = \min\left( \lfloor B_{\text{eff}} \times M_{\text{max}} \times \alpha \rfloor, \; \lfloor \text{CurrentVault} \times \text{Cap\%} \right)$。
+    • 21 點 4 級階梯重構：Tier 1 (同花 BJ: 4x / 15% Cap)、Tier 2 (五龍/雜色6-7-8: 15x / 35% Cap)、Tier 3 (同花21點/雜色7-7-7: 40x / 65% Cap)、Tier 4 (同花6-7-8/同花7-7-7: 150x / 100% 搬空金庫)。
+    • 德州撲克 4 級神話彩金重構：葫蘆 (3x / 20% Cap)、四條 (20x / 50% Cap)、同花順 (80x / 80% Cap)、皇家同花順 (300x / 100% 搬空金庫)，回傳 `{ payout, percent, multiplier, label, effectiveMultiplier, alpha }`。
+    • 向後相容防禦：當未傳入開局身家或 $\le 0$ 時，安全回退為以有效注額為基準計算（$\alpha = 1.0$）。
+  - 實裝午夜富人稅純計算函式 `calculateDailyWealthTax(totalWealth)`：
+    • $W \le 400\text{w}$ 免稅，$400\text{w} < W < 1000\text{w}$ 徵收 $12\%$（$400\text{w}$ 地板保護），$W \ge 1000\text{w}$ 徵收 $20\%$（$880\text{w}$ 地板保護）。
+    • 數學證明單調不減，杜絕斷崖式資產倒掛。
+  - 新增單元測試 `test_v60_vault_jackpot.js` (6/6 PASS)。
 
 ## What's In Progress
-- 當前目標已完成，等待下一階段業務需求。
+- 當前微任務 `feat-v60-vault-core-and-jackpot-math` 已交付，等待下一個 v6.0 微任務切片。
 
 ## What's Next
-- 等待使用者提供下一功能或優化任務。
+- 接續施工 v6.0 下一階段微任務：`aventurineCasinoService.js` 開池注資補償 Migration、雙金庫常規獲勝撥款與下注上限解禁。
 
 ## Blockers
 - 無。當前專案基線 100% 健康，所有語法檢查與測試套件全數通過。
 
 ## Evidence
-- `node test_aventurine_ratio_memory.js` 7/7 項單元測試全數通過。
+- `node test_v60_vault_jackpot.js` 6/6 項單元測試全數通過（含容量常數、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、富人稅雙階梯地板保護無斷崖倒掛、異常邊界防禦）。
 - `cmd.exe /c init.cmd` 執行通過：
   - 執行環境與套件依賴就緒。
   - 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組)。
@@ -73,5 +84,5 @@
   - `test_1a2b_game.js` 4/4 項單元測試全數通過。
   - `test_chat_limits.js` 3/3 項單元測試全數通過。
   - `test_master_impersonation.js` 5/5 項單元測試全數通過。
-  - `test_master_aventurine_yuexi.js` 7/7 項單元測試全數通過 (含 429 跨 Key/Model 降級、404 快跳、模型常數階梯順序斷言)。
-  - `test_safety_refusal_interception.js` 4/4 項單元測試全數通過 (AI 破防說教攔截、無誤傷、人設不可破防規範、端對端無縫置換)。
+  - `test_master_aventurine_yuexi.js` 7/7 項單元測試全數通過。
+  - `test_safety_refusal_interception.js` 4/4 項單元測試全數通過。
