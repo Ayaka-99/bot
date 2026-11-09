@@ -1,9 +1,10 @@
 /**
  * 星際和平公司 (IPC) 星瓊轉帳服務模組
- * 規格 (v5.6 抗通膨更新)：
- * 1. 單次轉帳限額最高 5,000 星瓊 (最少 1 星瓊)
+ * 規格 (v6.0 財富重分配協議更新)：
+ * 1. 單次轉帳限額最高 50,000 星瓊 (最少 1 星瓊，v5.6 legacy 為 5,000)
  * 2. 轉帳對象冷卻限制：對同一個成員轉帳完畢後，需間隔 4 小時方可再次向該成員轉帳
  * 3. 嚴密防呆：禁止轉帳給自己、機器人、負數/小數、餘額不足對象
+ * 4. 贖身連動：收款後若資產達標自動解除天台負債
  */
 
 const { EmbedBuilder } = require('discord.js');
@@ -115,14 +116,14 @@ function checkTransferCooldown(db, senderId, targetId) {
 }
 
 /**
- * 執行星瓊轉帳 (上限 5,000，同對象 4 小時冷卻)
+ * 執行星瓊轉帳 (上限 50,000，同對象 4 小時冷卻)
  * @param {sqlite3.Database} db
  * @param {import('discord.js').User} sender
  * @param {import('discord.js').User} target
  * @param {number} amount
  */
 async function executeTransfer(db, sender, target, amount) {
-  // 1. 基本參數檢驗 (最少 1 星瓊，最高 5,000)
+  // 1. 基本參數檢驗 (最少 1 星瓊，最高 MAX_TRANSFER_LIMIT)
   if (!Number.isInteger(amount) || amount < 1) {
     return {
       success: false,

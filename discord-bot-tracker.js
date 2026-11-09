@@ -151,7 +151,7 @@ const {
   buildBlackMarketEmbed,
 } = require('./blackMarketService');
 
-// 引入星瓊轉帳服務 (單次上限 32,000，冷卻 2 小時)
+// 引入星瓊轉帳服務 (單次上限 50,000，同對象冷卻 4 小時)
 const {
   initTransferTable,
   executeTransfer,
@@ -496,7 +496,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('轉帳')
-    .setDescription('向伺服器其他成員轉帳星瓊 (單次上限 5,000，同對象冷卻 4 小時)')
+    .setDescription('向伺服器其他成員轉帳星瓊 (單次上限 50,000，同對象冷卻 4 小時)')
     .addUserOption(option =>
       option.setName('對象')
         .setDescription('要轉帳星瓊的目標成員')
@@ -504,10 +504,10 @@ const commands = [
     )
     .addIntegerOption(option =>
       option.setName('金額')
-        .setDescription('轉帳星瓊數量 (最少 1 星瓊，上限 5,000 星瓊)')
+        .setDescription('轉帳星瓊數量 (最少 1 星瓊，上限 50,000 星瓊)')
         .setRequired(true)
         .setMinValue(1)
-        .setMaxValue(5000)
+        .setMaxValue(50000)
     ),
 
   new SlashCommandBuilder()
@@ -564,10 +564,10 @@ const commands = [
   // 「詭弈砂金」星際賭場相關指令
   new SlashCommandBuilder()
     .setName('詭弈砂金')
-    .setDescription('與砂金對決匹諾康尼 21 點（支援特殊牌型神話派彩、平手手動比骰與全押截斷保護）')
+    .setDescription('與砂金對決匹諾康尼 21 點（支援身家佔比動態彩金、平手手動比骰與 All-in 全押模式）')
     .addStringOption(option =>
       option.setName('下注')
-        .setDescription('下注星瓊數量 (100 ~ 5,000) 或輸入 max 滿注 / all 全押 (預設 500)')
+        .setDescription('下注星瓊數量 (100 ~ 1,000,000) 或輸入 max 滿注 / all 全押 (預設 500)')
         .setRequired(false)
     ),
 
@@ -578,12 +578,12 @@ const commands = [
   // 匹諾康尼 PvP 21 點雙人盲抽單挑
   new SlashCommandBuilder()
     .setName('單挑21點')
-    .setDescription('匹諾康尼 21 點雙人盲抽單挑 (賭注 100~5,000，贏家抽稅 10% 銷毀，同點爆牌退本)')
+    .setDescription('匹諾康尼 21 點雙人盲抽單挑 (賭注 100~5,000,000，全面 0% 抽稅，雙爆牌 100% 沒收注入金庫)')
     .addIntegerOption(option =>
       option.setName('賭注')
-        .setDescription('單挑下注星瓊金額 (100 ~ 5,000)')
+        .setDescription('單挑下注星瓊金額 (100 ~ 5,000,000)')
         .setMinValue(100)
-        .setMaxValue(5000)
+        .setMaxValue(5000000)
         .setRequired(true)
     )
     .addUserOption(option =>
@@ -595,19 +595,19 @@ const commands = [
   // 匹諾康尼 PvP 21 點多人大逃殺 ＋ 場外買馬
   new SlashCommandBuilder()
     .setName('大逃殺21點')
-    .setDescription('匹諾康尼 21 點多人大逃殺 (30秒招募，入場費 1,000~5,000，贏家獨得底池扣 10% 銷毀)')
+    .setDescription('匹諾康尼 21 點多人大逃殺 (30秒招募，入場費 1,000~2,000,000，全面 0% 抽稅，全員團滅 100% 沒收注入金庫)')
     .addIntegerOption(option =>
       option.setName('入場費')
-        .setDescription('每人上桌入場費 (1,000 ~ 5,000)')
+        .setDescription('每人上桌入場費 (1,000 ~ 2,000,000)')
         .setMinValue(1000)
-        .setMaxValue(5000)
+        .setMaxValue(2000000)
         .setRequired(true)
     ),
 
   // 匹諾康尼 德州撲克 5+1 錦標賽 (石心十人盲注桌)
   new SlashCommandBuilder()
     .setName('德州撲克')
-    .setDescription('石心十人盲注桌：1~5人＋NPC砂金德州撲克 (百分比加注、神話派彩與獲利天花板風控)')
+    .setDescription('石心十人盲注桌：1~5人＋NPC砂金德州撲克 (0%抽水、百分比加注與四級神話動態彩金)')
     .addStringOption(option =>
       option.setName('買入上限')
         .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 2,500)')
@@ -622,11 +622,12 @@ const commands = [
   // 🧧 拼手氣星瓊紅包
   new SlashCommandBuilder()
     .setName('紅包')
-    .setDescription('🧧 塞入星瓊發送免稅拼手氣紅包 (最少 3 份，24 小時未領完自動銷毀)')
+    .setDescription('🧧 塞入星瓊發送免稅拼手氣紅包 (單包上限 200,000，單日 500,000，24 小時未領完自動銷毀)')
     .addIntegerOption(option =>
       option.setName('總星瓊')
-        .setDescription('紅包內的總星瓊金額 (最少 3 星瓊，需自身餘額充足)')
+        .setDescription('紅包內的總星瓊金額 (最少 3 星瓊，單包上限 200,000，需自身餘額充足)')
         .setMinValue(3)
+        .setMaxValue(200000)
         .setRequired(true)
     )
     .addIntegerOption(option =>
@@ -3025,7 +3026,7 @@ client.on('interactionCreate', async (interaction) => {
 
         let hostLimit = 2500;
         if (isAllIn) {
-          // 拿出玩家的所有星瓊，不設 50,000 封頂！
+          // 拿出玩家的所有星瓊，不設封頂！
           hostLimit = myJades;
         } else if (rawLimit) {
           const parsed = parseInt(rawLimit.trim(), 10);

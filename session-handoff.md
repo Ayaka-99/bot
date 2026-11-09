@@ -84,6 +84,15 @@
     - `transferService.js`：單次上限 50,000 與 4 小時冷卻。
     - 全通道掛載 `checkAndRedeemDebt` 自動贖身（轉帳、紅包、1A2B、德州撲克、21點對決）。
     - 新增單元測試 `test_v60_peripheral.js` (6/6 PASS)。
+15. **`feat-v60-ui-and-command-descriptions-alignment`** [done]:
+    - 修正 `discord-bot-tracker.js` 中 `/公司金庫`、`/轉帳`、`/紅包`、`/退紅包`、`/詭弈砂金`、`/單挑21點`、`/大逃殺21點`、`/德州撲克` 之 Slash Command 描述、options 邊界與相關模組註解。
+    - 修正 `aventurineCasinoService.js` 中 `buildIpcVaultEmbed` 金庫儀表板描述，移除單次 25,000 注資上限，全面對齊四級動態佔比彩金階梯。
+    - 修正 `pvpCasinoService.js` 比骰加賽 0% 抽稅提示與模組標頭。
+    - 修正 `texasHoldemService.js` 標頭 0% 抽水說明與 All-in 徹底解除上限提示。
+    - 修正 `casinoStatsService.js` 德州勝率快速開桌提示（支援 1~5 人真人上桌、0% 抽水與四級動態彩金）。
+    - 修正 `transferService.js` JSDoc 與限額註解。
+    - 同步更新 `CASINO_GUIDE.md`（移除大逃殺買馬死文字）與 `GAMBLING_AND_CURRENCY_MECHANICS.md`（第十一章對照表全面升級為 v6.0 真實機制）。
+    - 新增單元測試 `test_v60_ui_and_command_descriptions.js` (5/5 PASS)。
 - **【深度審查與漏洞加固完成】**:
   - 修復 `texasHoldemService.js` 中 `getActiveTexasHoldemChipsByUserId` 與 `deductChipsFromActiveHoldemTable` 僅檢索 mock `players` 的重大穿透逃稅漏洞，全面接入線上真實牌桌 `session.seats` 結構。
   - 修復 `casinoVaultService.js` 中 `evaluateBlackjackSpecialHand` 將所有 777 誤判為 Tier 4 (150x / 100% 搬空) 的問題，精準劃分雜色 777 為 Tier 3 (40x / 65%)、同花 777 為 Tier 4 (150x / 100%)。
@@ -92,7 +101,7 @@
 
 ## 3. 下一階段交接事項 (Next Steps)
 - **v6.0「星際和平公司・財富重分配協議」全數交付與加固完成**：
-  - 目前所有 6 大微任務皆已實作、深度審核加固且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、v6.0 專屬 6 組測試套件 35/35 測試全數 PASS）。
+  - 目前所有 7 大微任務與 UI 文案對齊皆已實作且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、v6.0 專屬 7 組測試套件 40/40 測試全數 PASS）。
   - 若需部署至遠端正式伺服器，直接執行專屬一行流指令。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)

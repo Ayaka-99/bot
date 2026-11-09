@@ -1842,10 +1842,13 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
     }
     const totalReturn = session.bet + winProfit;
 
-    db.run(
-      'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-      [totalReturn, session.userId]
-    );
+    await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+        [totalReturn, session.userId],
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
 
     recordCasinoGame(db, {
       userId: session.userId,
@@ -1893,10 +1896,13 @@ async function handleDiceRoll(db, session, interaction, isTimeout = false) {
       diceLossNote = `退回籌碼：**+${refund.toLocaleString()}** 星瓊\n損失籌碼：**-${lostAmount.toLocaleString()}** 星瓊 *(已 100% 注入 21 點金庫)*`;
     }
 
-    db.run(
-      'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
-      [refund, session.userId]
-    );
+    await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE user_currency SET stellarJades = stellarJades + ?, updatedAt = CURRENT_TIMESTAMP WHERE userId = ?',
+        [refund, session.userId],
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
 
     recordCasinoGame(db, {
       userId: session.userId,
@@ -1954,6 +1960,40 @@ async function buildIpcVaultEmbed(db) {
   let richListStr = topRich.map((r, i) => `**#${i + 1}** ${r.username} — \`${r.stellarJades.toLocaleString()}\` 星瓊`).join('\n') || '尚無資料';
   let debtorListStr = debtors.length > 0 ? debtors.map((d) => `• ${d.username}`).join('\n') : '目前天台空無一人，所有賭客皆已平安落地。';
 
+  const descriptionText = isLegacyV56Test
+    ? `> *「這座金庫見證過無數賭徒的眼淚，但也隨時準備向真正的命運寵兒敞開大門。」*\n\n` +
+      `🔥 **全服通膨自動抗性閥門**：單次注資上限 25,000 星瓊，滿溢 100% 強制銷毀！\n` +
+      `💀 **雙金庫累計銷毀星瓊**：\`${(bjVault.totalBurned + texasVault.totalBurned).toLocaleString()}\` **星瓊**\n` +
+      `──────────────────────`
+    : `> *「這座金庫見證過無數賭徒的眼淚，但也隨時準備向真正的命運寵兒敞開大門。」*\n\n` +
+      `🔥 **星際和平公司・財富重分配協議**：注資無上限，水位達標滿溢 100% 強制銷毀！\n` +
+      `💀 **雙金庫累計銷毀星瓊**：\`${(bjVault.totalBurned + texasVault.totalBurned).toLocaleString()}\` **星瓊**\n` +
+      `──────────────────────`;
+
+  const bjJackpotDesc = isLegacyV56Test
+    ? `• **特殊牌型彩金**：\n` +
+      `  - Tier 1 同花 BJ: 10% (最高 10,000)\n` +
+      `  - Tier 2 五龍/雜色 678: 15% (最高 20,000)\n` +
+      `  - Tier 3 同花 21 點: 25% (最高 40,000)\n` +
+      `  - Tier 4 7-7-7/同花 678: 50% (最高 90,000)`
+    : `• **動態佔比神話彩金 (依有效籌碼佔開局身家比例)**：\n` +
+      `  - Tier 1 同花 BJ: 最高 4x / 金庫 15% Cap\n` +
+      `  - Tier 2 五龍 / 雜色 6-7-8: 最高 15x / 金庫 35% Cap\n` +
+      `  - Tier 3 同花 21 點 / 雜色 7-7-7: 最高 40x / 金庫 65% Cap\n` +
+      `  - Tier 4 同花 6-7-8 / 同花 7-7-7: 最高 150x / 金庫 100% Cap (搬空金庫)`;
+
+  const texasJackpotDesc = isLegacyV56Test
+    ? `• **高階牌型彩金**：\n` +
+      `  - Tier 1 葫蘆: 20% (最高 30,000)\n` +
+      `  - Tier 2 四條: 35% (最高 70,000)\n` +
+      `  - Tier 3 同花順: 45% (最高 125,000)\n` +
+      `  - Tier 4 皇家同花順: 50% (最高 200,000)`
+    : `• **動態佔比神話彩金 (依有效籌碼佔開局身家比例)**：\n` +
+      `  - Tier 1 葫蘆: 最高 3x / 金庫 20% Cap\n` +
+      `  - Tier 2 四條: 最高 20x / 金庫 50% Cap\n` +
+      `  - Tier 3 同花順: 最高 80x / 金庫 80% Cap\n` +
+      `  - Tier 4 皇家同花順: 最高 300x / 金庫 100% Cap (搬空金庫)`;
+
   const embed = new EmbedBuilder()
     .setColor('#F1C40F')
     .setAuthor({
@@ -1961,23 +2001,14 @@ async function buildIpcVaultEmbed(db) {
       iconURL: AVENTURINE_AVATAR,
     })
     .setTitle('🏦 星際和平公司公共金庫 (雙軌獨立獎池儀表板)')
-    .setDescription(
-      `> *「這座金庫見證過無數賭徒的眼淚，但也隨時準備向真正的命運寵兒敞開大門。」*\n\n` +
-      `🔥 **全服通膨自動抗性閥門**：單次注資上限 25,000 星瓊，滿溢 100% 強制銷毀！\n` +
-      `💀 **雙金庫累計銷毀星瓊**：\`${(bjVault.totalBurned + texasVault.totalBurned).toLocaleString()}\` **星瓊**\n` +
-      `──────────────────────`
-    )
+    .setDescription(descriptionText)
     .addFields(
       {
         name: `🃏 21 點專屬金庫 (BJ_Vault)`,
         value: `• **當前水位**：\`${bjVault.currentJades.toLocaleString()} / ${bjVault.maxCapacity.toLocaleString()}\` 星瓊\n` +
           `• **歷史總派彩**：\`${bjVault.totalPaidOut.toLocaleString()}\` 星瓊\n` +
           `• **系統直接銷毀**：\`${bjVault.totalBurned.toLocaleString()}\` 星瓊\n` +
-          `• **特殊牌型彩金**：\n` +
-          `  - Tier 1 同花 BJ: 10% (最高 10,000)\n` +
-          `  - Tier 2 五龍/雜色 678: 15% (最高 20,000)\n` +
-          `  - Tier 3 同花 21 點: 25% (最高 40,000)\n` +
-          `  - Tier 4 7-7-7/同花 678: 50% (最高 90,000)`,
+          bjJackpotDesc,
         inline: false,
       },
       {
@@ -1985,11 +2016,7 @@ async function buildIpcVaultEmbed(db) {
         value: `• **當前水位**：\`${texasVault.currentJades.toLocaleString()} / ${texasVault.maxCapacity.toLocaleString()}\` 星瓊\n` +
           `• **歷史總派彩**：\`${texasVault.totalPaidOut.toLocaleString()}\` 星瓊\n` +
           `• **系統直接銷毀**：\`${texasVault.totalBurned.toLocaleString()}\` 星瓊\n` +
-          `• **高階牌型彩金**：\n` +
-          `  - Tier 1 葫蘆: 20% (最高 30,000)\n` +
-          `  - Tier 2 四條: 35% (最高 70,000)\n` +
-          `  - Tier 3 同花順: 45% (最高 125,000)\n` +
-          `  - Tier 4 皇家同花順: 50% (最高 200,000)`,
+          texasJackpotDesc,
         inline: false,
       },
       {
@@ -2003,7 +2030,7 @@ async function buildIpcVaultEmbed(db) {
         inline: true,
       }
     )
-    .setFooter({ text: '輸入 /詭弈砂金 [下注] 即刻挑戰砂金！' })
+    .setFooter({ text: '輸入 /詭弈砂金 [下注] 即刻挑戰砂金！雙金庫每日 00:00:00 依富人稅 40%/60% 分流入庫' })
     .setTimestamp();
 
   return embed;

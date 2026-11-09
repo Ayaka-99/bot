@@ -1036,7 +1036,7 @@ function buildHoldemExclusiveStatsEmbed(user, stats) {
       },
       {
         name: '🎲 快速開桌與功能提示',
-        value: `輸入 \`/德州撲克\` 即可開啟 1v4 NPC 錦標賽！預設攜帶 2,500 星瓊，支援連續 Cash Game、即時牌型小幫手與離場全額兌現。`,
+        value: `輸入 \`/德州撲克\` 即可開啟石心十人桌 (支援 1~5 人真人上桌與 NPC 砂金對決)！最低攜帶 1,000 星瓊，支援連續 Cash Game、即時牌型小幫手、0% 抽水與四級神話動態彩金。`,
         inline: false,
       }
     )

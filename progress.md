@@ -127,16 +127,26 @@
   - `aventurineCasinoService.js`：
     • 增強 `checkAndRedeemDebt`：以 `await` 確保更新 `bankruptcy_records SET isIndebted = 0` 與 `UPDATE user_currency SET username = REPLACE(...)` 完成，杜絕非同步延遲問題。
   - 新增單元測試 `test_v60_peripheral.js` (5/5 PASS)。
+- **v6.0 指令註冊描述、UI 面板與制度規則全面對齊 (`feat-v60-ui-and-command-descriptions-alignment`)**:
+  - 全面盤點專案內所有面向使用者的 Slash Command 註冊描述、選項數值範圍、Embed 面板文案、按鈕標籤與規則說明：
+    • `discord-bot-tracker.js`：`/轉帳` 描述與金額選項上限對齊 50,000 (`setMaxValue(50000)`)，更新模組引入註解為 50,000/4 小時；`/詭弈砂金` 描述移除「全押截斷保護」並改為「支援身家佔比動態彩金、平手手動比骰與 All-in 全押模式」，下注選項上限對齊 1,000,000；`/單挑21點` 描述更新為「賭注 100~5,000,000，全面 0% 抽稅，雙爆牌 100% 沒收注入金庫」，下注上限放寬至 5,000,000 (`setMaxValue(5000000)`)；`/大逃殺21點` 描述更新為「入場費 1,000~2,000,000，全面 0% 抽稅，全員團滅 100% 沒收注入金庫」，入場費上限放寬至 2,000,000 (`setMaxValue(2000000)`)；`/德州撲克` 描述移除「獲利天花板風控」改為「0%抽水、百分比加注與四級神話動態彩金」，清除行內不設 50,000 封頂殘留註解；`/紅包` 描述與總星瓊選項對齊「單包上限 200,000，單日 500,000」(`setMaxValue(200000)`)。
+    • `aventurineCasinoService.js`：重構 `buildIpcVaultEmbed`，在非 legacy 模式徹底移除「單次注資上限 25,000 星瓊」，更新為「注資無上限，水位達標滿溢 100% 強制銷毀」；21 點與德州雙軌金庫欄位全面替換為真實 v6.0 四級動態佔比神話彩金階梯（BJ: 4x/15%、15x/35%、40x/65%、150x/100%；Texas: 3x/20%、20x/50%、80x/80%、300x/100%）；Footer 標註雙金庫每日 00:00:00 依富人稅 40%/60% 分流入庫。
+    • `pvpCasinoService.js`：平手比骰加賽 Embed 新增標籤 `(享 0% 抽稅協議全額獨得)`，標頭註解對齊 0% 抽稅與雙爆/團滅 100% 入庫。
+    • `texasHoldemService.js`：更新標頭註解為 0% 抽水與身家佔比動態彩金；修正 All-in 成功提示文字，徹底移除「不設 50,000 上限」之舊語句。
+    • `casinoStatsService.js`：更新 `/德州勝率` Embed「快速開桌與功能提示」，標明支援 1~5 人真人上桌、0% 抽水與四級神話動態彩金。
+    • `transferService.js`：修復 JSDoc 與模組說明，對齊單次上限 50,000。
+    • `CASINO_GUIDE.md` & `GAMBLING_AND_CURRENCY_MECHANICS.md`：全面同步 v6.0 制度，移除大逃殺買馬死文字；將白皮書第十一章對照總表全面升級為 v6.0 真實機制（轉帳 50k、紅包 200k/500k、砂金 100w/All-in、單挑 500w 0% 抽稅雙爆入庫、大逃殺 200w 團滅入庫、德州 0% 抽水、雙金庫 1000w/2000w 與 00:00 富人稅），結案第十二章各項落差。
+    • 單元測試 `test_v60_ui_and_command_descriptions.js` 擴充至 5/5 全數 PASS。
 
 ## What's In Progress
-- 無（《v6.0「星際和平公司・財富重分配協議」》全數 6 棒微任務已全數實作與驗證完畢）。
+- 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
 
 ## What's Next
 - 向 Coordinator / Parent Agent 提交最終執行交付報告與客觀驗證證據。
 - 遠端伺服器 (SSH / Linux / VPS) 部署：`cd ~/bot && git pull && pm2 restart dc-bot --update-env`。
 
 ## Blockers
-- 無。當前專案基線 100% 健康，所有語法檢查、既有回歸測試套件與 v6.0 全套 6 組單元測試全數 100% 通過。
+- 無。當前專案基線 100% 健康，所有語法檢查、既有回歸測試套件與 v6.0 全套 7 組單元測試全數 100% 通過。
 
 - 2026-11-09: 【審查與加固修復】完成深度代碼審查、漏洞修正與邊界防禦強化：
   - 修復 `texasHoldemService.js` 穿透計稅漏洞：原 `getActiveTexasHoldemChipsByUserId` 與 `deductChipsFromActiveHoldemTable` 僅檢索測試 mock 物件 `session.players`，導致線上真實牌桌 `session.seats` 穿透查詢回傳 0 且無法扣除桌上籌碼。全面加固支援標準 `session.seats` 並維持 `session.players` 測試向下相容。
@@ -149,6 +159,7 @@
     • `test_v60_peripheral.js` (6/6 PASS，涵蓋連續微型轉帳累積跨越 1,600 門檻即時自動贖身斷言)。
 
 ## Evidence
+- `node test_v60_ui_and_command_descriptions.js` 5/5 項單元測試全數通過（SlashCommandBuilder 註冊描述與 options 邊界、/公司金庫 Embed 儀表板文案與動態彩金階梯、結算快捷按鈕滿注 100 萬、/轉帳 Embed 面板限額 50,000、德州撲克 UI、戰績提示與白皮書對照總表）。
 - `node test_v60_peripheral.js` 6/6 項單元測試全數通過（黑市稱號與今日大亨 40%/60% 分流、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、連續微型轉帳累積跨越 1,600 即時自動贖身）。
 - `node test_v60_pvp_and_holdem.js` 6/6 項單元測試全數通過（單挑500w上限與雙爆入庫、大逃殺200w上限與全員團滅入庫、德州NPC奪池100%入庫、真人奪池免25k封頂且0%抽水、防作弊三鐵律、皇家同花順100%搬空）。
 - `node test_v60_aventurine_pve.js` 6/6 項單元測試全數通過（含 100萬滿注、Double Down 解禁、輸局 100% 入庫、常規利潤金庫支應與 20% 安全閥保護、同花 BJ 動態彩金派彩、命運比骰決鬥扣庫與入庫）。
@@ -164,3 +175,4 @@
   - [6/8] `test_master_impersonation.js` 5/5 項單元測試全數通過。
   - [7/8] `test_master_aventurine_yuexi.js` 7/7 項單元測試全數通過。
   - [8/8] `test_safety_refusal_interception.js` 4/4 項單元測試全數通過。
+

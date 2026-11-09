@@ -12,7 +12,7 @@
  *    - 開拓者 (Calling Station)：入池率 60%、有對子/聽牌 100% 不棄牌不加注、純空氣牌認輸
  * 4. 連續牌局 (Cash Game)：籌碼常駐桌上，持續玩到破產或離場，莊家 Button 與大小盲注 (SB 2.5%, BB 5%) 順時針輪轉
  * 5. 木桶法則平齊機制 (Dynamic Table Cap)
- * 6. 金流抽水與神話派彩：5% 稅金、同花順搬走 25%、四條搬走 12.5%
+ * 6. 金流 0% 抽水與神話派彩：全面 0% 抽成、防作弊三鐵律、身家佔比動態彩金
  */
 
 const {
@@ -2744,7 +2744,7 @@ async function handleHoldemLobbyAllIn(db, interaction, sessionId) {
   session.tableCap = balance;
 
   await interaction.reply({
-    content: `🔥 **房主已押上全部身家！牌桌正式轉為【身家全押豪賭桌 (All-in)】！**\n已拿出你所有的 **${balance.toLocaleString()}** 星瓊，不設 50,000 上限！全部，或一無所有！`,
+    content: `🔥 **房主已押上全部身家！牌桌正式轉為【身家全押豪賭桌 (All-in)】！**\n已拿出你所有的 **${balance.toLocaleString()}** 星瓊，徹底解除上限！全部，或一無所有！`,
     flags: MessageFlags.Ephemeral,
   });
 

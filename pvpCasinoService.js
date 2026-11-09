@@ -1,6 +1,6 @@
 /**
- * 匹諾康尼 PvP 賭場系統：單挑21點 與 大逃殺21點 (含場外買馬)
- * 沉浸式盲抽心理戰、彩池分紅制買馬、平手 2d6 決鬥、5% 稅金與沒收注額全入 IPC 金庫
+ * 匹諾康尼 PvP 賭場系統：單挑21點 與 大逃殺21點
+ * 沉浸式盲抽心理戰、平手 2d6 決鬥、v6.0 全面 0% 抽稅與雙爆/團滅沒收 100% 注入 IPC 金庫
  */
 
 const {
@@ -723,7 +723,7 @@ async function resolveDuel(db, session) {
         `👤 **${pA.username}**：${revealA}\n` +
         `👤 **${pB.username}**：${revealB}\n\n` +
         `> *「點數完全相同？！命運把你們推上了同一座賭盤，擲出骰子決一死戰吧！」*\n\n` +
-        `請雙方點擊下方按鈕擲出 2 顆骰子，點數大者獨吞 **${winPayout.toLocaleString()}** 星瓊${tax > 0 ? ' (已扣 10% 系統銷毀稅)' : ''}！`
+        `請雙方點擊下方按鈕擲出 2 顆骰子，點數大者獨吞 **${winPayout.toLocaleString()}** 星瓊${tax > 0 ? ' (已扣 10% 系統銷毀稅)' : (isLegacyV56Test ? '' : ' (享 0% 抽稅協議全額獨得)')}！`
       );
 
     const diceRow = new ActionRowBuilder().addComponents(
@@ -1326,7 +1326,7 @@ async function resolveBattleRoyale(db, session) {
       .setDescription(
         revealList + '\n\n' +
         `> *「${names} 同為 ${maxScore} 點！這座獎池只屬於唯一的勝者，用骰子定生死吧！」*\n\n` +
-        `請並列的選手點擊下方按鈕投擲 2 顆骰子，最終勝者獨吞 **${winPayout.toLocaleString()}** 星瓊${tax > 0 ? ' (已扣 10% 銷毀稅)' : ''}！`
+        `請並列的選手點擊下方按鈕投擲 2 顆骰子，最終勝者獨吞 **${winPayout.toLocaleString()}** 星瓊${tax > 0 ? ' (已扣 10% 銷毀稅)' : (isLegacyV56Test ? '' : ' (享 0% 抽稅協議全額獨得)')}！`
       );
 
     const diceRow = new ActionRowBuilder().addComponents(
