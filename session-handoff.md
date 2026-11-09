@@ -83,11 +83,16 @@
     - `redPacketService.js`：單包上限 200,000、單日上限 500,000。
     - `transferService.js`：單次上限 50,000 與 4 小時冷卻。
     - 全通道掛載 `checkAndRedeemDebt` 自動贖身（轉帳、紅包、1A2B、德州撲克、21點對決）。
-    - 新增單元測試 `test_v60_peripheral.js` (5/5 PASS)。
+    - 新增單元測試 `test_v60_peripheral.js` (6/6 PASS)。
+- **【深度審查與漏洞加固完成】**:
+  - 修復 `texasHoldemService.js` 中 `getActiveTexasHoldemChipsByUserId` 與 `deductChipsFromActiveHoldemTable` 僅檢索 mock `players` 的重大穿透逃稅漏洞，全面接入線上真實牌桌 `session.seats` 結構。
+  - 修復 `casinoVaultService.js` 中 `evaluateBlackjackSpecialHand` 將所有 777 誤判為 Tier 4 (150x / 100% 搬空) 的問題，精準劃分雜色 777 為 Tier 3 (40x / 65%)、同花 777 為 Tier 4 (150x / 100%)。
+  - 增強 `aventurineCasinoService.js` 中 `checkAndRedeemDebt` 的餘額 DB 回退防禦，解決連續微型獲利/轉帳累積達 1,600 無法自動贖身問題。
+  - 修復 `blackMarketService.js` 雙 `Math.floor` 導致奇數星瓊分配丟失的問題，改為 `texasShare = amount - bjShare`。
 
 ## 3. 下一階段交接事項 (Next Steps)
-- **v6.0「星際和平公司・財富重分配協議」全數交付完成**：
-  - 目前所有 6 大微任務皆已實作且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、v6.0 專屬 6 組測試套件 34/34 測試全數 PASS）。
+- **v6.0「星際和平公司・財富重分配協議」全數交付與加固完成**：
+  - 目前所有 6 大微任務皆已實作、深度審核加固且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、v6.0 專屬 6 組測試套件 35/35 測試全數 PASS）。
   - 若需部署至遠端正式伺服器，直接執行專屬一行流指令。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)

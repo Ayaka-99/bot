@@ -2844,7 +2844,7 @@ async function forceCloseHoldemSession(db, threadId, actorName = 'lance_508') {
 }
 
 /**
- * 🔍 穿透查詢開拓者在所有德州撲克牌桌上的總籌碼（桌面剩餘 chips + 當手已下注 totalBetThisHand + 場外買馬 spectatorBets）
+ * 🔍 穿透查詢開拓者在所有德州撲克牌桌上的總籌碼（桌面剩餘 chips + 當手已下注 totalBet + 場外買馬 spectatorBets）
  */
 function getActiveTexasHoldemChipsByUserId(userId) {
   let tableChips = 0;
@@ -2852,14 +2852,25 @@ function getActiveTexasHoldemChipsByUserId(userId) {
   let spectatorBets = 0;
 
   for (const session of activeHoldemSessions.values()) {
+    // 1. 支援標準牌桌座位結構 (session.seats)
+    if (session.seats && Array.isArray(session.seats)) {
+      for (const s of session.seats) {
+        if (s && s.userId === userId) {
+          tableChips += (s.chips || 0);
+          potBet += (s.totalBet || s.roundBet || 0);
+        }
+      }
+    }
+    // 2. 相容測試/模擬結構 (session.players)
     if (session.players && Array.isArray(session.players)) {
       for (const p of session.players) {
         if (p && p.userId === userId) {
           tableChips += (p.chips || 0);
-          potBet += (p.totalBetThisHand || 0);
+          potBet += (p.totalBetThisHand || p.totalBet || 0);
         }
       }
     }
+    // 3. 場外買馬 (session.spectatorBets)
     if (session.spectatorBets && Array.isArray(session.spectatorBets)) {
       for (const b of session.spectatorBets) {
         if (b && b.userId === userId) {
@@ -2879,7 +2890,7 @@ function getActiveTexasHoldemChipsByUserId(userId) {
 }
 
 /**
- * ⚡ 富人稅穿透扣除開拓者德州牌桌上的籌碼（先扣 player.chips）
+ * ⚡ 富人稅穿透扣除開拓者德州牌桌上的籌碼（優先扣除桌面剩餘籌碼）
  */
 function deductChipsFromActiveHoldemTable(userId, amount) {
   if (amount <= 0) return 0;
@@ -2888,7 +2899,20 @@ function deductChipsFromActiveHoldemTable(userId, amount) {
 
   for (const session of activeHoldemSessions.values()) {
     if (remainingToDeduct <= 0) break;
-    if (session.players && Array.isArray(session.players)) {
+    // 1. 優先扣除標準牌桌座位籌碼 (session.seats)
+    if (session.seats && Array.isArray(session.seats)) {
+      for (const s of session.seats) {
+        if (s && s.userId === userId && s.chips > 0) {
+          const deductFromS = Math.min(s.chips, remainingToDeduct);
+          s.chips -= deductFromS;
+          remainingToDeduct -= deductFromS;
+          actuallyDeducted += deductFromS;
+          if (remainingToDeduct <= 0) break;
+        }
+      }
+    }
+    // 2. 相容測試/模擬結構 (session.players)
+    if (remainingToDeduct > 0 && session.players && Array.isArray(session.players)) {
       for (const p of session.players) {
         if (p && p.userId === userId && p.chips > 0) {
           const deductFromP = Math.min(p.chips, remainingToDeduct);

@@ -567,7 +567,17 @@ async function checkAndRedeemDebt(db, member, userId, currentJades) {
     db.get('SELECT * FROM bankruptcy_records WHERE userId = ? AND isIndebted = 1', [userId], async (err, record) => {
       if (err || !record) return resolve(false);
 
-      if (currentJades >= 1600) {
+      let effectiveJades = Number(currentJades);
+      if (!Number.isFinite(effectiveJades) || effectiveJades < 1600) {
+        const userRow = await new Promise((r) =>
+          db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [userId], (_, row) => r(row))
+        );
+        if (userRow && userRow.stellarJades !== undefined) {
+          effectiveJades = userRow.stellarJades;
+        }
+      }
+
+      if (effectiveJades >= 1600) {
         await new Promise((r) => db.run('UPDATE bankruptcy_records SET isIndebted = 0 WHERE userId = ?', [userId], r));
 
         // 同步清除 user_currency 中名稱前綴

@@ -134,7 +134,7 @@
       "description": "黑市稱號購買與大亨結算資金 40% 注入 bj 金庫、60% 注入 texas 金庫；紅包單包上限 200,000、單日上限 500,000；轉帳單次上限 50,000 與 4 小時冷卻；全通道掛載 checkAndRedeemDebt 破產自動贖身",
       "dependencies": ["feat-v60-pvp-blackjack-and-texas-overhaul"],
       "status": "done",
-      "evidence": "node test_v60_peripheral.js 5/5 PASS (黑市稱號與今日大亨 40%/60% 注資金庫、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、全通道掛載 checkAndRedeemDebt 自動贖身) 且 init.cmd 8/8 關卡 100% PASS"
+      "evidence": "node test_v60_peripheral.js 6/6 PASS (黑市稱號與今日大亨 40%/60% 注資金庫、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、全通道掛載 checkAndRedeemDebt 自動贖身及微型累計 DB 查核防禦) 且 init.cmd 8/8 關卡 100% PASS"
     }
   ]
 }

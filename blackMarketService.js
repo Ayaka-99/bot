@@ -23,7 +23,7 @@ const { injectVaultWithBurn } = require('./casinoVaultService');
 function addToIpcVault(db, amount) {
   if (!amount || amount <= 0) return Promise.resolve();
   const bjShare = Math.floor(amount * 0.40);
-  const texasShare = Math.floor(amount * 0.60);
+  const texasShare = amount - bjShare;
   return Promise.all([
     bjShare > 0 ? injectVaultWithBurn(db, 'bj', bjShare) : Promise.resolve(),
     texasShare > 0 ? injectVaultWithBurn(db, 'texas', texasShare) : Promise.resolve(),
@@ -149,7 +149,7 @@ function getCasinoTycoon(db) {
           try {
             if (row.userId && row.bidAmount > 0) {
               const bjShare = Math.floor(row.bidAmount * 0.40);
-              const texasShare = Math.floor(row.bidAmount * 0.60);
+              const texasShare = row.bidAmount - bjShare;
               if (bjShare > 0) await injectVaultWithBurn(db, 'bj', bjShare);
               if (texasShare > 0) await injectVaultWithBurn(db, 'texas', texasShare);
             }
@@ -423,7 +423,7 @@ async function buyTitle(db, user, titleId, customTitleName = '') {
     );
   });
   const bjShare = Math.floor(finalPrice * 0.40);
-  const texasShare = Math.floor(finalPrice * 0.60);
+  const texasShare = finalPrice - bjShare;
   if (bjShare > 0) await injectVaultWithBurn(db, 'bj', bjShare);
   if (texasShare > 0) await injectVaultWithBurn(db, 'texas', texasShare);
 

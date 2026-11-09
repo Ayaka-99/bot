@@ -156,9 +156,57 @@ async function runTests() {
     { suit: '♠️', rank: 'K', value: 10, isAce: false },
   ];
   const evalHand = evaluateBlackjackSpecialHand(suitedCards, { total: 21, isBlackjack: true, isBust: false });
+  assert.strictEqual(evalHand.tier, 1);
+  assert.strictEqual(evalHand.multiplier, 4);
+  assert.strictEqual(evalHand.percent, 0.15);
   assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, evalHand), 200000, '手牌物件省略 preGameWealth 應使用 v6.0 Tier 1 (4x) 派彩');
 
-  console.log('  ✅ 21 點 4 級佔比動態彩金斷言全部通過（涵蓋 alpha 1.0/0.5、Cap 截斷、3 參數省略與向後相容）！\n');
+  // 驗證 v6.0 牌型階梯細分：雜色 7-7-7 歸為 Tier 3 (40x / 65%)，同花 7-7-7 歸為 Tier 4 (150x / 100%)
+  const mixed777Cards = [
+    { suit: '♠️', rank: '7', value: 7, isAce: false },
+    { suit: '♥️', rank: '7', value: 7, isAce: false },
+    { suit: '♦️', rank: '7', value: 7, isAce: false },
+  ];
+  const evalMixed777 = evaluateBlackjackSpecialHand(mixed777Cards, { total: 21, isBlackjack: false, isBust: false });
+  assert.ok(evalMixed777, '雜色 7-7-7 必須成功判定為特殊牌型');
+  assert.strictEqual(evalMixed777.tier, 3, 'v6.0 規格：雜色 7-7-7 必須為 Tier 3');
+  assert.strictEqual(evalMixed777.multiplier, 40);
+  assert.strictEqual(evalMixed777.percent, 0.65);
+  assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, evalMixed777), 2000000, '50k 下注滿倉雜色 777 彩金為 2,000,000 (40x)');
+
+  const suited777Cards = [
+    { suit: '♠️', rank: '7', value: 7, isAce: false },
+    { suit: '♠️', rank: '7', value: 7, isAce: false },
+    { suit: '♠️', rank: '7', value: 7, isAce: false },
+  ];
+  const evalSuited777 = evaluateBlackjackSpecialHand(suited777Cards, { total: 21, isBlackjack: false, isBust: false });
+  assert.ok(evalSuited777);
+  assert.strictEqual(evalSuited777.tier, 4, 'v6.0 規格：同花 7-7-7 必須為 Tier 4');
+  assert.strictEqual(evalSuited777.multiplier, 150);
+  assert.strictEqual(evalSuited777.percent, 1.00);
+
+  // 驗證 雜色 6-7-8 (Tier 2) vs 同花 6-7-8 (Tier 4)
+  const mixed678 = [
+    { suit: '♠️', rank: '6', value: 6, isAce: false },
+    { suit: '♥️', rank: '7', value: 7, isAce: false },
+    { suit: '♦️', rank: '8', value: 8, isAce: false },
+  ];
+  const evalMixed678 = evaluateBlackjackSpecialHand(mixed678, { total: 21, isBlackjack: false, isBust: false });
+  assert.strictEqual(evalMixed678.tier, 2, '雜色 6-7-8 應為 Tier 2 (15x / 35%)');
+  assert.strictEqual(evalMixed678.multiplier, 15);
+  assert.strictEqual(evalMixed678.percent, 0.35);
+
+  const suited678 = [
+    { suit: '♣️', rank: '8', value: 8, isAce: false },
+    { suit: '♣️', rank: '6', value: 6, isAce: false },
+    { suit: '♣️', rank: '7', value: 7, isAce: false },
+  ];
+  const evalSuited678 = evaluateBlackjackSpecialHand(suited678, { total: 21, isBlackjack: false, isBust: false });
+  assert.strictEqual(evalSuited678.tier, 4, '同花 6-7-8 應為 Tier 4 (150x / 100%)');
+  assert.strictEqual(evalSuited678.multiplier, 150);
+  assert.strictEqual(evalSuited678.percent, 1.00);
+
+  console.log('  ✅ 21 點 4 級佔比動態彩金斷言全部通過（涵蓋 alpha 1.0/0.5、Cap 截斷、3 參數省略、雜色777與向後相容）！\n');
 
   // ----------------------------------------------------
   // 4. 德州撲克 4 級神話佔比動態彩金演算法斷言

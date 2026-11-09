@@ -287,6 +287,50 @@ async function runTests() {
 
   console.log('  ✅ 搶紅包與全通道自動贖身機制驗證通過！');
 
+  // ========================================================
+  // [5b/5] 驗證 Reviewer 優先攻擊點：連續微型轉帳累積跨越 1,600 門檻自動贖身
+  // ========================================================
+  console.log('\n▶ [5b/5] 測試負債玩家接收連續微型轉帳 (500 -> 500 -> 700 累積跨越 1,600) 自動贖身...');
+  const microDebtorId = 'debtor_micro';
+  await new Promise((r) => {
+    db.run(
+      "INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, '【天台排隊中】MicroDebtor', 0)",
+      [microDebtorId],
+      () => {
+        db.run(
+          "INSERT OR REPLACE INTO bankruptcy_records (userId, username, isIndebted) VALUES (?, '【天台排隊中】MicroDebtor', 1)",
+          [microDebtorId],
+          r
+        );
+      }
+    );
+  });
+
+  // 第一筆微型轉帳：500 (餘額 500 < 1600，維持負債)
+  await new Promise((r) => db.run("UPDATE user_currency SET stellarJades = 500 WHERE userId = ?", [microDebtorId], r));
+  const redeemed1 = await checkAndRedeemDebt(db, null, microDebtorId, 500);
+  assert.strictEqual(redeemed1, false, '500 星瓊未達 1,600 門檻，不可贖身');
+  const rec1 = await new Promise((r) => db.get('SELECT isIndebted FROM bankruptcy_records WHERE userId = ?', [microDebtorId], (_, row) => r(row)));
+  assert.strictEqual(rec1.isIndebted, 1, '仍應為負債狀態');
+
+  // 第二筆微型轉帳：500 (餘額 1000 < 1600，維持負債)
+  await new Promise((r) => db.run("UPDATE user_currency SET stellarJades = 1000 WHERE userId = ?", [microDebtorId], r));
+  const redeemed2 = await checkAndRedeemDebt(db, null, microDebtorId, 500); // 傳入單筆 500，但資料庫餘額 1000
+  assert.strictEqual(redeemed2, false, '1000 星瓊未達 1,600 門檻，不可贖身');
+
+  // 第三筆微型轉帳：700 (餘額 1700 >= 1600，觸發自動贖身！)
+  // 注意：即便呼叫方僅傳入當次轉帳金額 700 (< 1600)，checkAndRedeemDebt 透過 DB 查核實質餘額 1,700 成功贖身
+  await new Promise((r) => db.run("UPDATE user_currency SET stellarJades = 1700 WHERE userId = ?", [microDebtorId], r));
+  const redeemed3 = await checkAndRedeemDebt(db, null, microDebtorId, 700);
+  assert.strictEqual(redeemed3, true, '實質總資產累積達到 1,700 必須成功贖身！');
+
+  const recFinal = await new Promise((r) => db.get('SELECT isIndebted FROM bankruptcy_records WHERE userId = ?', [microDebtorId], (_, row) => r(row)));
+  assert.strictEqual(recFinal.isIndebted, 0, '欠債紀錄必須標記為已結清 (isIndebted = 0)');
+
+  const cleanUser = await new Promise((r) => db.get('SELECT username FROM user_currency WHERE userId = ?', [microDebtorId], (_, row) => r(row)));
+  assert.strictEqual(cleanUser.username, 'MicroDebtor', '【天台排隊中】前綴必須被自動清除');
+  console.log('  ✅ 連續微型轉帳累積跨越 1,600 自動贖身驗證 100% 通過！');
+
   console.log('\n====================================================');
   console.log('🎉 [SUCCESS] v6.0 周邊經濟所有 5 項測試全數通過！');
   console.log('====================================================\n');

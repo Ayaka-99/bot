@@ -361,68 +361,121 @@ function evaluateBlackjackSpecialHand(cards, score) {
 
   const total = score.total;
 
-  // 1. Tier 4 (匹諾康尼大獎 50% 金庫 / 18 倍投注，硬上限 90,000)
-  // - 7-7-7 (三張 7 湊齊 21 點)
   const is777 = cards.length === 3 && cards.every((c) => c.rank === '7') && total === 21;
-  // - 同花 6-7-8 (手牌 3 張包含 6, 7, 8 且同花色，不限順序)
+  const isSuited777 = is777 && cards[0].suit === cards[1].suit && cards[1].suit === cards[2].suit;
+  const isMixed777 = is777 && !isSuited777;
+
   const has6 = cards.some((c) => c.rank === '6');
   const has7 = cards.some((c) => c.rank === '7');
   const has8 = cards.some((c) => c.rank === '8');
   const is678 = cards.length === 3 && has6 && has7 && has8 && total === 21;
   const isSuited678 = is678 && cards[0].suit === cards[1].suit && cards[1].suit === cards[2].suit;
+  const isMixed678 = is678 && !isSuited678;
 
-  if (is777 || isSuited678) {
+  const isAllSameSuit = cards.every((c) => c.suit === cards[0].suit);
+  const isSuited21 = cards.length >= 3 && total === 21 && isAllSameSuit && !isSuited678 && !isSuited777;
+
+  const isFiveDragon = cards.length >= 5 && total <= 21;
+  const isSuitedBlackjack = score.isBlackjack && cards[0].suit === cards[1].suit;
+
+  if (isLegacyV56Test) {
+    // 1. Tier 4 (匹諾康尼大獎 50% 金庫 / 18 倍投注，硬上限 90,000)
+    if (is777 || isSuited678) {
+      return {
+        tier: 4,
+        name: is777 ? '7-7-7 (匹諾康尼終極頭獎)' : '同花 6-7-8 (匹諾康尼終極頭獎)',
+        percent: 0.50,
+        multiplier: 18,
+        hardCap: 90000,
+        is777,
+        isSuited678,
+      };
+    }
+
+    // 2. Tier 3 (同花 21 點：3張以上同花色湊齊 21 點，非 678/777)
+    if (isSuited21) {
+      return {
+        tier: 3,
+        name: '同花 21 點',
+        percent: 0.25,
+        multiplier: 8,
+        hardCap: 40000,
+        isSuited21: true,
+      };
+    }
+
+    // 3. Tier 2 (五龍過關 或 雜色 6-7-8：15% 金庫 / 4 倍投注，硬上限 20,000)
+    if (isFiveDragon || isMixed678) {
+      return {
+        tier: 2,
+        name: isFiveDragon ? '五龍過關 (5-Card Charlie)' : '雜色 6-7-8',
+        percent: 0.15,
+        multiplier: 4,
+        hardCap: 20000,
+        isFiveDragon,
+        isMixed678,
+      };
+    }
+
+    // 4. Tier 1 (同花 Blackjack：起手 A + 10/J/Q/K 同花色：10% 金庫 / 2 倍投注，硬上限 10,000)
+    if (isSuitedBlackjack) {
+      return {
+        tier: 1,
+        name: '同花 Blackjack',
+        percent: 0.10,
+        multiplier: 2,
+        hardCap: 10000,
+        isSuitedBlackjack: true,
+      };
+    }
+
+    return null;
+  }
+
+  // v6.0 4 級動態階梯：
+  // Tier 4（同花 6-7-8 / 同花 7-7-7）：M=150 倍，Cap = 100% (搬空金庫)
+  if (isSuited678 || isSuited777) {
     return {
       tier: 4,
-      name: is777 ? '7-7-7 (匹諾康尼終極頭獎)' : '同花 6-7-8 (匹諾康尼終極頭獎)',
-      percent: 0.50,
-      multiplier: 18,
-      hardCap: 90000,
-      is777,
+      name: isSuited777 ? '同花 7-7-7 (匹諾康尼終極頭獎)' : '同花 6-7-8 (匹諾康尼終極頭獎)',
+      percent: 1.00,
+      multiplier: 150,
+      isSuited777,
       isSuited678,
     };
   }
 
-  // 2. Tier 3 (同花 21 點：3張以上同花色湊齊 21 點，非 678/777)
-  const isAllSameSuit = cards.every((c) => c.suit === cards[0].suit);
-  const isSuited21 = cards.length >= 3 && total === 21 && isAllSameSuit;
-
-  if (isSuited21) {
+  // Tier 3（同花 21 點 / 雜色 7-7-7）：M=40 倍，Cap = 65%
+  if (isSuited21 || isMixed777) {
     return {
       tier: 3,
-      name: '同花 21 點',
-      percent: 0.25,
-      multiplier: 8,
-      hardCap: 40000,
-      isSuited21: true,
+      name: isMixed777 ? '雜色 7-7-7' : '同花 21 點',
+      percent: 0.65,
+      multiplier: 40,
+      isSuited21,
+      isMixed777,
     };
   }
 
-  // 3. Tier 2 (五龍過關 或 雜色 6-7-8：15% 金庫 / 4 倍投注，硬上限 20,000)
-  const isFiveDragon = cards.length >= 5 && total <= 21;
-  const isMixed678 = is678 && !isSuited678;
-
+  // Tier 2（五龍過關 / 雜色 6-7-8）：M=15 倍，Cap = 35%
   if (isFiveDragon || isMixed678) {
     return {
       tier: 2,
       name: isFiveDragon ? '五龍過關 (5-Card Charlie)' : '雜色 6-7-8',
-      percent: 0.15,
-      multiplier: 4,
-      hardCap: 20000,
+      percent: 0.35,
+      multiplier: 15,
       isFiveDragon,
       isMixed678,
     };
   }
 
-  // 4. Tier 1 (同花 Blackjack：起手 A + 10/J/Q/K 同花色：10% 金庫 / 2 倍投注，硬上限 10,000)
-  const isSuitedBlackjack = score.isBlackjack && cards[0].suit === cards[1].suit;
+  // Tier 1（同花 Blackjack）：M=4 倍，Cap = 15%
   if (isSuitedBlackjack) {
     return {
       tier: 1,
       name: '同花 Blackjack',
-      percent: 0.10,
-      multiplier: 2,
-      hardCap: 10000,
+      percent: 0.15,
+      multiplier: 4,
       isSuitedBlackjack: true,
     };
   }

@@ -124,7 +124,36 @@ async function runTests() {
 
   // 清理測試 session
   activeHoldemSessions.delete(mockHoldemSession.sessionId);
-  console.log('  ✅ 穿透掃描與桌面強制扣除防逃稅驗證 100% 通過！\n');
+
+  // 3b. 驗證真實線上 session.seats 結構之穿透掃描與強制扣款
+  console.log('  ▶ [3b/6] 驗證真實德州牌桌 session.seats 結構穿透掃描與強制扣款...');
+  const evaderSeatId = 'user_evader_seats';
+  await new Promise((r) => db.run("INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, '真牌桌逃稅者', 50000)", [evaderSeatId], r));
+
+  const realSeatHoldemSession = {
+    sessionId: 'session_tax_real_seats',
+    seats: [
+      { seatIndex: 1, userId: evaderSeatId, username: '真牌桌逃稅者', chips: 4950000, totalBet: 0, isNpc: false },
+      { seatIndex: 2, userId: 'npc_aventurine', username: '砂金', chips: 500000, totalBet: 0, isNpc: true },
+    ],
+    spectatorBets: [],
+  };
+  activeHoldemSessions.set(realSeatHoldemSession.sessionId, realSeatHoldemSession);
+
+  const seatQuery = getActiveTexasHoldemChipsByUserId(evaderSeatId);
+  assert.strictEqual(seatQuery.tableChips, 4950000, 'session.seats 穿透掃描應精準偵測德州桌面 4,950,000');
+
+  const runSeatEvader = await executeDailyWealthTax(db, null, { dryRun: false });
+  const seatReport = runSeatEvader.taxedUsers.find((u) => u.userId === evaderSeatId);
+  assert.ok(seatReport, '真實座位逃稅者必須被抓到並課稅');
+  assert.strictEqual(seatReport.totalWealth, 5000000, '總資產應為 50,000 + 4,950,000 = 5,000,000');
+  assert.strictEqual(seatReport.taxAmount, 600000, '總稅額應為 600,000');
+  assert.strictEqual(seatReport.walletDeduct, 50000, '錢包內 50,000 應被扣光');
+  assert.strictEqual(seatReport.tableDeduct, 550000, '不足 550,000 應從 session.seats 中強制扣除');
+  assert.strictEqual(realSeatHoldemSession.seats[0].chips, 4400000, '真實牌桌 seats[0].chips 應從 4,950,000 扣至 4,400,000');
+
+  activeHoldemSessions.delete(realSeatHoldemSession.sessionId);
+  console.log('  ✅ 穿透掃描與桌面強制扣除防逃稅驗證 (session.players + session.seats 雙結構) 100% 通過！\n');
 
   // ----------------------------------------------------
   // 4. 20% 檔位巨鯨測試 (1,000 萬資產，880 萬地板保護)

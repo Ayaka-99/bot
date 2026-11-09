@@ -138,13 +138,23 @@
 ## Blockers
 - 無。當前專案基線 100% 健康，所有語法檢查、既有回歸測試套件與 v6.0 全套 6 組單元測試全數 100% 通過。
 
+- 2026-11-09: 【審查與加固修復】完成深度代碼審查、漏洞修正與邊界防禦強化：
+  - 修復 `texasHoldemService.js` 穿透計稅漏洞：原 `getActiveTexasHoldemChipsByUserId` 與 `deductChipsFromActiveHoldemTable` 僅檢索測試 mock 物件 `session.players`，導致線上真實牌桌 `session.seats` 穿透查詢回傳 0 且無法扣除桌上籌碼。全面加固支援標準 `session.seats` 並維持 `session.players` 測試向下相容。
+  - 修復 `casinoVaultService.js` 特殊牌型判定嚴重缺陷：原 `evaluateBlackjackSpecialHand` 將所有 777 全數誤判為 Tier 4 (150x / 100% 搬空)。嚴格對齊規格書，將「雜色 7-7-7」精確歸入 Tier 3 (40x / 65%)，僅「同花 7-7-7」與「同花 6-7-8」歸為 Tier 4 (150x / 100%)。
+  - 修復 `aventurineCasinoService.js` 自動贖身邊界風險：`checkAndRedeemDebt` 原僅比對傳入的 `currentJades`，當呼叫方傳入單筆獲利或單次微型轉帳額度 (< 1600) 時無法贖身。加入 DB 餘額查核回退機制，確保任何途徑只要實質總資產累積達 1,600 即刻解除負債。
+  - 修復 `blackMarketService.js` 零頭星瓊遺失問題：雙 `Math.floor` 分流改為 `texasShare = amount - bjShare`，注資 100% 完整留存雙金庫。
+  - 擴充專屬單元測試套件並全數驗證通過：
+    • `test_v60_vault_jackpot.js` (6/6 PASS，涵蓋 4 級特殊牌型雜色 777 / 同花 777 斷言)。
+    • `test_v60_wealth_tax_pipeline.js` (6/6 PASS，涵蓋 session.seats 真實牌桌穿透扣款斷言)。
+    • `test_v60_peripheral.js` (6/6 PASS，涵蓋連續微型轉帳累積跨越 1,600 門檻即時自動贖身斷言)。
+
 ## Evidence
-- `node test_v60_peripheral.js` 5/5 項單元測試全數通過（黑市稱號與今日大亨 40%/60% 分流、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、全通道掛載 checkAndRedeemDebt 自動贖身）。
+- `node test_v60_peripheral.js` 6/6 項單元測試全數通過（黑市稱號與今日大亨 40%/60% 分流、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、連續微型轉帳累積跨越 1,600 即時自動贖身）。
 - `node test_v60_pvp_and_holdem.js` 6/6 項單元測試全數通過（單挑500w上限與雙爆入庫、大逃殺200w上限與全員團滅入庫、德州NPC奪池100%入庫、真人奪池免25k封頂且0%抽水、防作弊三鐵律、皇家同花順100%搬空）。
 - `node test_v60_aventurine_pve.js` 6/6 項單元測試全數通過（含 100萬滿注、Double Down 解禁、輸局 100% 入庫、常規利潤金庫支應與 20% 安全閥保護、同花 BJ 動態彩金派彩、命運比骰決鬥扣庫與入庫）。
-- `node test_v60_wealth_tax_pipeline.js` 6/6 項單元測試全數通過（含免稅、12%扣款、德州桌面強制扣款防逃稅、20%巨鯨880w地板保護、21點與買馬穿透掃描、Embed推播）。
+- `node test_v60_wealth_tax_pipeline.js` 6/6 項單元測試全數通過（含免稅、12%扣款、德州真實牌桌 session.seats 桌面強制扣款防逃稅、20%巨鯨880w地板保護、21點與買馬穿透掃描、Embed推播）。
 - `node test_v60_migration_compensation.js` 5/5 項單元測試全數通過（含破產回補80000、天台前綴與記錄清空、大亨+30000至280000、金庫開池100w/200w、冪等性防呆）。
-- `node test_v60_vault_jackpot.js` 6/6 項單元測試全數通過（含容量常數、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、富人稅雙階梯地板保護無斷崖倒掛、異常邊界防禦）。
+- `node test_v60_vault_jackpot.js` 6/6 項單元測試全數通過（含容量常數、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、雜色777與同花777階梯精確劃分、富人稅雙階梯地板保護無斷崖倒掛、異常邊界防禦）。
 - `cmd.exe /c init.cmd` 執行通過：
   - [1/8] 執行環境與套件依賴就緒。
   - [2/8] 核心業務模組語法檢查全數通過 (`node --check` 涵蓋 9 個核心服務模組)。
