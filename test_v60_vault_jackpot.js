@@ -15,6 +15,7 @@ const {
   injectVaultWithBurn,
   adjustVault,
   claimJackpotVault,
+  evaluateBlackjackSpecialHand,
   calculateBlackjackJackpot,
   calculateHoldemJackpot,
   calculateDailyWealthTax,
@@ -75,7 +76,18 @@ async function runTests() {
 
   const bjFinal = await getVault(db, 'bj');
   assert.strictEqual(bjFinal.totalBurned, 6000000, '累計銷毀應增至 600 萬');
-  console.log('  ✅ 注資滿溢銷毀驗證通過（實入 1000w，銷毀 500w+100w）！\n');
+
+  // 注入 0 與負值注資安全檢查
+  const injZero = await injectVaultWithBurn(db, 'bj', 0);
+  assert.strictEqual(injZero.actualInjection, 0);
+  assert.strictEqual(injZero.burnedAmount, 0);
+  assert.strictEqual(injZero.newVault, 10000000, '注入 0 金庫餘額應保持不變，而非歸零');
+
+  const injNeg = await injectVaultWithBurn(db, 'bj', -100);
+  assert.strictEqual(injNeg.actualInjection, 0);
+  assert.strictEqual(injNeg.newVault, 10000000);
+
+  console.log('  ✅ 注資滿溢銷毀驗證通過（實入 1000w，銷毀 500w+100w，0/負值無損）！\n');
 
   // ----------------------------------------------------
   // 3. 21點 4 級佔比動態彩金演算法斷言
@@ -129,12 +141,24 @@ async function runTests() {
   // Tier 4 Cap 100%: floor(100000 * 1.00) = 100,000 < 7500000 -> 100,000 (搬空剩餘金庫)
   assert.strictEqual(calculateBlackjackJackpot(lowVault, bet, { tier: 4 }, 50000), 100000);
 
-  // Case 3.4: preGameWealth 未傳入或 <= 0 安全回退 (以 bet 為基準，alpha=1.0)
+  // Case 3.4: preGameWealth 未傳入 (3 參數) 或 <= 0 安全回退 (以 bet 為基準，alpha=1.0)
+  assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, { tier: 1 }), 200000, '3 參數省略 preGameWealth 應回退為 alpha=1.0 滿額彩金');
+  assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, 1), 200000, '支援數字位階 tier=1 且省略 preGameWealth');
+  assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, { tier: 1 }, undefined), 200000);
   assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, { tier: 1 }, 0), 200000);
   assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, { tier: 1 }, -500), 200000);
   assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, { tier: 1 }, null), 200000);
+  assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, { tier: 1 }, NaN), 200000);
 
-  console.log('  ✅ 21 點 4 級佔比動態彩金斷言全部通過（涵蓋 alpha 1.0/0.5、Cap 截斷與向後相容）！\n');
+  // 驗證 evaluateBlackjackSpecialHand 產出物件在 v6.0 下無 preGameWealth 時自動以 alpha=1.0 結算
+  const suitedCards = [
+    { suit: '♠️', rank: 'A', value: 11, isAce: true },
+    { suit: '♠️', rank: 'K', value: 10, isAce: false },
+  ];
+  const evalHand = evaluateBlackjackSpecialHand(suitedCards, { total: 21, isBlackjack: true, isBust: false });
+  assert.strictEqual(calculateBlackjackJackpot(bjVaultCap, bet, evalHand), 200000, '手牌物件省略 preGameWealth 應使用 v6.0 Tier 1 (4x) 派彩');
+
+  console.log('  ✅ 21 點 4 級佔比動態彩金斷言全部通過（涵蓋 alpha 1.0/0.5、Cap 截斷、3 參數省略與向後相容）！\n');
 
   // ----------------------------------------------------
   // 4. 德州撲克 4 級神話佔比動態彩金演算法斷言
@@ -206,11 +230,28 @@ async function runTests() {
   assert.strictEqual(rfHalf.payout, 7500000);
 
   // Case 4.4: preGameWealth <= 0 或未傳入安全回退 (以 bet 為基準，alpha = 1.0)
+  const fallbackRes3 = calculateHoldemJackpot(txVault, txBet, 6);
+  assert.strictEqual(fallbackRes3.alpha, 1.0, '3 參數省略 preGameWealth 應回退為 alpha=1.0');
+  assert.strictEqual(fallbackRes3.payout, 150000, '3 參數滿額葫蘆彩金應為 150,000 (3x)');
+  assert.strictEqual(fallbackRes3.multiplier, 3);
+  assert.strictEqual(fallbackRes3.effectiveMultiplier, 3);
+
+  const rfRes3 = calculateHoldemJackpot(txVault, txBet, 9);
+  assert.strictEqual(rfRes3.alpha, 1.0);
+  assert.strictEqual(rfRes3.multiplier, 300);
+  assert.strictEqual(rfRes3.payout, 15000000, '3 參數滿額皇同彩金應為 15,000,000 (300x)');
+
+  const fallbackResUndef = calculateHoldemJackpot(txVault, txBet, 6, undefined);
+  assert.strictEqual(fallbackResUndef.payout, 150000, '傳入 undefined 應與未傳入完全等價');
+
   const fallbackRes = calculateHoldemJackpot(txVault, txBet, 6, 0);
   assert.strictEqual(fallbackRes.alpha, 1.0);
   assert.strictEqual(fallbackRes.payout, 150000);
 
-  console.log('  ✅ 德州撲克 4 級動態彩金斷言全部通過（含回傳結構、3x/20x/80x/300x、搬空金庫）！\n');
+  const fallbackResNeg = calculateHoldemJackpot(txVault, txBet, 6, -100);
+  assert.strictEqual(fallbackResNeg.payout, 150000);
+
+  console.log('  ✅ 德州撲克 4 級動態彩金斷言全部通過（含回傳結構、3x/20x/80x/300x、搬空金庫、3 參數省略）！\n');
 
   // ----------------------------------------------------
   // 5. 午夜富人稅純計算函式與地板保護斷言
@@ -299,6 +340,11 @@ async function runTests() {
   const taxNaN = calculateDailyWealthTax('invalid_wealth');
   assert.strictEqual(taxNaN.originalWealth, 0);
   assert.strictEqual(taxNaN.taxAmount, 0);
+
+  const taxInfinity = calculateDailyWealthTax(Infinity);
+  assert.strictEqual(taxInfinity.originalWealth, 0);
+  assert.strictEqual(taxInfinity.taxAmount, 0);
+  assert.strictEqual(Number.isNaN(taxInfinity.taxAmount), false, 'Infinity 輸入不應產生 NaN 稅額');
 
   // 6.2 21點彩金異常輸入
   assert.strictEqual(calculateBlackjackJackpot(0, 50000, { tier: 1 }, 50000), 0);

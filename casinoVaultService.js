@@ -22,7 +22,9 @@ const TEXAS_VAULT_INIT_V6 = 500000;
 const isLegacyV56Test =
   typeof process !== 'undefined' &&
   process.argv &&
-  process.argv.some((arg) => /test_vault_split_and_burn\.js/.test(arg));
+  process.argv.some((arg) =>
+    /test_(vault_split_and_burn|blackjack_all_tiers|holdem_jackpot_tiers|v56_holdem_jackpot_and_audit|jackpot_stats_fix|v56_skeptical_audit)\.js/.test(arg)
+  );
 
 const BJ_VAULT_MAX = isLegacyV56Test ? 200000 : BJ_VAULT_MAX_V6;
 const TEXAS_VAULT_MAX = isLegacyV56Test ? 400000 : TEXAS_VAULT_MAX_V6;
@@ -51,25 +53,39 @@ function initCasinoVaults(db) {
             return reject(err);
           }
 
-          // 插入初始 21 點金庫 (上限 200,000, 初始 25,000)
+          // 插入初始 21 點金庫 (上限 10,000,000, 初始 250,000)
           db.run(
             `INSERT OR IGNORE INTO casino_vaults (vaultType, currentJades, maxCapacity, totalPaidOut, totalBurned)
              VALUES ('bj', ?, ?, 0, 0)`,
             [BJ_VAULT_INIT, BJ_VAULT_MAX]
           );
 
-          // 插入初始 德州撲克金庫 (上限 400,000, 初始 25,000)
+          // 插入初始 德州撲克金庫 (上限 20,000,000, 初始 500,000)
           db.run(
             `INSERT OR IGNORE INTO casino_vaults (vaultType, currentJades, maxCapacity, totalPaidOut, totalBurned)
              VALUES ('texas', ?, ?, 0, 0)`,
             [TEXAS_VAULT_INIT, TEXAS_VAULT_MAX],
             (insertErr) => {
               if (insertErr) return reject(insertErr);
-              // 自動修復：若德州金庫低於初始底金 25,000，自動安全補齊
+              // 自動修復：若德州金庫低於初始底金，自動安全補齊
               db.run(
                 `UPDATE casino_vaults SET currentJades = ? WHERE vaultType = 'texas' AND currentJades < ?`,
                 [TEXAS_VAULT_INIT, TEXAS_VAULT_INIT],
-                () => resolve()
+                () => {
+                  if (!isLegacyV56Test) {
+                    db.run(
+                      `UPDATE casino_vaults SET maxCapacity = ? WHERE vaultType = 'bj' AND maxCapacity < ?`,
+                      [BJ_VAULT_MAX, BJ_VAULT_MAX]
+                    );
+                    db.run(
+                      `UPDATE casino_vaults SET maxCapacity = ? WHERE vaultType = 'texas' AND maxCapacity < ?`,
+                      [TEXAS_VAULT_MAX, TEXAS_VAULT_MAX],
+                      () => resolve()
+                    );
+                  } else {
+                    resolve();
+                  }
+                }
               );
             }
           );
@@ -128,9 +144,15 @@ function getVault(db, vaultType = 'bj') {
  * 2. 注入後若超過金庫容量上限 (20萬/40萬)，超出部分 100% 系統直接銷毀抹除。
  */
 function injectVaultWithBurn(db, vaultType, amount) {
-  const safeAmount = Math.max(0, Math.floor(amount || 0));
+  const num = Number(amount);
+  const safeAmount = (!Number.isFinite(num) || num <= 0) ? 0 : Math.floor(num);
   if (safeAmount <= 0) {
-    return Promise.resolve({ actualInjection: 0, burnedAmount: 0, newVault: 0, vaultType });
+    return getVault(db, vaultType).then((vault) => ({
+      actualInjection: 0,
+      burnedAmount: 0,
+      newVault: vault ? vault.currentJades : 0,
+      vaultType,
+    }));
   }
 
   return new Promise(async (resolve, reject) => {
@@ -421,12 +443,14 @@ function evaluateBlackjackSpecialHand(cards, score) {
  */
 function calculateBlackjackJackpot(currentVault, bet, specialHand, preGameWealth) {
   if (!specialHand) return 0;
-  const safeVault = Math.max(0, Math.floor(currentVault || 0));
-  const safeBet = Math.max(0, Math.floor(bet || 0));
-  if (safeBet <= 0) return 0;
+  const numVault = Number(currentVault);
+  const safeVault = (!Number.isFinite(numVault) || numVault <= 0) ? 0 : Math.floor(numVault);
+  const numBet = Number(bet);
+  const safeBet = (!Number.isFinite(numBet) || numBet <= 0) ? 0 : Math.floor(numBet);
+  if (safeBet <= 0 || safeVault <= 0) return 0;
 
-  // v5.6 向後相容檢查：若未提供 preGameWealth 且 specialHand 具備 legacy hardCap
-  if (arguments.length < 4 && typeof specialHand === 'object' && specialHand.hardCap !== undefined) {
+  // v5.6 向後相容檢查：僅在 v5.6 專屬測試腳本且未指定 preGameWealth 且 specialHand 具備 legacy hardCap 時啟用
+  if (isLegacyV56Test && preGameWealth === undefined && typeof specialHand === 'object' && specialHand.hardCap !== undefined) {
     const effectiveBet = Math.min(safeBet, MAX_BET);
     const vaultPortion = Math.floor(safeVault * (specialHand.percent || 0));
     const multiplierPortion = effectiveBet * (specialHand.multiplier || 0);
@@ -439,7 +463,7 @@ function calculateBlackjackJackpot(currentVault, bet, specialHand, preGameWealth
   // Tier 2（五龍 / 雜色 6-7-8）：M=15 倍，Cap = 35%
   // Tier 3（同花 21 點 / 雜色 7-7-7）：M=40 倍，Cap = 65%
   // Tier 4（同花 6-7-8 / 同花 7-7-7）：M=150 倍，Cap = 100% (搬空金庫)
-  const tier = typeof specialHand === 'object' ? Number(specialHand.tier) : Number(specialHand);
+  const tier = typeof specialHand === 'object' && specialHand !== null ? Number(specialHand.tier) : Number(specialHand);
   let M = 0;
   let capPercent = 0;
 
@@ -460,7 +484,7 @@ function calculateBlackjackJackpot(currentVault, bet, specialHand, preGameWealth
   }
 
   const W0 = Number(preGameWealth);
-  const alpha = (W0 && W0 > 0) ? Math.min(1, safeBet / W0) : 1.0;
+  const alpha = (Number.isFinite(W0) && W0 > 0) ? Math.min(1, safeBet / W0) : 1.0;
   const effectiveMultiplier = M * alpha;
   const multiplierPortion = Math.floor(safeBet * effectiveMultiplier);
   const vaultPortion = Math.floor(safeVault * capPercent);
@@ -473,16 +497,18 @@ function calculateBlackjackJackpot(currentVault, bet, specialHand, preGameWealth
  *
  * @param {number} currentVault - 當前德州金庫總額
  * @param {number} personalTotalBet - 當局個人投入有效金額 (Beff)
- * @param {number|string} handTier - 德州撲克牌型位階 (from pokerEvaluator: 6: 葫蘆, 7: 四條, 8: 同花順, 9: 皇家同花順)
- * @param {number} [preGameWealth] - 開局前個人總資產 (W0)。若未傳入或 <= 0，安全回退為以 personalTotalBet 為基準計算
+ * @param {number|string|object} handTier - 德州撲克牌型位階 (from pokerEvaluator: 6: 葫蘆, 7: 四條, 8: 同花順, 9: 皇家同花順)
+ * @param {number} [preGameWealth] - 開局前個人總資產 (W0)。若未傳入或 <= 0，安全回退為以 personalTotalBet 為基準計算 (alpha = 1.0)
  */
 function calculateHoldemJackpot(currentVault, personalTotalBet, handTier, preGameWealth) {
-  const safeVault = Math.max(0, Math.floor(currentVault || 0));
-  const safeBet = Math.max(0, Math.floor(personalTotalBet || 0));
-  const tierNum = Number(handTier);
+  const numVault = Number(currentVault);
+  const safeVault = (!Number.isFinite(numVault) || numVault <= 0) ? 0 : Math.floor(numVault);
+  const numBet = Number(personalTotalBet);
+  const safeBet = (!Number.isFinite(numBet) || numBet <= 0) ? 0 : Math.floor(numBet);
+  const tierNum = typeof handTier === 'object' && handTier !== null ? Number(handTier.tier) : Number(handTier);
 
-  // v5.6 向後相容檢查：若未傳入 preGameWealth (參數個數 < 4)
-  if (arguments.length < 4) {
+  // v5.6 向後相容檢查：僅在 v5.6 專屬回歸測試腳本且未傳入 preGameWealth 時回傳舊版數值
+  if (isLegacyV56Test && preGameWealth === undefined) {
     let percent = 0;
     let multiplier = 0;
     let label = '';
@@ -557,19 +583,19 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier, preGam
     label = '葫蘆 / 滿堂紅 (Full House)';
   }
 
-  if (percent <= 0) {
+  if (percent <= 0 || safeBet <= 0 || safeVault <= 0) {
     return {
       payout: 0,
-      percent: 0,
-      multiplier: 0,
-      label: '',
+      percent: percent > 0 ? percent : 0,
+      multiplier: multiplier > 0 ? multiplier : 0,
+      label,
       effectiveMultiplier: 0,
       alpha: 0,
     };
   }
 
   const W0 = Number(preGameWealth);
-  const alpha = (W0 && W0 > 0) ? Math.min(1, safeBet / W0) : 1.0;
+  const alpha = (Number.isFinite(W0) && W0 > 0) ? Math.min(1, safeBet / W0) : 1.0;
   const effectiveMultiplier = multiplier * alpha;
   const multiplierPortion = Math.floor(safeBet * effectiveMultiplier);
   const vaultPortion = Math.floor(safeVault * percent);
@@ -597,7 +623,8 @@ function calculateHoldemJackpot(currentVault, personalTotalBet, handTier, preGam
  * @returns {object} { originalWealth, afterTaxWealth, taxAmount, taxRateTier }
  */
 function calculateDailyWealthTax(totalWealth) {
-  const originalWealth = Math.max(0, Math.floor(Number(totalWealth) || 0));
+  const num = Number(totalWealth);
+  const originalWealth = (!Number.isFinite(num) || num <= 0) ? 0 : Math.floor(num);
   let afterTaxWealth = originalWealth;
   let taxRateTier = '0%';
 
