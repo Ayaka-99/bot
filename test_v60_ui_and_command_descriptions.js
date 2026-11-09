@@ -66,8 +66,8 @@ async function runTests() {
   // 1.5 /德州撲克
   assert.ok(botTrackerSrc.includes(".setName('德州撲克')"), '應存在 /德州撲克 指令');
   assert.ok(
-    botTrackerSrc.includes("setDescription('石心十人盲注桌：1~5人＋NPC砂金德州撲克 (0%抽水、百分比加注與四級神話動態彩金)')"),
-    '/德州撲克 描述應為 0% 抽水與四級神話動態彩金 (無舊版獲利天花板風控文字)'
+    botTrackerSrc.includes("setDescription('石心十人盲注桌：1~4人＋NPC砂金德州撲克 (0%抽水、百分比加注與四級神話動態彩金)')"),
+    '/德州撲克 描述應為 1~4人+NPC砂金、0% 抽水與四級神話動態彩金 (無舊版獲利天花板風控文字)'
   );
   assert.ok(
     !botTrackerSrc.includes('獲利天花板風控'),
@@ -161,12 +161,15 @@ async function runTests() {
   const statsEmbed = buildHoldemExclusiveStatsEmbed(mockUser, mockStats);
   const hintField = statsEmbed.data.fields.find(f => f.name.includes('快速開桌與功能提示'));
   assert.ok(hintField, '戰績面板應包含快速開桌與功能提示');
-  assert.ok(hintField.value.includes('石心十人桌 (支援 1~5 人真人上桌與 NPC 砂金對決)'), '德州提示應說明支援 1~5 人真人上桌');
+  assert.ok(hintField.value.includes('石心十人桌 (支援 1~4 人真人上桌與 NPC 砂金對決，共 5 席)'), '德州提示應說明支援 1~4 人真人上桌');
   assert.ok(hintField.value.includes('0% 抽水'), '德州提示應說明 0% 抽水');
 
   const guideSrc = fs.readFileSync(path.join(__dirname, 'CASINO_GUIDE.md'), 'utf8');
   assert.ok(!guideSrc.includes('在大逃殺開局前的 60 秒準備階段'), 'CASINO_GUIDE.md 大逃殺不得殘留買馬說明');
   assert.ok(!guideSrc.includes('已上桌的選手禁止對自己或他人買馬'), 'CASINO_GUIDE.md 大逃殺不得殘留買馬限制');
+  assert.ok(!guideSrc.includes('滿桌上限 6 人'), 'CASINO_GUIDE.md 德州牌桌不得殘留滿桌上限 6 人');
+  assert.ok(!guideSrc.includes('低於 `3,000` 星瓊'), 'CASINO_GUIDE.md 德州牌桌不得殘留低於 3,000 星瓊為休閒桌');
+  assert.ok(!guideSrc.includes('買入上限 $\\ge 3,000$'), 'CASINO_GUIDE.md 戰績維度不得殘留買入上限 >= 3000');
 
   const mechanicsSrc = fs.readFileSync(path.join(__dirname, 'GAMBLING_AND_CURRENCY_MECHANICS.md'), 'utf8');
   assert.ok(mechanicsSrc.includes('十一、現行代碼與歷史文檔差異對照總表 (v6.0 星際和平公司・財富重分配協議)'), '白皮書差異對照表應更新為 v6.0');
@@ -174,6 +177,63 @@ async function runTests() {
   assert.ok(mechanicsSrc.includes('單包上限 200,000，單日 500,000'), '白皮書對照表紅包應為 200,000 / 500,000');
   assert.ok(mechanicsSrc.includes('雙獨立金庫 (21點 1,000 萬 / 德州 2,000 萬，底金 25 萬 / 50 萬)'), '白皮書對照表金庫應為 1,000 萬 / 2,000 萬');
   console.log('    ✓ 德州撲克 UI、戰績面板與引導手冊文案校驗 100% 通過！');
+
+  // ==========================================
+  // 6. 檢驗紅包 Embed 面板與高利貸提示之 24h 自動銷毀與 00:00 刷新
+  // ==========================================
+  console.log('  ▶ [6/6] 測試紅包 buildRedPacketEmbed 與高利貸契約提示文案...');
+  const { buildRedPacketEmbed } = require('./redPacketService');
+  const activePacket = {
+    id: 'rp_ui_test_1',
+    senderName: '開拓者小明',
+    totalJades: 100000,
+    totalCount: 5,
+    remainingCount: 3,
+    remainingJades: 60000,
+    blessing: '新年快樂！',
+    status: 'ACTIVE',
+    claims: [],
+  };
+  const activeEmbed = buildRedPacketEmbed(activePacket);
+  assert.ok(!activeEmbed.data.description.includes('自動退還至帳戶'), '進行中紅包描述不可出現「自動退還至帳戶」');
+  assert.ok(activeEmbed.data.description.includes('由系統直接自動銷毀'), '進行中紅包描述應明示「由系統直接自動銷毀」');
+  assert.ok(!activeEmbed.data.footer.text.includes('24小時自動退回'), '紅包 Footer 不可出現「24小時自動退回」');
+  assert.ok(activeEmbed.data.footer.text.includes('24小時未領完自動銷毀'), '紅包 Footer 應明示「24小時未領完自動銷毀」');
+
+  const burnedPacket = {
+    id: 'rp_ui_test_2',
+    senderName: '開拓者小華',
+    totalJades: 50000,
+    totalCount: 5,
+    remainingCount: 0,
+    remainingJades: 0,
+    blessing: '逾期測試',
+    status: 'BURNED',
+    claims: [],
+  };
+  const burnedEmbed = buildRedPacketEmbed(burnedPacket);
+  assert.ok(burnedEmbed.data.title.includes('🔥【紅包已逾期銷毀】'), '逾期紅包標題應為「🔥【紅包已逾期銷毀】」');
+  assert.ok(burnedEmbed.data.description.includes('剩餘星瓊已全額由系統直接銷毀抹除'), '逾期紅包描述應明示全額銷毀抹除');
+
+  const { handleBankruptcyLoan } = require('./aventurineCasinoService');
+  const loanDb = new sqlite3.Database(':memory:');
+  await new Promise((res) => {
+    loanDb.serialize(() => {
+      loanDb.run(`CREATE TABLE user_currency (userId TEXT PRIMARY KEY, username TEXT, stellarJades INTEGER DEFAULT 0, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+      loanDb.run(`CREATE TABLE bankruptcy_records (userId TEXT PRIMARY KEY, username TEXT, lastLoanDate TEXT, isIndebted INTEGER DEFAULT 0, originalNickname TEXT, updatedAt DATETIME)`);
+      res();
+    });
+  });
+  const mockLoanUser = { id: 'loan_user_1', username: 'LoanUser' };
+  const firstLoan = await handleBankruptcyLoan(loanDb, null, mockLoanUser);
+  assert.strictEqual(firstLoan.success, true);
+  const secondLoan = await handleBankruptcyLoan(loanDb, null, mockLoanUser);
+  assert.strictEqual(secondLoan.success, false);
+  assert.ok(secondLoan.message.includes('每日 00:00 刷新'), '高利貸每日重複簽約提示應為「每日 00:00 刷新」');
+  assert.ok(secondLoan.message.includes('+25 星瓊'), '高利貸提示發言挖礦應為「+25 星瓊」');
+  assert.ok(!secondLoan.message.includes('07:00'), '高利貸提示絕對不可殘留舊版「07:00」');
+  assert.ok(!secondLoan.message.includes('+400'), '高利貸提示絕對不可殘留舊版「+400」');
+  console.log('    ✓ 紅包 Embed 面板與高利貸契約提示文案校驗 100% 通過！');
 
   console.log('\n🎉 所有 v6.0 指令註冊描述與 UI 面板文案一致性測試 100% 通過！');
 }

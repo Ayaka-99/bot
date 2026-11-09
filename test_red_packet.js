@@ -60,30 +60,30 @@ async function testRedPacket() {
 
   const senderId = 'lance_508';
   const initialJades = 10000000;
-  const redPacketJades = 6000000;
+  const redPacketJades = 100000;
   await new Promise((res) => {
     db.run('INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)', [senderId, 'lance_508', initialJades], () => res());
   });
 
-  // 發送 6,000,000 紅包
+  // 發送 100,000 紅包 (符合 v6.0 單包 200,000 上限)
   let replyPayload = null;
   const mockSendInteraction = {
     user: { id: senderId, username: 'lance_508' },
     options: {
       getInteger: (name) => (name === '總星瓊' ? redPacketJades : 7),
-      getString: () => '測試 600 萬大紅包',
+      getString: () => '測試 10 萬紅包',
     },
     reply: async (p) => {
       replyPayload = p;
-      return { id: 'msg_rp_6m', edit: async () => {} };
+      return { id: 'msg_rp_100k', edit: async () => {} };
     },
   };
 
   await handleSendRedPacket(db, mockSendInteraction);
 
-  // 驗證扣款：餘額應為 10,000,000 - 6,000,000 = 4,000,000
+  // 驗證扣款：餘額應為 10,000,000 - 100,000 = 9,900,000
   const afterSendRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [senderId], (_, row) => res(row)));
-  assert.strictEqual(afterSendRow.stellarJades, 4000000, '發紅包應扣除 6,000,000 星瓊');
+  assert.strictEqual(afterSendRow.stellarJades, 9900000, '發紅包應扣除 100,000 星瓊');
 
   // 執行嘗試撤回退款 (v5.6 新規：紅包發出後不可手動退回)
   let refundReply = '';
@@ -97,14 +97,14 @@ async function testRedPacket() {
   assert.ok(refundReply.includes('不可退回'), '手動退回應明確提示不可退回');
   assert.ok(refundReply.includes('自動銷毀'), '應提示未領完由系統直接銷毀');
 
-  // 驗證扣款後餘額依然維持 4,000,000 (不可退款)
+  // 驗證扣款後餘額依然維持 9,900,000 (不可退款)
   const afterRefundRow = await new Promise((res) => db.get('SELECT stellarJades FROM user_currency WHERE userId = ?', [senderId], (_, row) => res(row)));
-  assert.strictEqual(afterRefundRow.stellarJades, 4000000, '手動退回被拒，星瓊不退回');
+  assert.strictEqual(afterRefundRow.stellarJades, 9900000, '手動退回被拒，星瓊不退回');
 
   // 驗證資料庫狀態依然保持 ACTIVE 進行中
   const packetDbRow = await new Promise((res) => db.get("SELECT * FROM red_packets WHERE sender_id = ? ORDER BY created_at DESC LIMIT 1", [senderId], (_, row) => res(row)));
   assert.strictEqual(packetDbRow.status, 'ACTIVE');
-  assert.strictEqual(packetDbRow.remaining_jades, 6000000);
+  assert.strictEqual(packetDbRow.remaining_jades, 100000);
 
   // 6. 測試按鈕組件：取消手動撤回按鈕，只保留搶紅包
   console.log('  ▶ [6/8] 測試紅包按鈕僅保留「搶紅包」，確認手動退回按鈕已取消...');

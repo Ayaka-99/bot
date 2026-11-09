@@ -142,7 +142,7 @@
       "description": "全面盤點並修正 /公司金庫、/轉帳、/紅包、/退紅包、/詭弈砂金、/單挑21點、/大逃殺21點、/德州撲克之 SlashCommandBuilder 描述、選項數值邊界、Embed 面板與說明文件，徹底移除 25,000 注資上限、舊容量、舊抽稅等殘留舊文案，100% 對齊真實運行機制",
       "dependencies": ["feat-v60-peripheral-and-anti-evasion"],
       "status": "done",
-      "evidence": "node test_v60_ui_and_command_descriptions.js 5/5 PASS 且 init.cmd 8/8 關卡 100% PASS (含 16 套賭場回歸、1A2B、聊天與人設測試零回退)"
+      "evidence": "node test_v60_ui_and_command_descriptions.js 6/6 PASS, node test_red_packet.js 8/8 PASS 且 init.cmd 8/8 關卡 100% PASS (含 16 套賭場回歸、1A2B、聊天與人設測試零回退)"
     }
   ]
 }

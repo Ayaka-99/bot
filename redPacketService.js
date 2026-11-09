@@ -184,9 +184,9 @@ function generateRandomShares(totalAmount, count) {
  * 構建紅包 Embed
  */
 function buildRedPacketEmbed(packet) {
-  const isFinished = packet.remainingCount <= 0;
-  const isExpired = packet.status === 'EXPIRED';
+  const isBurned = packet.status === 'BURNED' || packet.status === 'EXPIRED';
   const isRefunded = packet.status === 'REFUNDED';
+  const isFinished = packet.remainingCount <= 0 && !isBurned && !isRefunded;
 
   let title = `🧧【拼手氣星瓊紅包】來自開拓者 ${packet.senderName}`;
   let color = RED_PACKET_COLOR;
@@ -196,10 +196,14 @@ function buildRedPacketEmbed(packet) {
     title = `🎊【紅包已搶完】${packet.senderName} 的拼手氣星瓊紅包已全數瓜分！`;
     color = FINISHED_COLOR;
     statusNotice = '🏆 **本紅包已被群友全數瓜分完畢！** 感謝老闆的大方贊助～';
-  } else if (isExpired || isRefunded) {
-    title = `⏰【紅包已自動退回】${packet.senderName} 的星瓊紅包已逾 24 小時退回`;
+  } else if (isBurned) {
+    title = `🔥【紅包已逾期銷毀】${packet.senderName} 的星瓊紅包已逾 24 小時未領完銷毀`;
+    color = 0x7f8c8d;
+    statusNotice = '🔥 **本紅包已逾 24 小時未領完，剩餘星瓊已全額由系統直接銷毀抹除。**';
+  } else if (isRefunded) {
+    title = `⏰【紅包已退回】${packet.senderName} 的星瓊紅包已退回`;
     color = 0x95a5a6;
-    statusNotice = '⏳ **本紅包已逾 24 小時未領完，剩餘星瓊已自動全額退還給發起人。**';
+    statusNotice = '⏳ **本紅包已退還給發起人。**';
   }
 
   const createdTimeMs = packet.createdAt
@@ -215,10 +219,10 @@ function buildRedPacketEmbed(packet) {
       `💰 **紅包總額**：**${packet.totalJades.toLocaleString()}** 星瓊\n` +
       `👥 **瓜分人數**：**${packet.totalCount}** 份（隨機拼手氣）\n` +
       `⏳ **剩餘進度**：剩餘 **${packet.remainingCount} / ${packet.totalCount}** 份（**${packet.remainingJades.toLocaleString()}** 星瓊）\n` +
-      (!isFinished && !isExpired && !isRefunded ? `⏰ **有效期限**：24 小時（若未領完將於 <t:${expireTimestamp}:R> 自動退還至帳戶）\n\n` : '\n') +
+      (!isFinished && !isBurned && !isRefunded ? `⏰ **有效期限**：24 小時（若未領完將於 <t:${expireTimestamp}:R> 由系統直接自動銷毀）\n\n` : '\n') +
       statusNotice
     )
-    .setFooter({ text: '🧧 匹諾康尼星際紅包局 · 拼手氣瓜分星瓊（24小時自動退回）' })
+    .setFooter({ text: '🧧 匹諾康尼星際紅包局 · 拼手氣瓜分星瓊（24小時未領完自動銷毀）' })
     .setTimestamp();
 
   if (packet.claims && packet.claims.length > 0) {
@@ -356,7 +360,7 @@ async function handleSendRedPacket(db, interaction) {
   packet.channelId = channelId;
   packet.messageId = messageId;
 
-  // 6. 寫入資料庫記錄 (含 channel_id 與 message_id 支援 24 小時逾期自動退回)
+  // 6. 寫入資料庫記錄 (含 channel_id 與 message_id 支援 24 小時逾期自動銷毀)
   db.run(
     `INSERT INTO red_packets (id, sender_id, sender_name, total_jades, total_count, remaining_jades, remaining_count, blessing, status, channel_id, message_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`,
@@ -563,7 +567,7 @@ async function handleRefundRedPacket(db, interaction, targetPacketId = null) {
 }
 
 /**
- * 檢查並自動退回已逾 24 小時之未領完紅包，並於原頻道發送通知
+ * 檢查並自動銷毀已逾 24 小時之未領完紅包，並於原頻道發送通知
  */
 async function checkAndRefundExpiredPackets(client, db) {
   if (!db) return [];

@@ -100,7 +100,7 @@ const QUOTES = {
   ],
   jackpotVault: [
     '「這可真是……一場足以載入星際和平公司史冊的豪劫！金庫全都被你搬空了！」',
-    '「7-7-7 / 同花 Blackjack！恭喜你一發入魂，整座星際和平公司金庫由你接管！」',
+    '「特殊神話牌型！恭喜你一發入魂，星際和平公司金庫向你敞開大門！」',
   ],
   dicePush: [
     '「勝負未分？那就把命運交給這兩顆轉動的骰子吧！朋友，投擲你的命運！」',
@@ -503,25 +503,31 @@ async function handleBankruptcyLoan(db, member, user) {
         return resolve({
           success: false,
           reason: 'ALREADY_CLAIMED_TODAY',
-          message: '你今天已經簽過高利貸契約了！明日 07:00 刷新，或者在頻道聊天發言賺取星瓊（每則 +400 星瓊）。',
+          message: '你今天已經簽過高利貸契約了！每日 00:00 刷新，或者在頻道聊天發言賺取星瓊（每則 +25 星瓊）。',
         });
       }
 
       const loanAmount = 300;
       // 發放 300 星瓊
-      db.run(
-        `INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)
-         ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
-        [user.id, user.username, loanAmount, loanAmount]
-      );
+      await new Promise((r, j) => {
+        db.run(
+          `INSERT INTO user_currency (userId, username, stellarJades) VALUES (?, ?, ?)
+           ON CONFLICT(userId) DO UPDATE SET stellarJades = stellarJades + ?, username = excluded.username, updatedAt = CURRENT_TIMESTAMP`,
+          [user.id, user.username, loanAmount, loanAmount],
+          (err2) => (err2 ? j(err2) : r())
+        );
+      });
 
       // 更新高利貸記錄
-      db.run(
-        `INSERT INTO bankruptcy_records (userId, username, lastLoanDate, isIndebted, originalNickname)
-         VALUES (?, ?, ?, 1, ?)
-         ON CONFLICT(userId) DO UPDATE SET lastLoanDate = excluded.lastLoanDate, isIndebted = 1, updatedAt = CURRENT_TIMESTAMP`,
-        [user.id, user.username, today, member?.nickname || user.username]
-      );
+      await new Promise((r, j) => {
+        db.run(
+          `INSERT INTO bankruptcy_records (userId, username, lastLoanDate, isIndebted, originalNickname)
+           VALUES (?, ?, ?, 1, ?)
+           ON CONFLICT(userId) DO UPDATE SET lastLoanDate = excluded.lastLoanDate, isIndebted = 1, updatedAt = CURRENT_TIMESTAMP`,
+          [user.id, user.username, today, member?.nickname || user.username],
+          (err3) => (err3 ? j(err3) : r())
+        );
+      });
 
       // Discord 身分組與暱稱修改（防禦性執行）
       if (member && member.guild) {

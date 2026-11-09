@@ -158,8 +158,17 @@
     • `test_v60_wealth_tax_pipeline.js` (6/6 PASS，涵蓋 session.seats 真實牌桌穿透扣款斷言)。
     • `test_v60_peripheral.js` (6/6 PASS，涵蓋連續微型轉帳累積跨越 1,600 門檻即時自動贖身斷言)。
 
+- 2026-11-09: 【審查與加固修復（第二輪）】完成紅包銷毀、高利貸重設與德州人數席位全面對齊：
+  - 修復 `redPacketService.js` 文案脫節與狀態判定：`buildRedPacketEmbed` 原顯示「24小時自動退回帳戶」，徹底對齊 v6.0 改為「由系統直接自動銷毀」與「（24小時未領完自動銷毀）」；補齊 `status === 'BURNED'` 判定，逾期紅包正確顯示「🔥【紅包已逾期銷毀】」與「剩餘星瓊已全額由系統直接銷毀抹除」，不再誤判為「🎉【紅包已搶完】」。
+  - 修復 `aventurineCasinoService.js` 高利貸文案與非同步競態：`handleBankruptcyLoan` 簽約拒絕提示原殘留舊版「明日 07:00 刷新」與「每則 +400 星瓊」，全面修正為「每日 00:00 刷新」與「每則 +25 星瓊」；針對 `user_currency` 與 `bankruptcy_records` 的 `db.run` 操作補齊 `await new Promise` 包裹，杜絕非同步寫入未完成即 resolve 的競態漏洞；調整 `jackpotVault` 神話彩金台詞對齊動態佔比非全盤搬空。
+  - 修復 `discord-bot-tracker.js` 與 `casinoStatsService.js` 德州席位描述：`/德州撲克` 指令註冊描述與戰績面板提示由「1~5人」修正為「1~4人＋NPC砂金（共5席）」，精確契合底層 `texasHoldemService.js` 5 席架構（1 房主 + 3 替補 + 1 砂金固定席）。
+  - 修復 `CASINO_GUIDE.md` 德州撲克規則文檔：全面重寫 Section 5 席位配置為 5 席（1~4 真人 + 1 砂金），移除 6 人座與 3,000 門檻死文字，盲注規則對齊真實 Button 輪轉與 SB 2.5%、BB 5% 制度（廢除舊版房主固定 10% 大盲與 5% 前注）。
+  - 修復 `test_red_packet.js` 舊測試用例：發送額度由 6,000,000 降為 100,000 以符合 v6.0 單包 200,000 上限，8/8 測試全數 PASS。
+  - 擴充 `test_v60_ui_and_command_descriptions.js` 至 6/6 全數 PASS（新增紅包銷毀 Embed、高利貸 00:00 刷新與德州 5 席手冊斷言）。
+
 ## Evidence
-- `node test_v60_ui_and_command_descriptions.js` 5/5 項單元測試全數通過（SlashCommandBuilder 註冊描述與 options 邊界、/公司金庫 Embed 儀表板文案與動態彩金階梯、結算快捷按鈕滿注 100 萬、/轉帳 Embed 面板限額 50,000、德州撲克 UI、戰績提示與白皮書對照總表）。
+- `node test_v60_ui_and_command_descriptions.js` 6/6 項單元測試全數通過（SlashCommandBuilder 註冊描述與 options 邊界、/公司金庫 Embed 儀表板文案與動態彩金階梯、結算快捷按鈕滿注 100 萬、/轉帳 Embed 面板限額 50,000、德州撲克 UI/戰績/手冊 5 席與 0% 抽水、紅包進行中/逾期全額銷毀 Embed 與高利貸 00:00/+25 提示）。
+- `node test_red_packet.js` 8/8 項單元測試全數通過（紅包演算法、發送、禁止手動退回、24 小時逾期自動銷毀與頻道通知）。
 - `node test_v60_peripheral.js` 6/6 項單元測試全數通過（黑市稱號與今日大亨 40%/60% 分流、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、連續微型轉帳累積跨越 1,600 即時自動贖身）。
 - `node test_v60_pvp_and_holdem.js` 6/6 項單元測試全數通過（單挑500w上限與雙爆入庫、大逃殺200w上限與全員團滅入庫、德州NPC奪池100%入庫、真人奪池免25k封頂且0%抽水、防作弊三鐵律、皇家同花順100%搬空）。
 - `node test_v60_aventurine_pve.js` 6/6 項單元測試全數通過（含 100萬滿注、Double Down 解禁、輸局 100% 入庫、常規利潤金庫支應與 20% 安全閥保護、同花 BJ 動態彩金派彩、命運比骰決鬥扣庫與入庫）。

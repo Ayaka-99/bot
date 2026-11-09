@@ -592,7 +592,7 @@ const commands = [
         .setRequired(false)
     ),
 
-  // 匹諾康尼 PvP 21 點多人大逃殺 ＋ 場外買馬
+  // 匹諾康尼 PvP 21 點多人大逃殺
   new SlashCommandBuilder()
     .setName('大逃殺21點')
     .setDescription('匹諾康尼 21 點多人大逃殺 (30秒招募，入場費 1,000~2,000,000，全面 0% 抽稅，全員團滅 100% 沒收注入金庫)')
@@ -604,10 +604,10 @@ const commands = [
         .setRequired(true)
     ),
 
-  // 匹諾康尼 德州撲克 5+1 錦標賽 (石心十人盲注桌)
+  // 匹諾康尼 德州撲克 (石心十人盲注桌)
   new SlashCommandBuilder()
     .setName('德州撲克')
-    .setDescription('石心十人盲注桌：1~5人＋NPC砂金德州撲克 (0%抽水、百分比加注與四級神話動態彩金)')
+    .setDescription('石心十人盲注桌：1~4人＋NPC砂金德州撲克 (0%抽水、百分比加注與四級神話動態彩金)')
     .addStringOption(option =>
       option.setName('買入上限')
         .setDescription('每人上桌買入上限 (最低 1,000，可填數字或 allin 全押全部身家，預設 2,500)')
@@ -728,7 +728,7 @@ client.once('clientReady', async (readyClient) => {
   // 啟動星鐵每日自動簽到排程 (每日 07:00)
   startDailyScheduler(readyClient, db);
 
-  // 啟動紅包 24 小時逾期自動退回排程
+  // 啟動紅包 24 小時逾期自動銷毀排程
   startRedPacketAutoRefundScheduler(readyClient, db);
 
   // 啟動星際和平公司午夜富人稅排程 (每日 00:00:00 Asia/Taipei)
@@ -1845,7 +1845,7 @@ client.on('interactionCreate', async (interaction) => {
         });
       }
 
-      // 快捷開局按鈕 (滿注 50,000 / 再來一局)
+      // 快捷開局按鈕 (滿注 1,000,000 / 再來一局)
       if (action === 'maxbet' || action === 'rebet') {
         try {
           const lastBet = parts[3] ? parseInt(parts[3], 10) : 500;
@@ -2010,7 +2010,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // 處理「德州撲克 5+1」按鈕
+    // 處理「德州撲克」按鈕
     if (interaction.customId.startsWith('holdem_')) {
       const customId = interaction.customId;
 
@@ -2076,7 +2076,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // 處理「拼手氣星瓊紅包」按鈕 (搶紅包 / 撤回紅包)
+    // 處理「拼手氣星瓊紅包」按鈕 (搶紅包 / 撤回查詢)
     if (interaction.customId.startsWith('redpacket_grab_')) {
       const packetId = interaction.customId.replace('redpacket_grab_', '');
       return await handleGrabRedPacket(db, interaction, packetId);
@@ -2483,7 +2483,7 @@ client.on('interactionCreate', async (interaction) => {
         const isEphemeral = options.getBoolean('私密顯示') || false;
         await interaction.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : 0 });
 
-        // 領取每日模擬抽卡 600 星瓊津貼
+        // 領取每日模擬抽卡 1,500~2,500 星瓊津貼
         const jadeResult = await claimDailyJades(db, user.id, user.username);
         if (jadeResult && jadeResult.balance >= 1600) {
           checkAndRedeemDebt(db, interaction.member, user.id, jadeResult.balance).catch(() => {});
@@ -3002,7 +3002,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       // ==========================================
-      // 🃏 石心十人盲注桌：德州撲克 5+1 錦標賽
+      // 🃏 石心十人盲注桌：德州撲克 5 人桌
       // ==========================================
       case '德州撲克': {
         let rawLimit = options.getString('買入上限');

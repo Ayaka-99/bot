@@ -98,10 +98,13 @@
   - 修復 `casinoVaultService.js` 中 `evaluateBlackjackSpecialHand` 將所有 777 誤判為 Tier 4 (150x / 100% 搬空) 的問題，精準劃分雜色 777 為 Tier 3 (40x / 65%)、同花 777 為 Tier 4 (150x / 100%)。
   - 增強 `aventurineCasinoService.js` 中 `checkAndRedeemDebt` 的餘額 DB 回退防禦，解決連續微型獲利/轉帳累積達 1,600 無法自動贖身問題。
   - 修復 `blackMarketService.js` 雙 `Math.floor` 導致奇數星瓊分配丟失的問題，改為 `texasShare = amount - bjShare`。
+  - 修復 `redPacketService.js` 紅包自動退回舊文案與逾期 `BURNED` 狀態判定缺陷，對齊 24h 逾期直接銷毀抹除機制。
+  - 修復 `aventurineCasinoService.js` 高利貸拒絕提示舊版「07:00 刷新」與「+400 星瓊」為「00:00 刷新」與「+25 星瓊」，並修復 `db.run` 未 await 的資料庫寫入競態問題。
+  - 修復 `/德州撲克` 指令註冊描述、戰績提示與手冊為真實「1~4人＋NPC砂金（共5席）」及「Button輪轉與SB 2.5%、BB 5%」規則，排除 6 人座與 3,000 門檻殘留。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - **v6.0「星際和平公司・財富重分配協議」全數交付與加固完成**：
-  - 目前所有 7 大微任務與 UI 文案對齊皆已實作且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、v6.0 專屬 7 組測試套件 40/40 測試全數 PASS）。
+  - 目前所有 7 大微任務與 UI 文案對齊皆已實作且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、`test_red_packet.js` 8/8 PASS、`test_v60_ui_and_command_descriptions.js` 6/6 PASS、v6.0 專屬測試全數 PASS）。
   - 若需部署至遠端正式伺服器，直接執行專屬一行流指令。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)
