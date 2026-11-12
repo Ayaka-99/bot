@@ -106,7 +106,7 @@
     - 將 `50w.3.png` 與 `50w.3.jpg` 替換為使用者提供之最新慘烈戰績圖（大小為 69,517 bytes）。
     - `discord-bot-tracker.js`：升級 `get50wPhoto()` 候選路徑清單，支援 `.png`、`.jpg`、`.jpeg`、`.webp` 等多副檔名相容性，且始終優先讀取 50w.3 系列最新圖片；導出圖片獲取函式供單元測試與模組化調用。
     - `geminiChatService.js`：同步更新第 535 行全域特殊成員人設檔案庫與第 439 行 1-on-1 專屬吐槽規則，注入最新慘烈戰績：「鐵道365抽20千治刃、詭弈砂金一次輸光249萬籌碼、連續4次All in全輸」。
-    - 新增專屬單元測試 `test_nmsl_trigger_photo.js` (4/4 PASS)，既有 `test_member_triggers.js` 4/4 PASS 與 `init.cmd` 8 大關卡全數 PASS。
+    - 新增專屬單元測試 `test_nmsl_trigger_photo.js` (5/5 PASS，含 .jpg fallback、50w.2 深層回退與 isFile 防禦)，加固主程式啟動防護杜絕測試連線 Discord，既有 `test_member_triggers.js` 4/4 PASS 與 `init.cmd` 8 大關卡全數 PASS。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - `feat-chat-nmsl-trigger-photo-update` 已全數施工與驗證完畢。

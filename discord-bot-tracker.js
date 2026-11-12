@@ -758,34 +758,36 @@ client.once('clientReady', async (readyClient) => {
   console.log('✅ 所有伺服器專屬指令快取已全數清理完畢，重複指令已徹底杜絕！');
 });
 
-(async () => {
-  try {
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+if (require.main === module) {
+  (async () => {
+    try {
+      const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-    // 1. 🧹 徹底清空伺服器專屬指令（徹底消滅與全域指令重複顯示的核心關鍵）
-    if (process.env.GUILD_ID) {
-      console.log('🧹 正在清空伺服器專屬指令快取以徹底消除重複指令...');
-      try {
-        await rest.put(
-          Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-          { body: [] }
-        );
-        console.log('✅ 目標伺服器專屬指令已徹底清空，重複問題已解決！');
-      } catch (guildCmdErr) {
-        console.warn('⚠️ 清空伺服器專屬指令時出錯:', guildCmdErr.message);
+      // 1. 🧹 徹底清空伺服器專屬指令（徹底消滅與全域指令重複顯示的核心關鍵）
+      if (process.env.GUILD_ID) {
+        console.log('🧹 正在清空伺服器專屬指令快取以徹底消除重複指令...');
+        try {
+          await rest.put(
+            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+            { body: [] }
+          );
+          console.log('✅ 目標伺服器專屬指令已徹底清空，重複問題已解決！');
+        } catch (guildCmdErr) {
+          console.warn('⚠️ 清空伺服器專屬指令時出錯:', guildCmdErr.message);
+        }
       }
+      // 2. 🌐 統一註冊單一來源全域指令 (群組與私訊皆可用，維持單一無重複)
+      console.log('⏳ 開始向 Discord 同步全域指令...');
+      await rest.put(
+        Routes.applicationCommands(process.env.CLIENT_ID),
+        { body: commands.map(cmd => cmd.toJSON()) }
+      );
+      console.log('✅ 全域指令同步成功！所有指令僅保留一份。');
+    } catch (error) {
+      console.error('❌ 指令註冊失敗，請檢查 Token 或 ID 設定：', error);
     }
-    // 2. 🌐 統一註冊單一來源全域指令 (群組與私訊皆可用，維持單一無重複)
-    console.log('⏳ 開始向 Discord 同步全域指令...');
-    await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: commands.map(cmd => cmd.toJSON()) }
-    );
-    console.log('✅ 全域指令同步成功！所有指令僅保留一份。');
-  } catch (error) {
-    console.error('❌ 指令註冊失敗，請檢查 Token 或 ID 設定：', error);
-  }
-})();
+  })();
+}
 
 // ==========================================
 // 📸 警務處處長 (shirasakia) 詐騙/防詐圖片獲取函式 (僅發送 1 張 antiscam)
@@ -986,7 +988,7 @@ function get50wPhoto() {
 
   for (const p of candidatePaths) {
     try {
-      if (p && fs.existsSync(p)) {
+      if (p && fs.existsSync(p) && fs.statSync(p).isFile()) {
         const buffer = fs.readFileSync(p);
         const fileName = path.basename(p) || '50w.3.png';
         return [new AttachmentBuilder(buffer, { name: fileName })];
@@ -3286,9 +3288,11 @@ client.on('interactionCreate', async (interaction) => {
 client.on('error', error => console.error('⚠️ Discord Client 發生錯誤:', error));
 process.on('unhandledRejection', error => console.error('🔥 發生未捕獲的 Promise 拒絕:', error));
 
-client.login(process.env.DISCORD_TOKEN)
-  .then(() => console.log('✅ login() 成功，等待 clientReady 事件...'))
-  .catch((err) => console.error('❌ login() 失敗:', err.message));
+if (require.main === module) {
+  client.login(process.env.DISCORD_TOKEN)
+    .then(() => console.log('✅ login() 成功，等待 clientReady 事件...'))
+    .catch((err) => console.error('❌ login() 失敗:', err.message));
+}
 
 process.on('SIGINT', () => {
   console.log('\n🛑 收到終止訊號 (SIGINT)，正在優雅關機...');

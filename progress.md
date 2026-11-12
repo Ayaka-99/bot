@@ -174,7 +174,7 @@
   - 擴充 `test_v60_ui_and_command_descriptions.js` 至 6/6 全數 PASS（新增紅包銷毀 Embed、高利貸 00:00 刷新與德州 5 席手冊斷言）。
 
 ## Evidence
-- `node test_nmsl_trigger_photo.js` 4/4 項單元測試全數通過（50w.3 圖片 Buffer 69,517 bytes、get50kPhoto 別名、.jpg 副檔名 fallback 相容性、人設戰績注入與月天狼隔離互斥）。
+- `node test_nmsl_trigger_photo.js` 5/5 項單元測試全數通過（50w.3 圖片 Buffer 69,517 bytes、get50kPhoto 別名、.jpg 副檔名 fallback 相容性、50w.2 深層 fallback、isFile 目錄型態防禦、人設戰績注入與月天狼隔離互斥）。
 - `node test_member_triggers.js` 4/4 項單元測試全數通過（月天狼隔離、雪糕貓關鍵詞、圖片實體載入與互斥過濾機制）。
 - `node test_v60_ui_and_command_descriptions.js` 6/6 項單元測試全數通過（SlashCommandBuilder 註冊描述與 options 邊界、/公司金庫 Embed 儀表板文案與動態彩金階梯、結算快捷按鈕滿注 100 萬、/轉帳 Embed 面板限額 50,000、德州撲克 UI/戰績/手冊 5 席與 0% 抽水、紅包進行中/逾期全額銷毀 Embed 與高利貸 00:00/+25 提示）。
 - `node test_red_packet.js` 8/8 項單元測試全數通過（紅包演算法、發送、禁止手動退回、24 小時逾期自動銷毀與頻道通知）。
