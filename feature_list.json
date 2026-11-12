@@ -143,6 +143,14 @@
       "dependencies": ["feat-v60-peripheral-and-anti-evasion"],
       "status": "done",
       "evidence": "node test_v60_ui_and_command_descriptions.js 6/6 PASS, node test_red_packet.js 8/8 PASS 且 init.cmd 8/8 關卡 100% PASS (含 16 套賭場回歸、1A2B、聊天與人設測試零回退)"
+    },
+    {
+      "id": "feat-chat-nmsl-trigger-photo-update",
+      "name": "更新 nmsl2887 (臭甲/50w) 專屬觸發圖片",
+      "description": "將 nmsl2887 (臭甲/50萬/ICAC) 觸發詞發送之圖片更新為使用者提供的最新慘烈戰績圖 (包含『鐵道365抽20千治刃』、『詭弈砂金一次輸光249萬籌碼』與『連續4次All in全輸』)；覆蓋並相容本地 50w.3 圖片檔案，確保 get50wPhoto 正確載入",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "node test_nmsl_trigger_photo.js 4/4 PASS, node test_member_triggers.js 4/4 PASS 且 cmd.exe /c init.cmd 8/8 關卡 100% PASS (50w.3.png/50w.3.jpg 成功替換為新戰績圖 69,517 bytes，副檔名相容 fallback 正常，人設戰績補充鐵道365抽20千治刃、砂金一次輸光249萬籌碼、連續4次All in全輸)"
     }
   ]
 }

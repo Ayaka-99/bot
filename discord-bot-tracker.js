@@ -947,22 +947,40 @@ function getDrunkerPhoto() {
 }
 
 // ==========================================
-// 💩 臭甲 / ICAC (nmsl2887) 專屬 50w.3 圖片獲取函式 (絕對優先 50w.3.png)
+// 💩 臭甲 / ICAC (nmsl2887) 專屬 50w.3 圖片獲取函式 (絕對優先 50w.3 圖片，支援多副檔名相容性)
 // ==========================================
 function get50wPhoto() {
   const candidatePaths = [
     path.join(__dirname, '50w.3.png'),
+    path.join(__dirname, '50w.3.jpg'),
+    path.join(__dirname, '50w.3.jpeg'),
+    path.join(__dirname, '50w.3.webp'),
     path.join(process.cwd(), '50w.3.png'),
+    path.join(process.cwd(), '50w.3.jpg'),
+    path.join(process.cwd(), '50w.3.jpeg'),
+    path.join(process.cwd(), '50w.3.webp'),
     path.join(process.env.HOME || '', 'bot', '50w.3.png'),
+    path.join(process.env.HOME || '', 'bot', '50w.3.jpg'),
+    path.join(process.env.HOME || '', 'bot', '50w.3.jpeg'),
+    path.join(process.env.HOME || '', 'bot', '50w.3.webp'),
     path.join(process.env.HOME || '', '50w.3.png'),
+    path.join(process.env.HOME || '', '50w.3.jpg'),
     path.join(process.env.USERPROFILE || '', 'bot', '50w.3.png'),
+    path.join(process.env.USERPROFILE || '', 'bot', '50w.3.jpg'),
     'C:\\Users\\ayaka\\bot\\50w.3.png',
+    'C:\\Users\\ayaka\\bot\\50w.3.jpg',
+    'C:\\Users\\ayaka\\bot\\50w.3.jpeg',
+    'C:\\Users\\ayaka\\bot\\50w.3.webp',
     path.join(__dirname, '50w.2.png'),
+    path.join(__dirname, '50w.2.jpg'),
     path.join(process.cwd(), '50w.2.png'),
+    path.join(process.cwd(), '50w.2.jpg'),
     path.join(process.env.HOME || '', 'bot', '50w.2.png'),
     'C:\\Users\\ayaka\\bot\\50w.2.png',
     path.join(__dirname, '50w.png'),
+    path.join(__dirname, '50w.jpg'),
     path.join(process.cwd(), '50w.png'),
+    path.join(process.cwd(), '50w.jpg'),
     'C:\\Users\\ayaka\\bot\\50w.png',
   ];
 
@@ -3282,3 +3300,18 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
+
+// ==========================================
+// 📦 模組匯出 (供單元測試與外部呼叫)
+// ==========================================
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    get50wPhoto,
+    get50kPhoto,
+    getYueXiPhotos,
+    getSnowCatPhoto,
+    getLaPhoto,
+    getLaodaPhoto,
+    getDrunkerPhoto,
+  };
+}

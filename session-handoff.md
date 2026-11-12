@@ -102,10 +102,16 @@
   - 修復 `aventurineCasinoService.js` 高利貸拒絕提示舊版「07:00 刷新」與「+400 星瓊」為「00:00 刷新」與「+25 星瓊」，並修復 `db.run` 未 await 的資料庫寫入競態問題。
   - 修復 `/德州撲克` 指令註冊描述、戰績提示與手冊為真實「1~4人＋NPC砂金（共5席）」及「Button輪轉與SB 2.5%、BB 5%」規則，排除 6 人座與 3,000 門檻殘留。
 
+16. **`feat-chat-nmsl-trigger-photo-update`** [done]:
+    - 將 `50w.3.png` 與 `50w.3.jpg` 替換為使用者提供之最新慘烈戰績圖（大小為 69,517 bytes）。
+    - `discord-bot-tracker.js`：升級 `get50wPhoto()` 候選路徑清單，支援 `.png`、`.jpg`、`.jpeg`、`.webp` 等多副檔名相容性，且始終優先讀取 50w.3 系列最新圖片；導出圖片獲取函式供單元測試與模組化調用。
+    - `geminiChatService.js`：同步更新第 535 行全域特殊成員人設檔案庫與第 439 行 1-on-1 專屬吐槽規則，注入最新慘烈戰績：「鐵道365抽20千治刃、詭弈砂金一次輸光249萬籌碼、連續4次All in全輸」。
+    - 新增專屬單元測試 `test_nmsl_trigger_photo.js` (4/4 PASS)，既有 `test_member_triggers.js` 4/4 PASS 與 `init.cmd` 8 大關卡全數 PASS。
+
 ## 3. 下一階段交接事項 (Next Steps)
-- **v6.0「星際和平公司・財富重分配協議」全數交付與加固完成**：
-  - 目前所有 7 大微任務與 UI 文案對齊皆已實作且驗證 100% 通過（`init.cmd` 8 大關卡全數 PASS、`test_red_packet.js` 8/8 PASS、`test_v60_ui_and_command_descriptions.js` 6/6 PASS、v6.0 專屬測試全數 PASS）。
-  - 若需部署至遠端正式伺服器，直接執行專屬一行流指令。
+- `feat-chat-nmsl-trigger-photo-update` 已全數施工與驗證完畢。
+- 下一棒若有新微任務，請依標準流程先於 `feature_list.json` 登錄 feature 後再行施作。
+- 遠端部署指令：`cd ~/bot && git pull && pm2 restart dc-bot --update-env`。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)
 - **遠端伺服器更新唯一指令**:

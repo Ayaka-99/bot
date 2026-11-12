@@ -138,6 +138,13 @@
     • `CASINO_GUIDE.md` & `GAMBLING_AND_CURRENCY_MECHANICS.md`：全面同步 v6.0 制度，移除大逃殺買馬死文字；將白皮書第十一章對照總表全面升級為 v6.0 真實機制（轉帳 50k、紅包 200k/500k、砂金 100w/All-in、單挑 500w 0% 抽稅雙爆入庫、大逃殺 200w 團滅入庫、德州 0% 抽水、雙金庫 1000w/2000w 與 00:00 富人稅），結案第十二章各項落差。
     • 單元測試 `test_v60_ui_and_command_descriptions.js` 擴充至 5/5 全數 PASS。
 
+- **更新 nmsl2887 臭甲/50w 專屬觸發圖片與人設戰績 (`feat-chat-nmsl-trigger-photo-update`)**:
+  - 將 `50w.3.png` 與 `50w.3.jpg` 替換為使用者提供之最新慘烈戰績圖（大小為 69,517 bytes）。
+  - `discord-bot-tracker.js`：升級 `get50wPhoto()` 候選路徑清單，支援 `.png`、`.jpg`、`.jpeg`、`.webp` 等多副檔名相容性，且始終優先讀取 50w.3 系列最新圖片；導出圖片獲取函式供單元測試與模組化調用。
+  - `geminiChatService.js`：同步更新第 535 行全域特殊成員人設檔案庫與第 439 行 1-on-1 專屬吐槽規則，注入最新慘烈戰績：「鐵道365抽20千治刃、詭弈砂金一次輸光249萬籌碼、連續4次All in全輸」。
+  - 新增專屬單元測試 `test_nmsl_trigger_photo.js` (4/4 PASS)，涵蓋 AttachmentBuilder 實體、Buffer 大小 (69,517 bytes)、.png 缺失時自動 fallback 至 .jpg、提示詞戰績驗證以及月天狼嚴格隔離互斥防禦。
+  - 既有 `test_member_triggers.js` 4/4 PASS 與 `init.cmd` 8 大驗證關卡全數通過。
+
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
 
@@ -167,6 +174,8 @@
   - 擴充 `test_v60_ui_and_command_descriptions.js` 至 6/6 全數 PASS（新增紅包銷毀 Embed、高利貸 00:00 刷新與德州 5 席手冊斷言）。
 
 ## Evidence
+- `node test_nmsl_trigger_photo.js` 4/4 項單元測試全數通過（50w.3 圖片 Buffer 69,517 bytes、get50kPhoto 別名、.jpg 副檔名 fallback 相容性、人設戰績注入與月天狼隔離互斥）。
+- `node test_member_triggers.js` 4/4 項單元測試全數通過（月天狼隔離、雪糕貓關鍵詞、圖片實體載入與互斥過濾機制）。
 - `node test_v60_ui_and_command_descriptions.js` 6/6 項單元測試全數通過（SlashCommandBuilder 註冊描述與 options 邊界、/公司金庫 Embed 儀表板文案與動態彩金階梯、結算快捷按鈕滿注 100 萬、/轉帳 Embed 面板限額 50,000、德州撲克 UI/戰績/手冊 5 席與 0% 抽水、紅包進行中/逾期全額銷毀 Embed 與高利貸 00:00/+25 提示）。
 - `node test_red_packet.js` 8/8 項單元測試全數通過（紅包演算法、發送、禁止手動退回、24 小時逾期自動銷毀與頻道通知）。
 - `node test_v60_peripheral.js` 6/6 項單元測試全數通過（黑市稱號與今日大亨 40%/60% 分流、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、連續微型轉帳累積跨越 1,600 即時自動贖身）。
