@@ -152,8 +152,8 @@
     • 抽取判定函式 `isLaPhotoTriggered(content)`，支援字串與 Discord Message 物件結構輸入，並導出 `isLaPhotoTriggered`、`isLaTriggered` 及 `LA_PHOTO_KEYWORDS`。
     • 被文字、空格或標點拆開者（如「拉著走完了」、「拉 完 了」、「拉...了」、「拉個屎完蛋了」）以及單字「拉」、「完」、「了」100% 絕對阻絕，不再誤發 la 圖片。
     • 保持禁言頻道檢查、`getLaPhoto()` 調用與回覆邏輯不變。
-  - 新增單元測試 `test_la_photo_trigger.js` (5/5 PASS)，涵蓋常數與導出定義、正向詞句 (15 例)、負向阻絕 (20 例)、異常型態邊界防禦與 `la.png` 實體載入 (28,620 bytes)。
-  - `node test_la_photo_trigger.js` 5/5 PASS、`node test_member_triggers.js` 4/4 PASS、`node test_nmsl_trigger_photo.js` 5/5 PASS 且 `cmd.exe /c init.cmd` 8 大關卡 100% 綠燈通過。
+  - 新增單元測試 `test_la_photo_trigger.js` (6/6 PASS)，涵蓋常數與導出定義、正向詞句與標點/Markdown 包裹/String 物件 (26 例)、負向阻絕含全形/半形空白/換行/標點/混淆詞 (48 例)、異常型態與 Message 結構邊界防禦、100k 字元超長字串壓力測試，以及 `la.png` 實體載入與 isFile 目錄安全防禦 (28,620 bytes)。
+  - `node test_la_photo_trigger.js` 6/6 PASS、`node test_member_triggers.js` 4/4 PASS、`node test_nmsl_trigger_photo.js` 5/5 PASS 且 `cmd.exe /c init.cmd` 8 大關卡 100% 綠燈通過。
 
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。

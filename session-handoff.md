@@ -111,7 +111,7 @@
     - `discord-bot-tracker.js`：徹底廢除「拉、完、了 3 字中有 2 字」模糊計數邏輯，重構為嚴格相連 5 大連續詞匹配（`['拉完了', '拉了', '拉完', '拉拉', '完完']`）。
     - 抽取判定函式 `isLaPhotoTriggered(content)`，支援 string 與 message 物件輸入，並加入 `module.exports`（含 `isLaTriggered` 別名與 `LA_PHOTO_KEYWORDS` 常數）。
     - 拆散字詞（如「拉著走完了」、「拉 完 了」、「拉...了」、「拉個屎完蛋了」）以及單字「拉」、「完」、「了」100% 阻絕。
-    - 新增單元測試 `test_la_photo_trigger.js` 5/5 全數 PASS，既有回歸測試套件與 `init.cmd` 8 大關卡 100% PASS。
+    - 新增單元測試 `test_la_photo_trigger.js` 6/6 全數 PASS (26 正向案例、48 負向阻絕含全形半形空白與換行標點阻隔、String 物件與異常型別防禦、100k 字元壓力測試與 isFile 目錄安全防禦)，既有回歸測試套件與 `init.cmd` 8 大關卡 100% PASS。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - `feat-chat-la-photo-trigger-keywords-refactor` 已全數施工與驗證完畢。

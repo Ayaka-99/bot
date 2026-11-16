@@ -158,7 +158,7 @@
       "description": "將 discord-bot-tracker.js 中 la 圖片的原有模糊計數監聽（『拉』、『完』、『了』3中2）重構為嚴格連續詞匹配；僅當訊息包含『拉完了』、『拉了』、『拉完』、『拉拉』、『完完』這五個連續詞之一時才觸發發送 la 圖片，散開字詞（如『拉著走完了』）或個別字元嚴格不觸發",
       "dependencies": [],
       "status": "done",
-      "evidence": "node test_la_photo_trigger.js 5/5 PASS, node test_member_triggers.js 4/4 PASS 且 cmd.exe /c init.cmd 8/8 關卡 100% PASS (廢除 3 字中 2 計數，改為 isLaPhotoTriggered 嚴格相連 5 大連續詞匹配，拆散詞與單字 100% 阻絕，保留原回覆邏輯與圖片實體 28,620 bytes 載入正常)"
+      "evidence": "node test_la_photo_trigger.js 6/6 PASS (26 正向案例、48 負向阻絕含全形半形空白與換行標點阻隔、String 物件與異常型別防禦、100k 字元壓力測試與 isFile 目錄安全防禦), node test_member_triggers.js 4/4 PASS 且 cmd.exe /c init.cmd 8/8 關卡 100% PASS (廢除 3 字中 2 計數，改為 isLaPhotoTriggered 嚴格相連 5 大連續詞匹配，拆散詞與單字 100% 阻絕，保留原回覆邏輯與圖片實體 28,620 bytes 載入正常)"
     }
   ]
 }

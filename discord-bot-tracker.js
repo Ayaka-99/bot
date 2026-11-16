@@ -1007,9 +1007,12 @@ const get50kPhoto = get50wPhoto;
 const LA_PHOTO_KEYWORDS = ['拉完了', '拉了', '拉完', '拉拉', '完完'];
 
 function isLaPhotoTriggered(content) {
-  const text = typeof content === 'string'
-    ? content
-    : (content && typeof content.content === 'string' ? content.content : null);
+  let text = null;
+  if (typeof content === 'string' || content instanceof String) {
+    text = String(content);
+  } else if (content && (typeof content.content === 'string' || content.content instanceof String)) {
+    text = String(content.content);
+  }
   if (!text) return false;
   return LA_PHOTO_KEYWORDS.some(kw => text.includes(kw));
 }
@@ -1033,7 +1036,7 @@ function getLaPhoto() {
 
   for (const p of candidatePaths) {
     try {
-      if (p && fs.existsSync(p)) {
+      if (p && fs.existsSync(p) && fs.statSync(p).isFile()) {
         const buffer = fs.readFileSync(p);
         const ext = path.extname(p) || '.png';
         return [new AttachmentBuilder(buffer, { name: `la${ext}` })];
