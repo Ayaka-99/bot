@@ -107,9 +107,14 @@
     - `discord-bot-tracker.js`：升級 `get50wPhoto()` 候選路徑清單，支援 `.png`、`.jpg`、`.jpeg`、`.webp` 等多副檔名相容性，且始終優先讀取 50w.3 系列最新圖片；導出圖片獲取函式供單元測試與模組化調用。
     - `geminiChatService.js`：同步更新第 535 行全域特殊成員人設檔案庫與第 439 行 1-on-1 專屬吐槽規則，注入最新慘烈戰績：「鐵道365抽20千治刃、詭弈砂金一次輸光249萬籌碼、連續4次All in全輸」。
     - 新增專屬單元測試 `test_nmsl_trigger_photo.js` (5/5 PASS，含 .jpg fallback、50w.2 深層回退與 isFile 防禦)，加固主程式啟動防護杜絕測試連線 Discord，既有 `test_member_triggers.js` 4/4 PASS 與 `init.cmd` 8 大關卡全數 PASS。
+17. **`feat-chat-la-photo-trigger-keywords-refactor`** [done]:
+    - `discord-bot-tracker.js`：徹底廢除「拉、完、了 3 字中有 2 字」模糊計數邏輯，重構為嚴格相連 5 大連續詞匹配（`['拉完了', '拉了', '拉完', '拉拉', '完完']`）。
+    - 抽取判定函式 `isLaPhotoTriggered(content)`，支援 string 與 message 物件輸入，並加入 `module.exports`（含 `isLaTriggered` 別名與 `LA_PHOTO_KEYWORDS` 常數）。
+    - 拆散字詞（如「拉著走完了」、「拉 完 了」、「拉...了」、「拉個屎完蛋了」）以及單字「拉」、「完」、「了」100% 阻絕。
+    - 新增單元測試 `test_la_photo_trigger.js` 5/5 全數 PASS，既有回歸測試套件與 `init.cmd` 8 大關卡 100% PASS。
 
 ## 3. 下一階段交接事項 (Next Steps)
-- `feat-chat-nmsl-trigger-photo-update` 已全數施工與驗證完畢。
+- `feat-chat-la-photo-trigger-keywords-refactor` 已全數施工與驗證完畢。
 - 下一棒若有新微任務，請依標準流程先於 `feature_list.json` 登錄 feature 後再行施作。
 - 遠端部署指令：`cd ~/bot && git pull && pm2 restart dc-bot --update-env`。
 

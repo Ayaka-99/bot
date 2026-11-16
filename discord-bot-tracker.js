@@ -1002,6 +1002,19 @@ function get50wPhoto() {
 const get50kPhoto = get50wPhoto;
 
 // ==========================================
+// 💩 拉完了 專屬 5 大連續詞常數與判定函式
+// ==========================================
+const LA_PHOTO_KEYWORDS = ['拉完了', '拉了', '拉完', '拉拉', '完完'];
+
+function isLaPhotoTriggered(content) {
+  const text = typeof content === 'string'
+    ? content
+    : (content && typeof content.content === 'string' ? content.content : null);
+  if (!text) return false;
+  return LA_PHOTO_KEYWORDS.some(kw => text.includes(kw));
+}
+
+// ==========================================
 // 💩 拉完了 專屬 la 圖片獲取函式
 // ==========================================
 function getLaPhoto() {
@@ -1220,13 +1233,9 @@ client.on('messageCreate', async (message) => {
   }
 
   // ==========================================
-  // 💩 關鍵字自動監聽：偵測到「拉完了」3 個字中有 2 個字被觸發時，自動發送 la 圖片 (無需 Tag 或回覆)
+  // 💩 關鍵字自動監聽：嚴格相連 5 大連續詞 (拉完了、拉了、拉完、拉拉、完完)，自動發送 la 圖片 (無需 Tag 或回覆)
   // ==========================================
-  const contentToScan = (message.content || '').toLowerCase();
-  const laKeywords = ['拉', '完', '了'];
-  const matchedLaCount = laKeywords.filter(char => contentToScan.includes(char)).length;
-
-  if (matchedLaCount >= 2) {
+  if (isLaPhotoTriggered(message.content)) {
     const laPhotos = getLaPhoto();
     if (laPhotos.length > 0) {
       try {
@@ -3317,5 +3326,8 @@ if (typeof module !== 'undefined' && module.exports) {
     getLaPhoto,
     getLaodaPhoto,
     getDrunkerPhoto,
+    isLaPhotoTriggered,
+    isLaTriggered: isLaPhotoTriggered,
+    LA_PHOTO_KEYWORDS,
   };
 }

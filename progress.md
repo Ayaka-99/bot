@@ -145,6 +145,16 @@
   - 新增專屬單元測試 `test_nmsl_trigger_photo.js` (4/4 PASS)，涵蓋 AttachmentBuilder 實體、Buffer 大小 (69,517 bytes)、.png 缺失時自動 fallback 至 .jpg、提示詞戰績驗證以及月天狼嚴格隔離互斥防禦。
   - 既有 `test_member_triggers.js` 4/4 PASS 與 `init.cmd` 8 大驗證關卡全數通過。
 
+- **重構 la 圖片監聽關鍵字為 5 大連續詞 (`feat-chat-la-photo-trigger-keywords-refactor`)**:
+  - `discord-bot-tracker.js`：
+    • 徹底廢除原有「拉、完、了 3 字中有 2 字即觸發」之模糊計數邏輯。
+    • 改為嚴格相連 5 大連續詞判定：`['拉完了', '拉了', '拉完', '拉拉', '完完']`。
+    • 抽取判定函式 `isLaPhotoTriggered(content)`，支援字串與 Discord Message 物件結構輸入，並導出 `isLaPhotoTriggered`、`isLaTriggered` 及 `LA_PHOTO_KEYWORDS`。
+    • 被文字、空格或標點拆開者（如「拉著走完了」、「拉 完 了」、「拉...了」、「拉個屎完蛋了」）以及單字「拉」、「完」、「了」100% 絕對阻絕，不再誤發 la 圖片。
+    • 保持禁言頻道檢查、`getLaPhoto()` 調用與回覆邏輯不變。
+  - 新增單元測試 `test_la_photo_trigger.js` (5/5 PASS)，涵蓋常數與導出定義、正向詞句 (15 例)、負向阻絕 (20 例)、異常型態邊界防禦與 `la.png` 實體載入 (28,620 bytes)。
+  - `node test_la_photo_trigger.js` 5/5 PASS、`node test_member_triggers.js` 4/4 PASS、`node test_nmsl_trigger_photo.js` 5/5 PASS 且 `cmd.exe /c init.cmd` 8 大關卡 100% 綠燈通過。
+
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
 
@@ -174,6 +184,7 @@
   - 擴充 `test_v60_ui_and_command_descriptions.js` 至 6/6 全數 PASS（新增紅包銷毀 Embed、高利貸 00:00 刷新與德州 5 席手冊斷言）。
 
 ## Evidence
+- `node test_la_photo_trigger.js` 5/5 項單元測試全數通過（5 大連續詞定義與導出、正向包含句型 15 例、負向拆散與單字阻絕 20 例、型態與 Message 物件相容性、la.png 實體載入 28,620 bytes）。
 - `node test_nmsl_trigger_photo.js` 5/5 項單元測試全數通過（50w.3 圖片 Buffer 69,517 bytes、get50kPhoto 別名、.jpg 副檔名 fallback 相容性、50w.2 深層 fallback、isFile 目錄型態防禦、人設戰績注入與月天狼隔離互斥）。
 - `node test_member_triggers.js` 4/4 項單元測試全數通過（月天狼隔離、雪糕貓關鍵詞、圖片實體載入與互斥過濾機制）。
 - `node test_v60_ui_and_command_descriptions.js` 6/6 項單元測試全數通過（SlashCommandBuilder 註冊描述與 options 邊界、/公司金庫 Embed 儀表板文案與動態彩金階梯、結算快捷按鈕滿注 100 萬、/轉帳 Embed 面板限額 50,000、德州撲克 UI/戰績/手冊 5 席與 0% 抽水、紅包進行中/逾期全額銷毀 Embed 與高利貸 00:00/+25 提示）。
