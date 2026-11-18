@@ -36,7 +36,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 1. 狀態檔讀寫與異常防禦測試
     // ------------------------------------------------------------------
-    console.log('▶ [1/9] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
+    console.log('▶ [1/10] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catgirl-test-'));
     const missingFile = path.join(tmpDir, 'nonexistent.json');
     assert.strictEqual(isCatgirlModeEnabled(missingFile), false, '檔案不存在時應預設回傳 false');
@@ -62,7 +62,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 2. 斜線指令註冊與權限檢查 (master vs non-master / DM)
     // ------------------------------------------------------------------
-    console.log('▶ [2/9] 測試 /貓娘模式 斜線指令註冊與權限控制...');
+    console.log('▶ [2/10] 測試 /貓娘模式 斜線指令註冊與權限控制...');
     const catgirlCmd = commands.find((c) => c.name === '貓娘模式');
     assert.ok(catgirlCmd, 'commands 陣列應已註冊 /貓娘模式 指令');
     const cmdJson = catgirlCmd.toJSON();
@@ -127,7 +127,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 3. 貓娘模式人設、星鐵三元素與安全硬規則驗證
     // ------------------------------------------------------------------
-    console.log('▶ [3/9] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
+    console.log('▶ [3/10] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
     setCatgirlModeEnabled(true);
 
     const masterUser = { id: SPECIAL_USERS.MASTER.id, username: 'lance_508' };
@@ -139,9 +139,15 @@ async function runTests() {
       assert.ok(!prompt.includes('SoliUmbra'), `${u.username} 提示詞不應包含 SoliUmbra（名字就是蘭斯的專屬貓娘）`);
       assert.ok(prompt.includes('蘭斯的專屬貓娘'), `${u.username} 提示詞應包含「蘭斯的專屬貓娘」`);
       assert.ok(prompt.includes('本喵'), `${u.username} 提示詞應包含自稱「本喵」`);
+      // 自我介紹：不留現成整句給模型照抄（2026-11-18 實測：模型會在沒人問「你是誰」時
+      // 自作主張輸出自我介紹），改為規則式寫法：只有主人明確問起才簡單介紹，平常絕對不要主動自我介紹。
       assert.ok(
-        prompt.includes('主人！給你自我介紹一下，我是蘭斯的專屬貓娘喵！從現在起這個對話歸本喵接管啦喵~'),
-        `${u.username} 提示詞應包含完整自我介紹句`
+        !prompt.includes('從現在起這個對話歸本喵接管啦'),
+        `${u.username} 提示詞不應包含現成自我介紹整句（會被模型無故照抄）`
+      );
+      assert.ok(
+        prompt.includes('不要主動自我介紹'),
+        `${u.username} 提示詞應包含「不要主動自我介紹」規則`
       );
       // 星鐵三元素
       assert.ok(prompt.includes('偷渡貓') && prompt.includes('吧台'), `${u.username} 應包含偷渡貓與吧台睡覺元素`);
@@ -165,7 +171,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 4. 優先順序驗證：砂金模式 > 貓娘模式 > 侍者閉嘴
     // ------------------------------------------------------------------
-    console.log('▶ [4/9] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
+    console.log('▶ [4/10] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
     setCatgirlModeEnabled(true);
 
     // 4a. 主人以「砂金，」開頭呼叫 -> 仍進入砂金模式
@@ -189,7 +195,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 5. 模型池與 handleBotChatMessage 整合測試
     // ------------------------------------------------------------------
-    console.log('▶ [5/9] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
+    console.log('▶ [5/10] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
     assert.deepStrictEqual(TEXT_MODELS, ['gemini-3.5-flash-lite'], '一般對話 TEXT_MODELS 應維持 gemini-3.5-flash-lite');
 
     setCatgirlModeEnabled(true);
@@ -221,7 +227,7 @@ async function runTests() {
     //    「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED
     //    → 誤回「能量耗盡」。修復後應直接用人設口氣可愛回絕，不裝成能量耗盡。
     // ------------------------------------------------------------------
-    console.log('▶ [6/9] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
+    console.log('▶ [6/10] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
     setCatgirlModeEnabled(true);
     clearSharedHistory();
     const originalApiCall2 = apiCaller.call;
@@ -255,7 +261,7 @@ async function runTests() {
     //    最後仍以 ALL_KEYS_EXHAUSTED 收場。修復後內層 catch 遇 SAFETY_BLOCKED
     //    必須直接往上拋，不得換 key、不得轉成 ALL_KEYS_EXHAUSTED。
     // ------------------------------------------------------------------
-    console.log('▶ [7/9] 測試 SAFETY_BLOCKED 穿透內層 catch（不被吞掉、不換 key）...');
+    console.log('▶ [7/10] 測試 SAFETY_BLOCKED 穿透內層 catch（不被吞掉、不換 key）...');
     const originalFetch = global.fetch;
     try {
       let fetchCallCount = 0;
@@ -291,7 +297,7 @@ async function runTests() {
     //    也會觸發 PROHIBITED_CONTENT，單句「我要色色」不會被擋——觸發點是「(主人)」前綴。
     //    故重試時去掉前綴，只送裸訊息文字。
     // ------------------------------------------------------------------
-    console.log('▶ [8/9] 測試 SAFETY_BLOCKED 重試（去對話紀錄）自然回覆...');
+    console.log('▶ [8/10] 測試 SAFETY_BLOCKED 重試（去對話紀錄）自然回覆...');
     setCatgirlModeEnabled(true);
     clearSharedHistory();
     appendSharedHistory('user', 'lance_508: 會員制餐廳的氣氛真不錯');
@@ -332,7 +338,7 @@ async function runTests() {
     //    為模型生成中途自行停住。修復：isIncompleteReply 偵測懸空結尾，
     //    maybeContinue 把未完結的回覆當 model turn 送回、請模型續寫（只一次）。
     // ------------------------------------------------------------------
-    console.log('▶ [9/9] 測試斷句偵測與自動續寫...');
+    console.log('▶ [9/10] 測試斷句偵測與自動續寫...');
     assert.strictEqual(isIncompleteReply('嗚哇——！主人竟然拒絕摸摸！本喵的小'), true, '結尾「的」懸空，應判斷句');
     assert.strictEqual(isIncompleteReply('壞主人！大壞蛋！本喵要'), true, '結尾「要」懸空，應判斷句');
     assert.strictEqual(isIncompleteReply('我們還是聊聊小魚乾跟毛線球吧喵！'), false, '結尾「！」應判完整');
@@ -366,6 +372,23 @@ async function runTests() {
       clearSharedHistory();
     }
     console.log('  ✅ 斷句偵測與自動續寫測試通過！');
+
+    // ------------------------------------------------------------------
+    // 10. 自我介紹不誤觸發：人設裡不留現成整句自我介紹，模型沒人問就不會自作主張介紹
+    //    回歸：2026-11-18 14:48「把你推到床上」回覆開頭出現無關的自我介紹。
+    //    原因：人設裡有兩處現成整句「主人！給你自我介紹一下……接管啦喵~」，
+    //    Flash Lite 會在沒人問「你是誰」時照抄當開場。修復：兩處皆改為規則式寫法
+    //    （只有主人明確問起才簡單介紹，平常絕對不要主動自我介紹），不再留現成整句。
+    // ------------------------------------------------------------------
+    console.log('▶ [10/10] 測試自我介紹不誤觸發...');
+    setCatgirlModeEnabled(true);
+    const masterUser10 = { id: SPECIAL_USERS.MASTER.id, username: 'lance_508' };
+    const masterPrompt10 = buildSystemInstruction(masterUser10, 'lance_508', [], { rawContent: '把你推到床上' });
+    assert.ok(!masterPrompt10.includes('從現在起這個對話歸本喵接管啦'), '主人提示詞不應包含現成自我介紹整句');
+    assert.ok(!masterPrompt10.includes('給你自我介紹一下'), '主人提示詞不應包含自我介紹範例句');
+    assert.ok(masterPrompt10.includes('不要主動自我介紹'), '主人提示詞應包含「不要主動自我介紹」規則');
+    assert.ok(masterPrompt10.includes('蘭斯的專屬貓娘'), '主人提示詞仍應說明身分是蘭斯的專屬貓娘');
+    console.log('  ✅ 自我介紹不誤觸發測試通過！');
   } finally {
     // 還原原始 catgirl-mode.json 狀態
     if (hadOriginalFile) {
