@@ -34,7 +34,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 1. 狀態檔讀寫與異常防禦測試
     // ------------------------------------------------------------------
-    console.log('▶ [1/6] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
+    console.log('▶ [1/7] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catgirl-test-'));
     const missingFile = path.join(tmpDir, 'nonexistent.json');
     assert.strictEqual(isCatgirlModeEnabled(missingFile), false, '檔案不存在時應預設回傳 false');
@@ -60,7 +60,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 2. 斜線指令註冊與權限檢查 (master vs non-master / DM)
     // ------------------------------------------------------------------
-    console.log('▶ [2/6] 測試 /貓娘模式 斜線指令註冊與權限控制...');
+    console.log('▶ [2/7] 測試 /貓娘模式 斜線指令註冊與權限控制...');
     const catgirlCmd = commands.find((c) => c.name === '貓娘模式');
     assert.ok(catgirlCmd, 'commands 陣列應已註冊 /貓娘模式 指令');
     const cmdJson = catgirlCmd.toJSON();
@@ -125,7 +125,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 3. 貓娘模式人設、星鐵三元素與安全硬規則驗證
     // ------------------------------------------------------------------
-    console.log('▶ [3/6] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
+    console.log('▶ [3/7] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
     setCatgirlModeEnabled(true);
 
     const masterUser = { id: SPECIAL_USERS.MASTER.id, username: 'lance_508' };
@@ -163,7 +163,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 4. 優先順序驗證：砂金模式 > 貓娘模式 > 侍者閉嘴
     // ------------------------------------------------------------------
-    console.log('▶ [4/6] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
+    console.log('▶ [4/7] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
     setCatgirlModeEnabled(true);
 
     // 4a. 主人以「砂金，」開頭呼叫 -> 仍進入砂金模式
@@ -187,7 +187,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 5. 模型池與 handleBotChatMessage 整合測試
     // ------------------------------------------------------------------
-    console.log('▶ [5/6] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
+    console.log('▶ [5/7] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
     assert.deepStrictEqual(TEXT_MODELS, ['gemini-3.5-flash-lite'], '一般對話 TEXT_MODELS 應維持 gemini-3.5-flash-lite');
 
     setCatgirlModeEnabled(true);
@@ -219,7 +219,7 @@ async function runTests() {
     //    「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED
     //    → 誤回「能量耗盡」。修復後應直接用人設口氣可愛回絕，不裝成能量耗盡。
     // ------------------------------------------------------------------
-    console.log('▶ [6/6] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
+    console.log('▶ [6/7] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
     setCatgirlModeEnabled(true);
     clearSharedHistory();
     const originalApiCall2 = apiCaller.call;
@@ -245,6 +245,38 @@ async function runTests() {
       clearSharedHistory();
     }
     console.log('  ✅ 安全過濾回絕與一般故障 fallback 區分測試通過！');
+
+    // ------------------------------------------------------------------
+    // 7. SAFETY_BLOCKED 必須穿透 callGeminiApi 內層 catch（回歸測試）
+    //    回歸：2026-11-18 13:01 線上仍回「能量耗盡」——第一版修復在 200 無文字時
+    //    拋 SAFETY_BLOCKED，卻被內層 catch 當一般請求失敗吞掉、換 key 重試，
+    //    最後仍以 ALL_KEYS_EXHAUSTED 收場。修復後內層 catch 遇 SAFETY_BLOCKED
+    //    必須直接往上拋，不得換 key、不得轉成 ALL_KEYS_EXHAUSTED。
+    // ------------------------------------------------------------------
+    console.log('▶ [7/7] 測試 SAFETY_BLOCKED 穿透內層 catch（不被吞掉、不換 key）...');
+    const originalFetch = global.fetch;
+    try {
+      let fetchCallCount = 0;
+      global.fetch = async () => {
+        fetchCallCount += 1;
+        return {
+          status: 200,
+          json: async () => ({
+            promptFeedback: { blockReason: 'PROHIBITED_CONTENT' },
+            candidates: [],
+          }),
+        };
+      };
+      await assert.rejects(
+        apiCaller.call('你是「蘭斯的專屬貓娘」！', [{ role: 'user', parts: [{ text: '我要色色' }] }], false, false),
+        (err) => err && err.message === 'SAFETY_BLOCKED',
+        'PROHIBITED_CONTENT 回應應以 SAFETY_BLOCKED 拋出，不得轉成 ALL_KEYS_EXHAUSTED'
+      );
+      assert.strictEqual(fetchCallCount, 1, '安全擋下時只應呼叫一次 API（同一 prompt 換 key 結果一樣，不應重試）');
+    } finally {
+      global.fetch = originalFetch;
+    }
+    console.log('  ✅ SAFETY_BLOCKED 穿透內層 catch 測試通過！');
   } finally {
     // 還原原始 catgirl-mode.json 狀態
     if (hadOriginalFile) {

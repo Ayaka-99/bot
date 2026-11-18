@@ -194,17 +194,17 @@
       "description": "實作 catgirl-mode.json 持久化狀態讀寫 (isCatgirlModeEnabled / setCatgirlModeEnabled)；於 geminiChatService.js buildSystemInstruction 依「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序切換為「蘭斯的專屬貓娘」人設，含星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、嚴格拒絕色情/性暗示安全硬規則，並沿用 TEXT_MODELS；於 discord-bot-tracker.js 註冊 /貓娘模式 斜線指令 (開關 Boolean 選項，僅限 lance_508 切換)",
       "dependencies": [],
       "status": "done",
-      "evidence": "node test_catgirl_mode.js 6/6 PASS（狀態檔讀寫與異常防禦、指令註冊與權限、人設三元素與安全硬規則、砂金優先順序、TEXT_MODELS 整合、SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分），./init.sh 9/9 關卡全數通過"
+      "evidence": "node test_catgirl_mode.js 7/7 PASS（狀態檔讀寫與異常防禦、指令註冊與權限、人設三元素與安全硬規則、砂金優先順序、TEXT_MODELS 整合、SAFETY_BLOCKED 回絕 vs 一般故障 fallback、SAFETY_BLOCKED 穿透內層 catch），./init.sh 9/9 關卡全數通過"
     },
     {
       "id": "fix-chat-catgirl-safety-blocked-and-truncation",
       "name": "貓娘模式：安全擋下誤報能量耗盡修復與回覆截斷修復",
-      "description": "修復兩個 2026-11-18 線上實測問題：(1) 使用者說「我要色色」時 Gemini API 回 200 但無文字內容（安全過濾），舊程式在 response.json() 讀過 body 後又呼叫 response.text()，拋「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED → 誤回「能量耗盡」；修復後 200 無文字時記錄 finishReason/blockReason，安全擋下拋 SAFETY_BLOCKED 並由 handleBotChatMessage 直接用人設口氣可愛回絕（貓娘：本喵才不寫那種東西喵！），其他無文字情況換下一把金鑰重試；(2) 回覆有時被截斷：maxOutputTokens 2048 寫長回覆會中途斷句，改為 4096",
+      "description": "修復兩個 2026-11-18 線上實測問題：(1) 使用者說「我要色色」時 Gemini API 回 200 但無文字內容（安全過濾，promptFeedback.blockReason=PROHIBITED_CONTENT），舊程式在 response.json() 讀過 body 後又呼叫 response.text()，拋「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED → 誤回「能量耗盡」；修復後 200 無文字時記錄 finishReason/blockReason，安全擋下拋 SAFETY_BLOCKED 並由 handleBotChatMessage 直接用人設口氣可愛回絕（貓娘：本喵才不寫那種東西喵！），其他無文字情況換下一把金鑰重試；追蹤修復：第一版 SAFETY_BLOCKED 會被 callGeminiApi 內層 catch 吞掉、仍以 ALL_KEYS_EXHAUSTED 收場，改為內層 catch 遇 SAFETY_BLOCKED 直接往上拋（不換 key）；(2) 回覆有時被截斷：maxOutputTokens 2048 寫長回覆會中途斷句，改為 4096",
       "dependencies": [
         "feat-chat-catgirl-mode"
       ],
       "status": "done",
-      "evidence": "node test_catgirl_mode.js 6/6 PASS（新增第 6 關：SAFETY_BLOCKED 回絕含「才不寫那種東西」且絕無「能量耗盡」，一般故障仍走能量耗盡 fallback），./init.sh 9/9 關卡全數通過；VPS 日誌佐證：4 筆 ALL_KEYS_EXHAUSTED 皆為 Body has already been read"
+      "evidence": "node test_catgirl_mode.js 7/7 PASS（新增第 6 關：SAFETY_BLOCKED 回絕含「才不寫那種東西」且絕無「能量耗盡」，一般故障仍走能量耗盡 fallback；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API），./init.sh 9/9 關卡全數通過；VPS 日誌佐證：舊版 4 筆 ALL_KEYS_EXHAUSTED 皆為 Body has already been read；新版日誌確認 blockReason=PROHIBITED_CONTENT"
     }
   ]
 }

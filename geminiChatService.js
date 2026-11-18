@@ -712,6 +712,11 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
         const errText = await response.text();
         console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 回傳狀態碼 ${response.status}: ${errText.slice(0, 100)}`);
       } catch (err) {
+        // 安全擋下（SAFETY_BLOCKED）絕對不能吞掉：同一 prompt 換 key 結果也一樣，
+        // 直接往上拋，讓 handleBotChatMessage 用人設口氣回絕，不要走到 ALL_KEYS_EXHAUSTED
+        if (err && err.message === 'SAFETY_BLOCKED') {
+          throw err;
+        }
         console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 請求失敗:`, err.message);
       }
     }
