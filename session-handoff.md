@@ -112,10 +112,13 @@
     - 抽取判定函式 `isLaPhotoTriggered(content)`，支援 string 與 message 物件輸入，並加入 `module.exports`（含 `isLaTriggered` 別名與 `LA_PHOTO_KEYWORDS` 常數）。
     - 拆散字詞（如「拉著走完了」、「拉 完 了」、「拉...了」、「拉個屎完蛋了」）以及單字「拉」、「完」、「了」100% 阻絕。
     - 新增單元測試 `test_la_photo_trigger.js` 6/6 全數 PASS (26 正向案例、48 負向阻絕含全形半形空白與換行標點阻隔、String 物件與異常型別防禦、100k 字元壓力測試與 isFile 目錄安全防禦)，既有回歸測試套件與 `init.cmd` 8 大關卡 100% PASS。
+18. **`feat-chat-catgirl-mode`** [done]:
+    - `geminiChatService.js`：實裝 `isCatgirlModeEnabled` / `setCatgirlModeEnabled` 讀寫根目錄 `catgirl-mode.json`；於 `buildSystemInstruction` 按「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序注入小貓之神 `SoliUmbra`（「蘭斯的專屬貓娘」）人設、星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、絕對禁止色情/性暗示安全硬規則，並排除「在下／本機」侍者詞彙；模型沿用 `TEXT_MODELS`。
+    - `discord-bot-tracker.js`：註冊 `/貓娘模式` 斜線指令（`開關` 必填 Boolean 選項）與 `handleCatgirlModeCommand`，限伺服器內且僅唯一主人 `lance_508` 可切換，非主人回覆 ephemeral 拒絕。
+    - 新增單元測試 `test_catgirl_mode.js`（因本輪環境無終端執行工具，需於終端補跑 `node test_catgirl_mode.js` 與 `./init.sh` 驗證）。
 
 ## 3. 下一階段交接事項 (Next Steps)
-- `feat-chat-la-photo-trigger-keywords-refactor` 已全數施工與驗證完畢。
-- 下一棒若有新微任務，請依標準流程先於 `feature_list.json` 登錄 feature 後再行施作。
+- 請於終端執行 `node test_catgirl_mode.js` 與 `./init.sh` 確認貓娘模式與全部 8 大驗證關卡全數通過。
 - 遠端部署指令：`cd ~/bot && git pull && pm2 restart dc-bot --update-env`。
 
 ## 4. 關鍵環境與操作備忘 (Environment & Critical Constraints)

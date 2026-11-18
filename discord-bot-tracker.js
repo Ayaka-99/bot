@@ -135,7 +135,13 @@ const {
 } = require('./pvpCasinoService');
 
 // 引入 Gemini 對話服務 (閉嘴人設、世界觀與主人專屬邏輯)
-const { handleBotChatMessage, isSashaUser } = require('./geminiChatService');
+const {
+  handleBotChatMessage,
+  isSashaUser,
+  isMasterUser,
+  isCatgirlModeEnabled,
+  setCatgirlModeEnabled,
+} = require('./geminiChatService');
 
 // 引入「匹諾康尼特權俱樂部、大亨與稱號」模組 (v3.2 和平社交版)
 const {
@@ -717,6 +723,16 @@ const commands = [
         .setDescription('是否將遊戲面板公開於頻道 (預設：否，僅自己可見)')
         .setRequired(false)
     ),
+
+  // 🐱 【主人專屬】切換貓娘模式
+  new SlashCommandBuilder()
+    .setName('貓娘模式')
+    .setDescription('切換貓娘模式（蘭斯的專屬貓娘）')
+    .addBooleanOption(option =>
+      option.setName('開關')
+        .setDescription('開啟或關閉貓娘模式')
+        .setRequired(true)
+    ),
 ];
 
 // ==========================================
@@ -724,6 +740,7 @@ const commands = [
 // ==========================================
 client.once('clientReady', async (readyClient) => {
   console.log(`✅ Bot 已成功上線！身分：${readyClient.user.tag}`);
+  console.log(`🐱 貓娘模式初始狀態：${isCatgirlModeEnabled() ? '開啟' : '關閉'}`);
 
   // 啟動星鐵每日自動簽到排程 (每日 07:00)
   startDailyScheduler(readyClient, db);
@@ -3281,6 +3298,10 @@ client.on('interactionCreate', async (interaction) => {
         return await start1A2BGame(db, interaction);
       }
 
+      case '貓娘模式': {
+        return await handleCatgirlModeCommand(interaction);
+      }
+
       default:
         interaction.reply({ content: '❓ 這是什麼外星指令？', flags: MessageFlags.Ephemeral });
     }
@@ -3318,6 +3339,66 @@ process.on('SIGINT', () => {
 });
 
 // ==========================================
+// 🐱 【主人專屬】切換貓娘模式處理函式
+// ==========================================
+async function handleCatgirlModeCommand(interaction) {
+  const { user, options } = interaction;
+
+  // 確認指令在伺服器內執行，DM 無法執行
+  if (!interaction.guild) {
+    return interaction.reply({
+      content: '❌ 此指令只能在伺服器內使用，不能在 DM 執行。',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  // 僅限唯一主人 lance_508 切換
+  if (!isMasterUser(user)) {
+    return interaction.reply({
+      content: '🚫 **權限不足！** 只有主人才可以切換貓娘模式喵！',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  let enabled;
+  if (options && typeof options.getBoolean === 'function') {
+    enabled = options.getBoolean('開關');
+  }
+  if (typeof enabled !== 'boolean' && options && typeof options.getString === 'function') {
+    const raw = options.getString('開關');
+    if (raw === '開啟' || raw === 'true') enabled = true;
+    else if (raw === '關閉' || raw === 'false') enabled = false;
+  }
+
+  if (typeof enabled !== 'boolean') {
+    return interaction.reply({
+      content: '❌ 請指定要開啟或關閉貓娘模式喵！',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const res = setCatgirlModeEnabled(enabled);
+  if (!res.success) {
+    return interaction.reply({
+      content: `❌ 寫入貓娘模式狀態失敗：${res.error || '未知錯誤'}`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (res.enabled) {
+    return interaction.reply({
+      content: '🐱 **貓娘模式開啟了喵！** 主人！從現在起這個對話歸本喵（蘭斯的專屬貓娘）接管啦喵~',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  return interaction.reply({
+    content: '🤖 **貓娘模式已關閉**，在下已恢復派對車廂侍者「閉嘴」身分。',
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+// ==========================================
 // 📦 模組匯出 (供單元測試與外部呼叫)
 // ==========================================
 if (typeof module !== 'undefined' && module.exports) {
@@ -3332,5 +3413,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isLaPhotoTriggered,
     isLaTriggered: isLaPhotoTriggered,
     LA_PHOTO_KEYWORDS,
+    commands,
+    handleCatgirlModeCommand,
   };
 }

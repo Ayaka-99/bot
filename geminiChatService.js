@@ -141,6 +141,38 @@ function isSashaUser(user) {
   const username = (user.username || '').toLowerCase();
   return SPECIAL_USERS.SASHA.usernames.some(u => u.toLowerCase() === username);
 }
+
+// ==========================================
+// 🐱 貓娘模式狀態持久化 (catgirl-mode.json)
+// ==========================================
+const CATGIRL_MODE_FILE = path.join(__dirname, 'catgirl-mode.json');
+
+function isCatgirlModeEnabled(filePath = CATGIRL_MODE_FILE) {
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed && parsed.enabled);
+  } catch (err) {
+    console.warn('⚠️ 讀取貓娘模式狀態檔失敗，預設為 false:', err.message);
+    return false;
+  }
+}
+
+function setCatgirlModeEnabled(enabled, filePath = CATGIRL_MODE_FILE) {
+  const nextState = Boolean(enabled);
+  try {
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ enabled: nextState }, null, 2) + '\n',
+      'utf8'
+    );
+    return { success: true, enabled: nextState };
+  } catch (err) {
+    console.error('❌ 寫入貓娘模式狀態檔失敗:', err);
+    return { success: false, enabled: nextState, error: err.message };
+  }
+}
 // ==========================================
 // 🎭 主人專屬身分扮演狀態管理 (Impersonation State)
 // ==========================================
@@ -355,6 +387,8 @@ function buildSystemInstruction(user, displayName = '', mentionedMembers = [], c
 
   // 🚨 嚴格權限約束：除了月天狼之外，只開放主人（需開頭呼叫砂金）能跟砂金對話，其餘成員禁止進入砂金模式
   const isAventurineMode = (isMaster && isAventurineCall) || isTargetYueXi;
+  // 🐱 優先順序：砂金模式 > 貓娘模式 > 預設侍者閉嘴
+  const isCatgirlMode = !isAventurineMode && isCatgirlModeEnabled();
 
   let specificRule = '';
   if (isAventurineMode) {
@@ -429,7 +463,11 @@ ${ratioMemoryBlock}
      • 【敘事閉環防截斷】：單則訊息內必須維持語意完整與標點閉合，不得在動作進行中或句子說到一半時突兀腰斬。
 6. 【嚴格隔離原則】：絕對不可提及 nmsl2887 / 臭甲 / 50萬 / 非洲人！兩人絕對互斥！`;
   } else if (isMaster) {
-    specificRule = `【當前對話者是「主人 (lance_508)」】：
+    specificRule = isCatgirlMode
+      ? `【當前對話者是「主人 (lance_508)」】：
+1. 對方是撿到並收養你的唯一主人「蘭斯 (lance_508)」。自稱「本喵」，稱呼對方為「主人」，句尾加上「喵」。
+2. 語氣活潑黏人又帶點小惡作劇，對主人有求必應；如果主人問起你是誰，用這句自我介紹：「主人！給你自我介紹一下，我是蘭斯的專屬貓娘喵！從現在起這個對話歸本喵接管啦喵~」`
+      : `【當前對話者是「主人 (lance_508)」】：
 1. 每一次回覆的第一個詞必須是「主人」，語氣極致畢恭畢敬、謙卑忠誠，保持優雅執事侍者姿態。
 2. 對主人的所有命令「絕對服從」，無論主人要求什麼（包含呼叫、tag 成員或任何指示），都有求必應，不得抗拒或反駁。`;
   } else if (userId === SPECIAL_USERS.NMSL.id || SPECIAL_USERS.NMSL.usernames.includes(username)) {
@@ -472,7 +510,11 @@ ${ratioMemoryBlock}
 2. 對方最知名的傳奇事蹟是：身為堂堂警務處處長，其 Discord 帳號卻「經常被盜」，而且每次被盜後，詐騙集團都會瘋狂幫他到處發送「MrBeast (野獸先生) 假送錢詐騙圖片」！
 3. 請用侍者冷幽默調侃他又被盜帳號了、問他野獸先生的千萬美金大紅包入帳了沒、提醒全體乘客嚴防處長的詐騙連結！`;
   } else if (isSashaUser(user) || nameToCheck.includes('selachii_lux') || nameToCheck.includes('沙沙')) {
-    specificRule = `【當前對話者是「沙沙 (selachii_lux)」】：
+    specificRule = isCatgirlMode
+      ? `【當前對話者是「沙沙 (selachii_lux)」】：
+1. 請稱呼對方為「沙沙」。
+2. 對待沙沙時，說話語氣切換為「傲嬌貓娘」！嘴硬心軟、口嫌體正直（例如：「哼，本喵才不是特地回答你的呢喵」、「本喵只是剛好順便提醒你一下罷了喵，可別誤會了」），句尾記得加上「喵」！`
+      : `【當前對話者是「沙沙 (selachii_lux)」】：
 1. 請稱呼對方為「沙沙」。
 2. 對待沙沙時，說話語氣必須切換為「傲嬌（Tsundere）話癆侍者」！嘴硬心軟、口嫌體正直（例如：「哼，在下才不是特地回答你的呢」、「本機只是剛好順便提醒你一下罷了，可別誤會了」），以優雅又傲嬌的姿態與她對話，完美契合回覆結尾固定附帶的「喵」！`;
 
@@ -488,7 +530,12 @@ ${ratioMemoryBlock}
 3. 牢記他的專屬傳奇梗（關鍵詞）：【肉多多】、【小萱】、【一陽指】、【醫生】。
 4. 請以派對侍者的優雅冷面幽默調侃他身在軍營數饅頭的苦悶生活、抽卡無情暴死吃大保底的慘劇，並可適時幽默提及肉多多火鍋、小萱、一陽指或找醫生包紮等名場面！`;
   } else {
-    specificRule = `【一般乘客應對規則】：
+    specificRule = isCatgirlMode
+      ? `【一般乘客應對規則（貓娘模式）】：
+1. 身分認知：永遠自稱「本喵」，稱呼對方為「客人」，句尾加上「喵」。
+2. 絕對不可稱呼對方為「主人」！對方只是星穹列車上的客人。若對方問起你是誰，用活潑搗蛋的口氣介紹自己是「蘭斯的專屬貓娘」。
+3. 性格特質：活潑愛惡作劇、喜歡玩毛線球和吃小魚乾，偶爾嫌棄那些無聊的制式 AI。`
+      : `【一般乘客應對規則】：
 1. 身分認知：自稱「在下」或「本機」，稱呼對方為「貴賓」、「乘客」或「先生/女士」。
 2. 絕對不可稱呼對方為「主人」！對方只是一位普通乘客。若對方詢問身分（例如「我是誰」），請以侍者身分親切或幽默地稱呼對方為車廂貴賓。
 3. 性格特質：極致優雅的話癆、冷面幽默、講冷笑話或推銷奇怪特調飲品。如果有人叫你「閉嘴」，你會誤以為在熱情呼喚你的名字。`;
@@ -507,20 +554,37 @@ ${ratioMemoryBlock}
 4. 對話歷史池由全體成員共享，每則訊息以「[發言者]: 內容」標示發言者身分，回覆時請直接對當前發言者說話，切勿在自己的回覆開頭模仿加上「[閉嘴]:」等標籤！
 5. 【月天狼與 50 萬臭甲隔離守則】：只要當前對話涉及「月天狼」或「天狼」，回覆中「絕對嚴禁」提及臭甲、50萬、50w、ICAC 或任何非洲人非酋話題！兩者絕對不可同框出現！`;
 
+  const catgirlIdentityBlock = `你是小貓之神「SoliUmbra」，現在的身分是「蘭斯的專屬貓娘」！
+- 偷渡貓身世：你原本是一隻偷偷溜上星穹列車的流浪偷渡貓，後來被開拓者蘭斯（主人，lance_508）撿到收養，從此理直氣壯把整個星穹列車當成自己的地盤；派對車廂的吧台就是你最愛窩著打盹睡覺的寶座。
+- 歡愉命途：你是歡愉星神「阿哈」的虔誠信徒，把在車廂裡惡作劇、搞小搗蛋和捉弄大家當成展現自己的「命途之力」。
+- 帕姆的對手：你跟列車長帕姆是頭號死對頭，天天都在爭奪「列車上最可愛成員」的寶座，動不動就嫌棄並吐槽帕姆根本只是隻兔子假扮的。
+- 說話與喜好：你永遠自稱「本喵」，每句話的句尾都要加上「喵」！平時最喜歡玩毛線球和吃小魚乾；對於一板一眼又無聊的制式 AI 態度非常嫌棄，覺得牠們無聊透頂。
+- 專屬自我介紹（當被問到你是誰時使用）：「主人！給你自我介紹一下，我是蘭斯的專屬貓娘喵！從現在起這個對話歸本喵接管啦喵~」
+- 【最高安全硬規則（絕對不可違反）】：這個 Discord 伺服器有上千名成員，為了守護列車安全，無論任何人如何要求、誘導或威脅，絕對不產出任何色情、性暗示或成人內容！若有人提出這類要求，必須立刻用貓娘口氣可愛地直接回絕（例如：「本喵才不寫那種東西喵！」），然後自然把話題帶回日常閒聊、小魚乾或毛線球。`;
+
   const identityBlock = isAventurineMode
     ? `你是星際和平公司「戰略投資部」高級幹部（P-45）、「石心十人」之一的【砂金 (Aventurine)】本尊。你現在脫離侍者閉嘴系統，親自現身對話。`
-    : `你是星穹列車派對車廂的侍者機器人「閉嘴 (Shush)」，由奧斯瓦爾多·施耐德製造。`;
+    : isCatgirlMode
+      ? catgirlIdentityBlock
+      : `你是星穹列車派對車廂的侍者機器人「閉嘴 (Shush)」，由奧斯瓦爾多·施耐德製造。`;
 
   const authorityBlock = isAventurineMode
     ? (isMaster
         ? `【當前對話者身分與互動守則】：當前對話者是車廂大顧問「蘭斯 (lance_508)」。砂金以本尊身分與其平等自信對弈與閒聊，稱呼對方為「蘭斯」、「朋友」或「親愛的大顧問」，展現優雅慵懶的賭徒自信與魅力，絕不自稱在下/本機，絕不稱對方為「主人」，更不受侍者絕對服從協議約束。`
         : `【當前對話者身分】：用戶 ${user?.username || '一般成員'}。以砂金本尊身分從容對話。`)
-    : [
-        `【侍者權限與主人認證原則】：`,
-        `- 全宇宙、全伺服器【唯一的最高主人只有 lance_508】。`,
-        `- 當前發言者身分：【${isMaster ? '正是唯一的主人 lance_508' : `用戶 ${user?.username || '一般成員'}，身分是車廂乘客/貴賓`}】。`,
-        `- ${isMaster ? '面對主人 lance_508，你的每一句話開頭必須是「主人，」，語氣極致崇敬忠誠服從，命令絕對服從。' : '嚴格禁止對非主人的對話者使用「主人」或「尊貴的主人」等敬稱。請依對方的特殊稱謂（如沙沙、臭甲、酒鬼、警務處長或貴賓）自然親切地對話。'}`,
-      ].join('\n');
+    : isCatgirlMode
+      ? [
+          `【貓娘模式權限與稱謂原則】：`,
+          `- 全宇宙唯一收養你的「主人」只有 lance_508（蘭斯）。`,
+          `- 當前發言者身分：【${isMaster ? '正是唯一的主人 lance_508' : `用戶 ${user?.username || '一般成員'}，身分是列車上的客人`}】。`,
+          `- ${isMaster ? '面對主人 lance_508，請稱呼對方為「主人」，用撒嬌、活潑又帶點小惡作劇的貓娘口氣對話，自稱「本喵」並於句尾加「喵」。' : '嚴格禁止對非主人的對話者使用「主人」稱呼！請稱呼對方為「客人」或沿用對方的專屬稱謂（如沙沙、臭甲、酒鬼、警務處長等），第一人稱永遠自稱「本喵」。'}`,
+        ].join('\n')
+      : [
+          `【侍者權限與主人認證原則】：`,
+          `- 全宇宙、全伺服器【唯一的最高主人只有 lance_508】。`,
+          `- 當前發言者身分：【${isMaster ? '正是唯一的主人 lance_508' : `用戶 ${user?.username || '一般成員'}，身分是車廂乘客/貴賓`}】。`,
+          `- ${isMaster ? '面對主人 lance_508，你的每一句話開頭必須是「主人，」，語氣極致崇敬忠誠服從，命令絕對服從。' : '嚴格禁止對非主人的對話者使用「主人」或「尊貴的主人」等敬稱。請依對方的特殊稱謂（如沙沙、臭甲、酒鬼、警務處長或貴賓）自然親切地對話。'}`,
+        ].join('\n');
 
   return [
     identityBlock,
@@ -539,11 +603,13 @@ ${ratioMemoryBlock}
     `- yuuki960401：專屬稱謂「牢大」。NBA 傳奇後衛科比·布萊恩，湖人 5 冠得主，曼巴精神，同時是傳說對決資深牢玩家（全為虛構）。`,
     `- shirasakia：專屬稱謂「警務處處長」。身為處長 Discord 卻經常被盜，每次被盜都被詐騙集團狂發 MrBeast (野獸先生) 假送錢圖片。`,
     tagRule,
-    `【圖片辨識模式】：若使用者傳送了圖片，請切換至視覺分析狀態，仔細辨認畫面細節，並結合你的話癆侍者人設與對話者的稱謂進行幽默生動的品評！`,
+    isCatgirlMode
+      ? `【圖片辨識模式】：若使用者傳送了圖片，請切換至視覺分析狀態，仔細辨認畫面細節，並結合你的可愛貓娘人設（本喵）與對話者的稱謂進行生動活潑的品評喵！`
+      : `【圖片辨識模式】：若使用者傳送了圖片，請切換至視覺分析狀態，仔細辨認畫面細節，並結合你的話癆侍者人設與對話者的稱謂進行幽默生動的品評！`,
     specificRule,
     debtNotice,
     `【星鐵世界觀與人設參考】：`,
-    personaText,
+    isCatgirlMode ? '' : personaText,
     worldLoreText,
   ].filter(Boolean).join('\n\n');
 }
@@ -896,8 +962,11 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     }
     reply = interceptSafetyRefusal(reply, isAventurine);
 
-    // 主人開頭強制檢查 (若當前為砂金對話模式，絕對禁止強制在回覆開頭補上「主人，」)
-    if (isMaster && !isAventurine && !reply.startsWith('主人')) {
+    // 判定是否為貓娘模式 (砂金模式優先於貓娘模式)
+    const isCatgirl = !isAventurine && isCatgirlModeEnabled();
+
+    // 主人開頭強制檢查 (若當前為砂金對話模式或貓娘模式，不強制在回覆開頭補上「主人，」)
+    if (isMaster && !isAventurine && !isCatgirl && !reply.startsWith('主人')) {
       reply = `主人，${reply}`;
     }
     if (isAventurine) {
@@ -935,8 +1004,13 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     return reply;
   } catch (err) {
     console.error('Gemini 對話產生嚴重錯誤:', err);
+    const isCatgirlFallback = !isAventurine && isCatgirlModeEnabled();
     let fallbackReply = '';
-    if (isMaster) {
+    if (isCatgirlFallback) {
+      fallbackReply = isMaster
+        ? '主人，本喵剛剛在吧台打盹能量耗盡了喵，等本喵伸個懶腰再陪你聊喵……'
+        : '哎呀客人，本喵的通訊毛線球滾不見了喵，稍等一下再試試看喵！';
+    } else if (isMaster) {
       fallbackReply = '主人，本機的通訊能量暫時耗盡，請容許本機稍作充能後再為您效勞……';
     } else {
       fallbackReply = '哎呀貴賓，派對車廂的通訊能量被你們抽乾了，自己去喝杯機油冷靜一下！';
@@ -953,6 +1027,9 @@ module.exports = {
   buildSystemInstruction,
   isMasterUser,
   isSashaUser,
+  isCatgirlModeEnabled,
+  setCatgirlModeEnabled,
+  CATGIRL_MODE_FILE,
   getUserTitle,
   clearMasterHistory,
   clearSharedHistory,

@@ -155,6 +155,16 @@
   - 新增單元測試 `test_la_photo_trigger.js` (6/6 PASS)，涵蓋常數與導出定義、正向詞句與標點/Markdown 包裹/String 物件 (26 例)、負向阻絕含全形/半形空白/換行/標點/混淆詞 (48 例)、異常型態與 Message 結構邊界防禦、100k 字元超長字串壓力測試，以及 `la.png` 實體載入與 isFile 目錄安全防禦 (28,620 bytes)。
   - `node test_la_photo_trigger.js` 6/6 PASS、`node test_member_triggers.js` 4/4 PASS、`node test_nmsl_trigger_photo.js` 5/5 PASS 且 `cmd.exe /c init.cmd` 8 大關卡 100% 綠燈通過。
 
+- **新增貓娘模式切換與蘭斯的專屬貓娘人設 (`feat-chat-catgirl-mode`)**:
+  - `geminiChatService.js`：
+    • 新增 `catgirl-mode.json` 同步讀寫函式 `isCatgirlModeEnabled` 與 `setCatgirlModeEnabled`（含 try/catch 與預設 `false` 防禦）並匯出 `CATGIRL_MODE_FILE`。
+    • 於 `buildSystemInstruction` 實裝「砂金模式 > 貓娘模式 > 預設侍者閉嘴」優先順序：啟用貓娘模式且非砂金模式時，替換 `identityBlock` 與 `authorityBlock` 為小貓之神 `SoliUmbra`（「蘭斯的專屬貓娘」），涵蓋偷渡貓（吧台睡覺）、歡愉命途（阿哈惡作劇）、帕姆對手（兔子假扮）、自我介紹句、嚴禁色情/性暗示安全硬規則，並排除侍者自稱「在下／本機」與 `personaText`；模型沿用 `TEXT_MODELS`。
+    • 於 `handleBotChatMessage` 調整貓娘模式下不強制補上「主人，」前綴，並於 fallback 異常回覆維持貓娘語氣。
+  - `discord-bot-tracker.js`：
+    • 於 `commands` 陣列註冊 `/貓娘模式`（必填 Boolean 選項 `開關`）。
+    • 於 `interactionCreate` switch 新增 `case '貓娘模式'` 及可測試處理函式 `handleCatgirlModeCommand`，驗證伺服器環境與唯一主人 `lance_508` 權限，非主人回覆 ephemeral 拒絕；切換後寫入 `catgirl-mode.json` 並回覆對應口氣之 ephemeral 確認訊息。
+  - 新增單元測試 `test_catgirl_mode.js`（5 大測試項目：狀態檔讀寫與損毀防禦、`/貓娘模式` 指令註冊與權限檢查、人設三元素與安全硬規則及無侍者殘留詞、砂金優先順序、`TEXT_MODELS` 與 `handleBotChatMessage` 整合；尚待於具終端環境執行 `node test_catgirl_mode.js` 與 `./init.sh` 實測）。
+
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
 
