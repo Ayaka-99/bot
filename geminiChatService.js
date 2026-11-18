@@ -964,8 +964,9 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   const isAventurine = (isMaster && isAventurineCall) || isTargetYueXi;
 
   // 9. 發送請求並防呆處理 (若為砂金對話模式，優先調用專屬旗艦模型池)
-  try {
-    let reply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
+  // 回覆後處理（清理、稱謂、截斷、寫入歷史）：主流程與安全擋下重試共用
+  const processReply = (rawReply) => {
+    let reply = rawReply;
     // 過濾 AI 自行輸出的字數統計標記與序號標註
     reply = reply.replace(/\*+\s*\*+Character Count.*?$/i, '').replace(/（字數.*?）/g, '').replace(/\(\d+\)/g, '').trim();
 
@@ -1017,12 +1018,28 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     appendSharedHistory('model', reply);
 
     return reply;
+  };
+
+  try {
+    const reply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
+    return processReply(reply);
   } catch (err) {
     console.error('Gemini 對話產生嚴重錯誤:', err);
     const isCatgirlFallback = !isAventurine && isCatgirlModeEnabled();
     // 安全過濾擋下回覆（API 回 200 但無文字內容）：不要裝成能量耗盡，
     // 直接用人設口氣可愛回絕（貓娘人設：本喵才不寫那種東西喵！）
     if (err && err.message === 'SAFETY_BLOCKED') {
+      // 安全擋下通常是累積的對話紀錄觸發輸入層過濾（PROHIBITED_CONTENT），
+      // 不要直接回罐頭拒絕：先重試一次，不帶共享對話紀錄，只送系統指令 + 當前訊息，
+      // 讓模型自然回覆（實測：完整系統指令 + 單句「我要色色」不會被擋）。
+      // 只有重試也被擋下，才用罐頭回絕。
+      try {
+        const retryContents = [{ role: 'user', parts: currentParts }];
+        const retryReply = await apiCaller.call(systemInstruction, retryContents, Boolean(imageData), isAventurine);
+        return processReply(retryReply);
+      } catch (retryErr) {
+        console.warn('⚠️ 安全擋下重試（不帶對話紀錄）仍失敗，改用罐頭回絕:', retryErr.message);
+      }
       let safetyReply = '';
       if (isCatgirlFallback) {
         safetyReply = isMaster

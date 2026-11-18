@@ -116,11 +116,12 @@
     - `geminiChatService.js`：實裝 `isCatgirlModeEnabled` / `setCatgirlModeEnabled` 讀寫根目錄 `catgirl-mode.json`；於 `buildSystemInstruction` 按「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序注入「蘭斯的專屬貓娘」人設、星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、絕對禁止色情/性暗示安全硬規則，並排除「在下／本機」侍者詞彙；模型沿用 `TEXT_MODELS`。
     - `discord-bot-tracker.js`：註冊 `/貓娘模式` 斜線指令（`開關` 必填 Boolean 選項）與 `handleCatgirlModeCommand`，限伺服器內且僅唯一主人 `lance_508` 可切換，非主人回覆 ephemeral 拒絕。
     - 新增單元測試 `test_catgirl_mode.js`（因本輪環境無終端執行工具，需於終端補跑 `node test_catgirl_mode.js` 與 `./init.sh` 驗證）。
-19. **`fix-chat-catgirl-safety-blocked-and-truncation`** [done，第一版已推 `005aa1c` 並部署；追蹤修復待推]:
+19. **`fix-chat-catgirl-safety-blocked-and-truncation`** [done，第一版 `005aa1c`；追蹤修復 `c61552d` 已推並部署；重試修復待推]:
     - 根因（VPS 日誌佐證：4 筆 `ALL_KEYS_EXHAUSTED` 皆為 `Body is unusable: Body has already been read`）：「我要色色」時 Gemini 回 200 但無文字內容（安全過濾），舊程式在 `response.json()` 後又呼叫 `response.text()` 而拋錯，兩把金鑰全滅後誤回「能量耗盡」。
-    - `geminiChatService.js`：200 無文字時記錄 `finishReason`/`blockReason`，安全擋下拋 `SAFETY_BLOCKED` 並由 `handleBotChatMessage` 直接用人設口氣可愛回絕（貓娘：「本喵才不寫那種東西喵！」）；其他無文字情況換下一把金鑰重試。`maxOutputTokens` 由 2048 改為 4096，修復長回覆中途斷句。
-    - 追蹤修復（2026-11-18 13:01 線上仍回「能量耗盡」）：第一版 `SAFETY_BLOCKED` 在 `callGeminiApi` 內層 `catch` 被當一般請求失敗吞掉，換 key 重試後仍以 `ALL_KEYS_EXHAUSTED` 收場；改為內層 catch 遇 `SAFETY_BLOCKED` 直接往上拋（不換 key）。同日誌證實完整對話紀錄下的請求確實被輸入層攔截（`blockReason=PROHIBITED_CONTENT`），而單句重現不攔截，差別在於累積的 18+ 頻道對話紀錄。
-    - `test_catgirl_mode.js` 擴充至 7/7（新增第 6 關：SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API），`./init.sh` 9/9 全數通過。部署驗證：VPS `git log` 為 `005aa1c`，`SAFETY_BLOCKED` 2 處、`maxOutputTokens: 4096`，dc-bot online。下一步：推追蹤修復後以 `cd ~/bot && git pull && pm2 restart dc-bot --update-env` 部署。
+    - `geminiChatService.js`：200 無文字時記錄 `finishReason`/`blockReason`，安全擋下拋 `SAFETY_BLOCKED` 並由 `handleBotChatMessage` 處理；其他無文字情況換下一把金鑰重試。`maxOutputTokens` 由 2048 改為 4096，修復長回覆中途斷句。
+    - 追蹤修復一（2026-11-18 13:01 線上仍回「能量耗盡」）：第一版 `SAFETY_BLOCKED` 在 `callGeminiApi` 內層 `catch` 被當一般請求失敗吞掉，換 key 重試後仍以 `ALL_KEYS_EXHAUSTED` 收場；改為內層 catch 遇 `SAFETY_BLOCKED` 直接往上拋（不換 key）。同日誌證實完整對話紀錄下的請求確實被輸入層攔截（`blockReason=PROHIBITED_CONTENT`），而單句重現不攔截，差別在於累積的 18+ 頻道對話紀錄。
+    - 追蹤修復二（2026-11-18 13:05 Luca 指出罐頭拒絕只是 trigger，他要正常回覆）：`handleBotChatMessage` 遇 `SAFETY_BLOCKED` 時先重試一次，只送系統指令 + 當前訊息、不帶共享對話紀錄，讓模型自然回覆；只有重試也被擋才用罐頭回絕。後處理（清理、稱謂、截斷、寫入歷史）已抽成 `processReply` 共用。VPS 實測：完整系統指令 + 單句「我要色色」回傳模型自然拒絕文字（「主人！才、才不行色色的喵！」），證實重試可行。
+    - `test_catgirl_mode.js` 擴充至 8/8（新增第 6 關：SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API；新增第 8 關：SAFETY_BLOCKED 重試去對話紀錄、模型自然回覆、絕無罐頭與能量耗盡），`./init.sh` 9/9 全數通過。部署驗證：VPS `git log` 為 `c61552d`，`SAFETY_BLOCKED` 拋出（691 行）＋內層 catch 重拋（717-718 行）＋外層處理（1025 行），dc-bot online。下一步：推重試修復後以 `cd ~/bot && git pull && pm2 restart dc-bot --update-env` 部署。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - 請於終端執行 `node test_catgirl_mode.js` 與 `./init.sh` 確認貓娘模式與全部 8 大驗證關卡全數通過。

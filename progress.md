@@ -169,7 +169,7 @@
   - 根因（VPS 日誌佐證，`pm2 logs dc-bot` 4 筆 `ALL_KEYS_EXHAUSTED` 皆為 `Body is unusable: Body has already been read`）：使用者說「我要色色」時 Gemini API 回 200 但無文字內容（安全過濾擋下），舊程式在 `response.json()` 讀過 body 後又呼叫 `response.text()`，拋錯後兩把金鑰全滅，誤回「能量耗盡」。
   - `geminiChatService.js`：200 無文字時記錄 `finishReason`/`blockReason`，安全擋下拋 `SAFETY_BLOCKED`，其他無文字情況換下一把金鑰重試（不再重讀 body）；`handleBotChatMessage` catch 遇 `SAFETY_BLOCKED` 時直接用人設口氣可愛回絕（貓娘：「本喵才不寫那種東西喵！我們還是聊聊小魚乾跟毛線球吧喵！」），一般故障仍走原本能量耗盡 fallback。
   - 回覆截斷修復：`maxOutputTokens` 由 2048 改為 4096，長回覆不再因 token 上限中途斷句（Discord 1950 字 `safeTruncate` 上限不變）。
-  - 測試擴充至 `test_catgirl_mode.js` 7/7（新增第 6 關：SAFETY_BLOCKED 回絕含「才不寫那種東西」且絕無「能量耗盡」，一般故障仍走能量耗盡 fallback；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API）；`./init.sh` 9/9 全數通過。已推 GitHub（`005aa1c`，追蹤修復後為待推）並部署到 VPS（`pm2 restart dc-bot`，online）。另註：同日用機器人自己的模型與 key 在 VPS 上重現「我要色色」兩次（單輪與帶挑逗對話紀錄）皆正常回傳拒絕文字（finishReason STOP、無 blockReason），故單句本身並未被系統性攔截；但 13:01 線上日誌證實完整對話紀錄下的請求確實被擋（`blockReason=PROHIBITED_CONTENT`，輸入層攔截），差別在於累積的 18+ 頻道對話紀錄。
+  - 測試擴充至 `test_catgirl_mode.js` 8/8（新增第 6 關：SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API；新增第 8 關：SAFETY_BLOCKED 重試去對話紀錄、模型自然回覆、絕無罐頭與能量耗盡）；`./init.sh` 9/9 全數通過。已推 GitHub（`005aa1c`，追蹤修復 `c61552d`，重試修復待推）並部署到 VPS（`pm2 restart dc-bot`，online）。另註：同日用機器人自己的模型與 key 在 VPS 上重現「我要色色」兩次（單輪與帶挑逗對話紀錄）皆正常回傳拒絕文字（finishReason STOP、無 blockReason），故單句本身並未被系統性攔截；但 13:01 線上日誌證實完整對話紀錄下的請求確實被擋（`blockReason=PROHIBITED_CONTENT`，輸入層攔截），差別在於累積的 18+ 頻道對話紀錄。2026-11-18 13:05 Luca 指出第一版修復只是把「我要色色」變成 trigger（罐頭拒絕），他要的是正常回覆：已改為 SAFETY_BLOCKED 時先不帶對話紀錄重試一次，讓模型自然回覆（VPS 實測完整系統指令 + 單句「我要色色」回傳自然拒絕文字），只有重試也被擋才用罐頭。
 
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
