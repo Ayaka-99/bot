@@ -163,7 +163,7 @@
     {
       "id": "feat-chat-catgirl-mode",
       "name": "貓娘模式切換指令 (/貓娘模式) 與蘭斯的專屬貓娘人設",
-      "description": "實作 catgirl-mode.json 持久化狀態讀寫 (isCatgirlModeEnabled / setCatgirlModeEnabled)；於 geminiChatService.js buildSystemInstruction 依「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序切換為小貓之神 SoliUmbra（蘭斯的專屬貓娘）人設，含星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、嚴格拒絕色情/性暗示安全硬規則，並沿用 TEXT_MODELS；於 discord-bot-tracker.js 註冊 /貓娘模式 斜線指令 (開關 Boolean 選項，僅限 lance_508 切換)",
+      "description": "實作 catgirl-mode.json 持久化狀態讀寫 (isCatgirlModeEnabled / setCatgirlModeEnabled)；於 geminiChatService.js buildSystemInstruction 依「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序切換為「蘭斯的專屬貓娘」人設，含星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、嚴格拒絕色情/性暗示安全硬規則，並沿用 TEXT_MODELS；於 discord-bot-tracker.js 註冊 /貓娘模式 斜線指令 (開關 Boolean 選項，僅限 lance_508 切換)",
       "dependencies": [],
       "status": "done",
       "evidence": "node test_catgirl_mode.js 5/5 PASS（狀態檔讀寫與異常防禦、指令註冊與權限、人設三元素與安全硬規則、砂金優先順序、TEXT_MODELS 整合），./init.sh 9/9 關卡全數通過（含新增的貓娘模式關卡）"

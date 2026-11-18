@@ -134,7 +134,7 @@ async function runTests() {
 
     for (const u of [masterUser, guestUser, sashaUser]) {
       const prompt = buildSystemInstruction(u, u.username, [], { rawContent: '你好' });
-      assert.ok(prompt.includes('SoliUmbra'), `${u.username} 提示詞應包含 SoliUmbra`);
+      assert.ok(!prompt.includes('SoliUmbra'), `${u.username} 提示詞不應包含 SoliUmbra（名字就是蘭斯的專屬貓娘）`);
       assert.ok(prompt.includes('蘭斯的專屬貓娘'), `${u.username} 提示詞應包含「蘭斯的專屬貓娘」`);
       assert.ok(prompt.includes('本喵'), `${u.username} 提示詞應包含自稱「本喵」`);
       assert.ok(

@@ -113,7 +113,7 @@
     - 拆散字詞（如「拉著走完了」、「拉 完 了」、「拉...了」、「拉個屎完蛋了」）以及單字「拉」、「完」、「了」100% 阻絕。
     - 新增單元測試 `test_la_photo_trigger.js` 6/6 全數 PASS (26 正向案例、48 負向阻絕含全形半形空白與換行標點阻隔、String 物件與異常型別防禦、100k 字元壓力測試與 isFile 目錄安全防禦)，既有回歸測試套件與 `init.cmd` 8 大關卡 100% PASS。
 18. **`feat-chat-catgirl-mode`** [done]:
-    - `geminiChatService.js`：實裝 `isCatgirlModeEnabled` / `setCatgirlModeEnabled` 讀寫根目錄 `catgirl-mode.json`；於 `buildSystemInstruction` 按「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序注入小貓之神 `SoliUmbra`（「蘭斯的專屬貓娘」）人設、星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、絕對禁止色情/性暗示安全硬規則，並排除「在下／本機」侍者詞彙；模型沿用 `TEXT_MODELS`。
+    - `geminiChatService.js`：實裝 `isCatgirlModeEnabled` / `setCatgirlModeEnabled` 讀寫根目錄 `catgirl-mode.json`；於 `buildSystemInstruction` 按「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序注入「蘭斯的專屬貓娘」人設、星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、絕對禁止色情/性暗示安全硬規則，並排除「在下／本機」侍者詞彙；模型沿用 `TEXT_MODELS`。
     - `discord-bot-tracker.js`：註冊 `/貓娘模式` 斜線指令（`開關` 必填 Boolean 選項）與 `handleCatgirlModeCommand`，限伺服器內且僅唯一主人 `lance_508` 可切換，非主人回覆 ephemeral 拒絕。
     - 新增單元測試 `test_catgirl_mode.js`（因本輪環境無終端執行工具，需於終端補跑 `node test_catgirl_mode.js` 與 `./init.sh` 驗證）。
 

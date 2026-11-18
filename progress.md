@@ -158,7 +158,7 @@
 - **新增貓娘模式切換與蘭斯的專屬貓娘人設 (`feat-chat-catgirl-mode`)**:
   - `geminiChatService.js`：
     • 新增 `catgirl-mode.json` 同步讀寫函式 `isCatgirlModeEnabled` 與 `setCatgirlModeEnabled`（含 try/catch 與預設 `false` 防禦）並匯出 `CATGIRL_MODE_FILE`。
-    • 於 `buildSystemInstruction` 實裝「砂金模式 > 貓娘模式 > 預設侍者閉嘴」優先順序：啟用貓娘模式且非砂金模式時，替換 `identityBlock` 與 `authorityBlock` 為小貓之神 `SoliUmbra`（「蘭斯的專屬貓娘」），涵蓋偷渡貓（吧台睡覺）、歡愉命途（阿哈惡作劇）、帕姆對手（兔子假扮）、自我介紹句、嚴禁色情/性暗示安全硬規則，並排除侍者自稱「在下／本機」與 `personaText`；模型沿用 `TEXT_MODELS`。
+    • 於 `buildSystemInstruction` 實裝「砂金模式 > 貓娘模式 > 預設侍者閉嘴」優先順序：啟用貓娘模式且非砂金模式時，替換 `identityBlock` 與 `authorityBlock` 為「蘭斯的專屬貓娘」，涵蓋偷渡貓（吧台睡覺）、歡愉命途（阿哈惡作劇）、帕姆對手（兔子假扮）、自我介紹句、嚴禁色情/性暗示安全硬規則，並排除侍者自稱「在下／本機」與 `personaText`；模型沿用 `TEXT_MODELS`。
     • 於 `handleBotChatMessage` 調整貓娘模式下不強制補上「主人，」前綴，並於 fallback 異常回覆維持貓娘語氣。
   - `discord-bot-tracker.js`：
     • 於 `commands` 陣列註冊 `/貓娘模式`（必填 Boolean 選項 `開關`）。
