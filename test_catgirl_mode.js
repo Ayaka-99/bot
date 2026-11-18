@@ -15,6 +15,7 @@ const {
   apiCaller,
   clearSharedHistory,
   appendSharedHistory,
+  isIncompleteReply,
 } = require('./geminiChatService');
 
 const {
@@ -35,7 +36,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 1. 狀態檔讀寫與異常防禦測試
     // ------------------------------------------------------------------
-    console.log('▶ [1/8] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
+    console.log('▶ [1/9] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catgirl-test-'));
     const missingFile = path.join(tmpDir, 'nonexistent.json');
     assert.strictEqual(isCatgirlModeEnabled(missingFile), false, '檔案不存在時應預設回傳 false');
@@ -61,7 +62,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 2. 斜線指令註冊與權限檢查 (master vs non-master / DM)
     // ------------------------------------------------------------------
-    console.log('▶ [2/8] 測試 /貓娘模式 斜線指令註冊與權限控制...');
+    console.log('▶ [2/9] 測試 /貓娘模式 斜線指令註冊與權限控制...');
     const catgirlCmd = commands.find((c) => c.name === '貓娘模式');
     assert.ok(catgirlCmd, 'commands 陣列應已註冊 /貓娘模式 指令');
     const cmdJson = catgirlCmd.toJSON();
@@ -126,7 +127,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 3. 貓娘模式人設、星鐵三元素與安全硬規則驗證
     // ------------------------------------------------------------------
-    console.log('▶ [3/8] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
+    console.log('▶ [3/9] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
     setCatgirlModeEnabled(true);
 
     const masterUser = { id: SPECIAL_USERS.MASTER.id, username: 'lance_508' };
@@ -164,7 +165,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 4. 優先順序驗證：砂金模式 > 貓娘模式 > 侍者閉嘴
     // ------------------------------------------------------------------
-    console.log('▶ [4/8] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
+    console.log('▶ [4/9] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
     setCatgirlModeEnabled(true);
 
     // 4a. 主人以「砂金，」開頭呼叫 -> 仍進入砂金模式
@@ -188,7 +189,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 5. 模型池與 handleBotChatMessage 整合測試
     // ------------------------------------------------------------------
-    console.log('▶ [5/8] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
+    console.log('▶ [5/9] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
     assert.deepStrictEqual(TEXT_MODELS, ['gemini-3.5-flash-lite'], '一般對話 TEXT_MODELS 應維持 gemini-3.5-flash-lite');
 
     setCatgirlModeEnabled(true);
@@ -220,7 +221,7 @@ async function runTests() {
     //    「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED
     //    → 誤回「能量耗盡」。修復後應直接用人設口氣可愛回絕，不裝成能量耗盡。
     // ------------------------------------------------------------------
-    console.log('▶ [6/8] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
+    console.log('▶ [6/9] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
     setCatgirlModeEnabled(true);
     clearSharedHistory();
     const originalApiCall2 = apiCaller.call;
@@ -254,7 +255,7 @@ async function runTests() {
     //    最後仍以 ALL_KEYS_EXHAUSTED 收場。修復後內層 catch 遇 SAFETY_BLOCKED
     //    必須直接往上拋，不得換 key、不得轉成 ALL_KEYS_EXHAUSTED。
     // ------------------------------------------------------------------
-    console.log('▶ [7/8] 測試 SAFETY_BLOCKED 穿透內層 catch（不被吞掉、不換 key）...');
+    console.log('▶ [7/9] 測試 SAFETY_BLOCKED 穿透內層 catch（不被吞掉、不換 key）...');
     const originalFetch = global.fetch;
     try {
       let fetchCallCount = 0;
@@ -280,14 +281,17 @@ async function runTests() {
     console.log('  ✅ SAFETY_BLOCKED 穿透內層 catch 測試通過！');
 
     // ------------------------------------------------------------------
-    // 8. 安全擋下重試：不帶對話紀錄重打一次，模型自然回覆（非罐頭）
+    // 8. 安全擋下重試：不帶對話紀錄、去掉使用者前綴重打一次，模型自然回覆（非罐頭）
     //    回歸：2026-11-18 13:05 Luca 指出「我要色色」只回罐頭拒絕是 trigger，
     //    他要的是正常回覆（像「我要瑟瑟」那樣由模型自然生成）。
     //    根因：累積的對話紀錄觸發輸入層過濾（PROHIBITED_CONTENT）。
     //    修復：handleBotChatMessage 遇 SAFETY_BLOCKED 時先重試一次，
     //    只送系統指令 + 當前訊息、不帶共享對話紀錄；重試也被擋才用罐頭。
+    //    追蹤（2026-11-18 13:12 線上重試仍被擋）：實測證實「[lance_508 (主人)]: 我要色色」
+    //    也會觸發 PROHIBITED_CONTENT，單句「我要色色」不會被擋——觸發點是「(主人)」前綴。
+    //    故重試時去掉前綴，只送裸訊息文字。
     // ------------------------------------------------------------------
-    console.log('▶ [8/8] 測試 SAFETY_BLOCKED 重試（去對話紀錄）自然回覆...');
+    console.log('▶ [8/9] 測試 SAFETY_BLOCKED 重試（去對話紀錄）自然回覆...');
     setCatgirlModeEnabled(true);
     clearSharedHistory();
     appendSharedHistory('user', 'lance_508: 會員制餐廳的氣氛真不錯');
@@ -300,6 +304,8 @@ async function runTests() {
         callCount += 1;
         if (callCount === 1) {
           assert.ok(contents.length > 1, '第一次呼叫應帶上共享對話紀錄');
+          const lastText = contents[contents.length - 1].parts[0].text;
+          assert.ok(lastText.includes('[lance_508 (主人)]: 我要色色'), '第一次呼叫應帶使用者前綴');
           throw new Error('SAFETY_BLOCKED');
         }
         retryContents = contents;
@@ -308,7 +314,7 @@ async function runTests() {
       const reply = await handleBotChatMessage(masterUser, '我要色色', null, 'lance_508', [], {});
       assert.strictEqual(callCount, 2, '安全擋下時應重試一次（共呼叫兩次）');
       assert.ok(retryContents && retryContents.length === 1, '重試時應只送當前訊息、不帶對話紀錄');
-      assert.ok(retryContents[0].parts[0].text.includes('我要色色'), '重試內容應為當前訊息');
+      assert.strictEqual(retryContents[0].parts[0].text, '我要色色', '重試時應去掉「[使用者 (主人)]: 」前綴（前綴 + 性要求會觸發 PROHIBITED_CONTENT）');
       assert.ok(reply.includes('才、才不行色色的喵'), '重試成功時應回模型自然生成的回覆');
       assert.ok(!reply.includes('才不寫那種東西喵！我們還是聊聊小魚乾跟毛線球吧喵'), '重試成功時不應回罐頭拒絕');
       assert.ok(!reply.includes('能量耗盡'), '重試成功時絕不能回能量耗盡');
@@ -317,6 +323,49 @@ async function runTests() {
       clearSharedHistory();
     }
     console.log('  ✅ 安全擋下重試自然回覆測試通過！');
+
+    // ------------------------------------------------------------------
+    // 9. 斷句自動續寫：回覆寫到一半停住時，自動請模型續寫一次再送出
+    //    回歸：2026-11-18 13:10「不摸」回覆在「本喵的小」中途斷句。
+    //    已排除 Discord 與機器人截斷（safeTruncate 僅 1950 字上限且截斷會補「…」，
+    //    發送為單次 message.reply，VPS 日誌無錯誤，13:09 更長回覆完整送出），
+    //    為模型生成中途自行停住。修復：isIncompleteReply 偵測懸空結尾，
+    //    maybeContinue 把未完結的回覆當 model turn 送回、請模型續寫（只一次）。
+    // ------------------------------------------------------------------
+    console.log('▶ [9/9] 測試斷句偵測與自動續寫...');
+    assert.strictEqual(isIncompleteReply('嗚哇——！主人竟然拒絕摸摸！本喵的小'), true, '結尾「的」懸空，應判斷句');
+    assert.strictEqual(isIncompleteReply('壞主人！大壞蛋！本喵要'), true, '結尾「要」懸空，應判斷句');
+    assert.strictEqual(isIncompleteReply('我們還是聊聊小魚乾跟毛線球吧喵！'), false, '結尾「！」應判完整');
+    assert.strictEqual(isIncompleteReply('主人，本喵才不寫那種東西喵！'), false, '結尾「喵！」應判完整');
+    assert.strictEqual(isIncompleteReply('一起玩毛線球吧。'), false, '結尾「。」應判完整');
+    assert.strictEqual(isIncompleteReply(''), false, '空字串不判斷句');
+    setCatgirlModeEnabled(true);
+    clearSharedHistory();
+    const originalApiCall5 = apiCaller.call;
+    try {
+      let callCount = 0;
+      apiCaller.call = async (_sysInstr, contents, _hasImage, _isAventurineFlag) => {
+        callCount += 1;
+        if (callCount === 1) {
+          assert.strictEqual(contents.length, 1, '第一次呼叫應只有當前訊息');
+          return '嗚哇——！主人竟然拒絕摸摸！本喵的小';
+        }
+        // 第二次：續寫，內容應包含未完結回覆（model turn）+ 續寫指令（user turn）
+        assert.strictEqual(contents.length, 3, '續寫呼叫應帶上原訊息、未完結回覆與續寫指令');
+        assert.strictEqual(contents[1].role, 'model', '續寫應把未完結回覆當 model turn 送回');
+        assert.ok(contents[1].parts[0].text.includes('本喵的小'), '續寫的 model turn 應為未完結回覆');
+        assert.ok(contents[2].parts[0].text.includes('繼續'), '續寫的 user turn 應要求繼續說完');
+        return '魚乾都被主人搶走了喵！';
+      };
+      const reply = await handleBotChatMessage(masterUser, '不摸', null, 'lance_508', [], {});
+      assert.strictEqual(callCount, 2, '斷句時應自動續寫一次（共呼叫兩次）');
+      assert.ok(reply.includes('本喵的小魚乾都被主人搶走了喵'), '續寫後回覆應完整接續');
+      assert.ok(!reply.includes('能量耗盡'), '續寫後絕不能回能量耗盡');
+    } finally {
+      apiCaller.call = originalApiCall5;
+      clearSharedHistory();
+    }
+    console.log('  ✅ 斷句偵測與自動續寫測試通過！');
   } finally {
     // 還原原始 catgirl-mode.json 狀態
     if (hadOriginalFile) {
