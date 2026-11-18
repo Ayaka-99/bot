@@ -34,7 +34,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 1. 狀態檔讀寫與異常防禦測試
     // ------------------------------------------------------------------
-    console.log('▶ [1/5] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
+    console.log('▶ [1/6] 測試貓娘模式狀態檔讀寫與檔案不存在/損毀防禦...');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catgirl-test-'));
     const missingFile = path.join(tmpDir, 'nonexistent.json');
     assert.strictEqual(isCatgirlModeEnabled(missingFile), false, '檔案不存在時應預設回傳 false');
@@ -60,7 +60,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 2. 斜線指令註冊與權限檢查 (master vs non-master / DM)
     // ------------------------------------------------------------------
-    console.log('▶ [2/5] 測試 /貓娘模式 斜線指令註冊與權限控制...');
+    console.log('▶ [2/6] 測試 /貓娘模式 斜線指令註冊與權限控制...');
     const catgirlCmd = commands.find((c) => c.name === '貓娘模式');
     assert.ok(catgirlCmd, 'commands 陣列應已註冊 /貓娘模式 指令');
     const cmdJson = catgirlCmd.toJSON();
@@ -125,7 +125,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 3. 貓娘模式人設、星鐵三元素與安全硬規則驗證
     // ------------------------------------------------------------------
-    console.log('▶ [3/5] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
+    console.log('▶ [3/6] 測試貓娘模式人設、星鐵三元素、自我介紹與安全硬規則...');
     setCatgirlModeEnabled(true);
 
     const masterUser = { id: SPECIAL_USERS.MASTER.id, username: 'lance_508' };
@@ -163,7 +163,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 4. 優先順序驗證：砂金模式 > 貓娘模式 > 侍者閉嘴
     // ------------------------------------------------------------------
-    console.log('▶ [4/5] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
+    console.log('▶ [4/6] 測試優先順序 (砂金模式 > 貓娘模式 > 侍者閉嘴)...');
     setCatgirlModeEnabled(true);
 
     // 4a. 主人以「砂金，」開頭呼叫 -> 仍進入砂金模式
@@ -187,7 +187,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 5. 模型池與 handleBotChatMessage 整合測試
     // ------------------------------------------------------------------
-    console.log('▶ [5/5] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
+    console.log('▶ [5/6] 測試貓娘模式沿用 TEXT_MODELS 且不強制補上「主人，」前綴...');
     assert.deepStrictEqual(TEXT_MODELS, ['gemini-3.5-flash-lite'], '一般對話 TEXT_MODELS 應維持 gemini-3.5-flash-lite');
 
     setCatgirlModeEnabled(true);
@@ -211,6 +211,40 @@ async function runTests() {
       clearSharedHistory();
     }
     console.log('  ✅ 模型池與 handleBotChatMessage 整合測試通過！');
+
+    // ------------------------------------------------------------------
+    // 6. 安全過濾擋下回覆（SAFETY_BLOCKED）與一般故障 fallback 區分測試
+    //    回歸：2026-11-18 主人說「我要色色」時，API 回 200 但無文字內容，
+    //    舊程式在已讀過 body 後又呼叫 response.text()，拋
+    //    「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED
+    //    → 誤回「能量耗盡」。修復後應直接用人設口氣可愛回絕，不裝成能量耗盡。
+    // ------------------------------------------------------------------
+    console.log('▶ [6/6] 測試 SAFETY_BLOCKED 回絕 vs 一般故障能量耗盡 fallback...');
+    setCatgirlModeEnabled(true);
+    clearSharedHistory();
+    const originalApiCall2 = apiCaller.call;
+    try {
+      // 6a. 貓娘模式 + 主人 + 安全擋下 → 可愛回絕，絕不能說能量耗盡
+      apiCaller.call = async () => { throw new Error('SAFETY_BLOCKED'); };
+      let reply = await handleBotChatMessage(masterUser, '我要色色', null, 'lance_508', [], {});
+      assert.ok(reply.includes('才不寫那種東西'), '安全擋下時貓娘應回絕「才不寫那種東西」');
+      assert.ok(!reply.includes('能量耗盡'), '安全擋下時絕不能誤回「能量耗盡」');
+      assert.ok(reply.includes('喵'), '安全擋下回絕應維持貓娘口氣（句尾喵）');
+
+      // 6b. 貓娘模式 + 客人 + 安全擋下 → 同樣可愛回絕
+      reply = await handleBotChatMessage(guestUser, '我要色色', null, 'normal_guest', [], {});
+      assert.ok(reply.includes('才不寫那種東西'), '客人觸發安全擋下時貓娘也應回絕');
+      assert.ok(!reply.includes('能量耗盡'), '客人觸發安全擋下時絕不能誤回「能量耗盡」');
+
+      // 6c. 一般故障（非安全擋下）→ 仍走原本的能量耗盡 fallback
+      apiCaller.call = async () => { throw new Error('ALL_KEYS_EXHAUSTED'); };
+      reply = await handleBotChatMessage(masterUser, '早安', null, 'lance_508', [], {});
+      assert.ok(reply.includes('能量耗盡'), '一般 API 故障時應維持能量耗盡 fallback');
+    } finally {
+      apiCaller.call = originalApiCall2;
+      clearSharedHistory();
+    }
+    console.log('  ✅ 安全過濾回絕與一般故障 fallback 區分測試通過！');
   } finally {
     // 還原原始 catgirl-mode.json 狀態
     if (hadOriginalFile) {

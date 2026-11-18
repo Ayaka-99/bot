@@ -648,7 +648,7 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
     },
     contents,
     generationConfig: {
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
       temperature: 0.8,
     },
     safetySettings: [
@@ -682,6 +682,16 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
             currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
             return textPart.text.trim();
           }
+          // 200 但無文字內容：body 已被 response.json() 讀過，絕不可再呼叫 response.text()
+          // （否則會拋「Body is unusable: Body has already been read」）；先記錄原因再換下一把金鑰
+          const finishReason = data.candidates?.[0]?.finishReason || 'unknown';
+          const blockReason = data.promptFeedback?.blockReason || 'none';
+          console.warn(`⚠️ [Gemini] Model ${model} (Key ${kIdx + 1}) 回傳 200 但無文字內容 (finishReason=${finishReason}, blockReason=${blockReason})`);
+          if (finishReason === 'SAFETY' || blockReason !== 'none') {
+            throw new Error('SAFETY_BLOCKED');
+          }
+          currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+          continue;
         }
 
         // 遇到 429 (Rate Limit / Quota) 或 403 (Permission) -> 記錄警告，更新輪替起點，繼續內層嘗試同模型的下一把金鑰
@@ -1005,6 +1015,26 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   } catch (err) {
     console.error('Gemini 對話產生嚴重錯誤:', err);
     const isCatgirlFallback = !isAventurine && isCatgirlModeEnabled();
+    // 安全過濾擋下回覆（API 回 200 但無文字內容）：不要裝成能量耗盡，
+    // 直接用人設口氣可愛回絕（貓娘人設：本喵才不寫那種東西喵！）
+    if (err && err.message === 'SAFETY_BLOCKED') {
+      let safetyReply = '';
+      if (isCatgirlFallback) {
+        safetyReply = isMaster
+          ? '主人，本喵才不寫那種東西喵！我們還是聊聊小魚乾跟毛線球吧喵！'
+          : '本喵才不寫那種東西喵！我們還是聊聊小魚乾跟毛線球吧喵！';
+      } else if (isAventurine) {
+        safetyReply = '貴賓，這種話題本店不提供，還是聊點別的吧。';
+      } else if (isMaster) {
+        safetyReply = '主人，抱歉，這個話題我不能聊，換個話題吧。';
+      } else {
+        safetyReply = '抱歉，這個話題我不能聊，換個話題吧。';
+      }
+      if (isSashaReply) {
+        safetyReply = `${safetyReply.replace(/[。！!？?～~\\s]+$/, '')} 喵`;
+      }
+      return safetyReply;
+    }
     let fallbackReply = '';
     if (isCatgirlFallback) {
       fallbackReply = isMaster

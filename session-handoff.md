@@ -116,6 +116,10 @@
     - `geminiChatService.js`：實裝 `isCatgirlModeEnabled` / `setCatgirlModeEnabled` 讀寫根目錄 `catgirl-mode.json`；於 `buildSystemInstruction` 按「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序注入「蘭斯的專屬貓娘」人設、星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、絕對禁止色情/性暗示安全硬規則，並排除「在下／本機」侍者詞彙；模型沿用 `TEXT_MODELS`。
     - `discord-bot-tracker.js`：註冊 `/貓娘模式` 斜線指令（`開關` 必填 Boolean 選項）與 `handleCatgirlModeCommand`，限伺服器內且僅唯一主人 `lance_508` 可切換，非主人回覆 ephemeral 拒絕。
     - 新增單元測試 `test_catgirl_mode.js`（因本輪環境無終端執行工具，需於終端補跑 `node test_catgirl_mode.js` 與 `./init.sh` 驗證）。
+19. **`fix-chat-catgirl-safety-blocked-and-truncation`** [done，待推 GitHub 與部署]:
+    - 根因（VPS 日誌佐證：4 筆 `ALL_KEYS_EXHAUSTED` 皆為 `Body is unusable: Body has already been read`）：「我要色色」時 Gemini 回 200 但無文字內容（安全過濾），舊程式在 `response.json()` 後又呼叫 `response.text()` 而拋錯，兩把金鑰全滅後誤回「能量耗盡」。
+    - `geminiChatService.js`：200 無文字時記錄 `finishReason`/`blockReason`，安全擋下拋 `SAFETY_BLOCKED` 並由 `handleBotChatMessage` 直接用人設口氣可愛回絕（貓娘：「本喵才不寫那種東西喵！」）；其他無文字情況換下一把金鑰重試。`maxOutputTokens` 由 2048 改為 4096，修復長回覆中途斷句。
+    - `test_catgirl_mode.js` 擴充至 6/6（新增第 6 關：SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分），`./init.sh` 9/9 全數通過。下一步：推 GitHub 後以 `cd ~/bot && git pull && pm2 restart dc-bot --update-env` 部署。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - 請於終端執行 `node test_catgirl_mode.js` 與 `./init.sh` 確認貓娘模式與全部 8 大驗證關卡全數通過。

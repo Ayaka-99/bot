@@ -165,6 +165,12 @@
     • 於 `interactionCreate` switch 新增 `case '貓娘模式'` 及可測試處理函式 `handleCatgirlModeCommand`，驗證伺服器環境與唯一主人 `lance_508` 權限，非主人回覆 ephemeral 拒絕；切換後寫入 `catgirl-mode.json` 並回覆對應口氣之 ephemeral 確認訊息。
   - 新增單元測試 `test_catgirl_mode.js`（5 大測試項目：狀態檔讀寫與損毀防禦、`/貓娘模式` 指令註冊與權限檢查、人設三元素與安全硬規則及無侍者殘留詞、砂金優先順序、`TEXT_MODELS` 與 `handleBotChatMessage` 整合；尚待於具終端環境執行 `node test_catgirl_mode.js` 與 `./init.sh` 實測）。
 
+- **貓娘模式線上問題修復 (`fix-chat-catgirl-safety-blocked-and-truncation`，2026-11-18)**：
+  - 根因（VPS 日誌佐證，`pm2 logs dc-bot` 4 筆 `ALL_KEYS_EXHAUSTED` 皆為 `Body is unusable: Body has already been read`）：使用者說「我要色色」時 Gemini API 回 200 但無文字內容（安全過濾擋下），舊程式在 `response.json()` 讀過 body 後又呼叫 `response.text()`，拋錯後兩把金鑰全滅，誤回「能量耗盡」。
+  - `geminiChatService.js`：200 無文字時記錄 `finishReason`/`blockReason`，安全擋下拋 `SAFETY_BLOCKED`，其他無文字情況換下一把金鑰重試（不再重讀 body）；`handleBotChatMessage` catch 遇 `SAFETY_BLOCKED` 時直接用人設口氣可愛回絕（貓娘：「本喵才不寫那種東西喵！我們還是聊聊小魚乾跟毛線球吧喵！」），一般故障仍走原本能量耗盡 fallback。
+  - 回覆截斷修復：`maxOutputTokens` 由 2048 改為 4096，長回覆不再因 token 上限中途斷句（Discord 1950 字 `safeTruncate` 上限不變）。
+  - 測試擴充至 `test_catgirl_mode.js` 6/6（新增第 6 關：SAFETY_BLOCKED 回絕含「才不寫那種東西」且絕無「能量耗盡」，一般故障仍走能量耗盡 fallback）；`./init.sh` 9/9 全數通過。尚待推 GitHub 與 VPS 部署。
+
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
 

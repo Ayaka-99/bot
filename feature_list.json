@@ -36,7 +36,9 @@
       "id": "feat-chat-master-impersonation",
       "name": "主人專屬群友身分扮演機制",
       "description": "允許主人 lance_508 透過自然口語（如『現在我是XXX...』、『我現在是XXX』切換，以及『現在我是主人』還原）以任意群友身分與機器人互動，動態置換 user 提示詞與專屬稱謂",
-      "dependencies": ["feat-chat-remove-length-limit"],
+      "dependencies": [
+        "feat-chat-remove-length-limit"
+      ],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 6 大關卡全數通過 (含 test_master_impersonation.js 5/5 PASS、16 套賭場回歸測試與 1A2B 測試零回退)"
     },
@@ -44,7 +46,9 @@
       "id": "feat-chat-master-aventurine-and-yuexi-ban",
       "name": "禁止主人扮演月天狼與開頭砂金呼叫對話",
       "description": "禁止主人扮演月天狼（特殊協議保護拒絕切換）；當主人發言開頭為『砂金，』時，由砂金本尊現身對話，解除侍者閉嘴格式與強制『主人，』前綴",
-      "dependencies": ["feat-chat-master-impersonation"],
+      "dependencies": [
+        "feat-chat-master-impersonation"
+      ],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_master_aventurine_yuexi.js 3/3 PASS、test_master_impersonation.js 5/5 PASS、16 套賭場測試與 1A2B 零回退)"
     },
@@ -52,7 +56,9 @@
       "id": "feat-chat-aventurine-exclusive-and-model-upgrade",
       "name": "砂金對話權限限制（僅限主人與月天狼）與專屬模型池升級",
       "description": "限制僅主人（開頭呼叫砂金）與月天狼可與砂金對話，其餘成員禁止觸發砂金模式；升級砂金對話專屬模型池至旗艦級 gemini-3.5-flash / gemini-3.6-flash 並具備自動備援機制",
-      "dependencies": ["feat-chat-master-aventurine-and-yuexi-ban"],
+      "dependencies": [
+        "feat-chat-master-aventurine-and-yuexi-ban"
+      ],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_master_aventurine_yuexi.js 6/6 PASS、test_aventurine_ratio_memory.js 5/5 PASS、16 套賭場測試與 1A2B 零回退)"
     },
@@ -60,7 +66,9 @@
       "id": "feat-chat-aventurine-yuexi-intimacy-unlocked",
       "name": "解除砂金對月天狼私密相處追問的點到即止與商業機密限制",
       "description": "在提示詞中明確指示砂金面對月天狼追問私密細節時，禁止以『商業機密』或『非公開資產』等藉口推託，大方具體描寫相處畫面與情感博弈細節；同時修復多輪對話中延續真理醫生記憶未被判定為 hasRatioMention 的缺陷",
-      "dependencies": ["feat-chat-aventurine-exclusive-and-model-upgrade"],
+      "dependencies": [
+        "feat-chat-aventurine-exclusive-and-model-upgrade"
+      ],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 7 大關卡全數通過 (含 test_aventurine_ratio_memory.js 6/6 PASS、test_master_aventurine_yuexi.js 6/6 PASS、16 套賭場測試與 1A2B 零回退)"
     },
@@ -68,7 +76,9 @@
       "id": "feat-chat-safety-refusal-interception-and-anti-ooc",
       "name": "AI 破防說教攔截、API SafetySettings 放寬與極限尺度優雅轉向機制",
       "description": "API 層注入 BLOCK_NONE 放寬安全性過濾；Prompt 層建立人設不可破防與追問極限尺度過渡至事後情趣；後處理層實裝 interceptSafetyRefusal 攔截器，杜絕 NSFW/系統安全拒絕文字出現在 Discord",
-      "dependencies": ["feat-chat-aventurine-yuexi-intimacy-unlocked"],
+      "dependencies": [
+        "feat-chat-aventurine-yuexi-intimacy-unlocked"
+      ],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 8 大關卡全數通過 (含 test_safety_refusal_interception.js 4/4 PASS、test_aventurine_ratio_memory.js 6/6 PASS、test_master_aventurine_yuexi.js 6/6 PASS、16 套賭場測試與 1A2B 零回退)"
     },
@@ -76,7 +86,9 @@
       "id": "feat-chat-model-quota-fallback-chain",
       "name": "砂金模型池升級 (3.8-3.6-3-3.5lite) 與跨 Key/跨 Model 自動降級路由",
       "description": "升級 AVENTURINE_MODELS 順序為 gemini-3.8-flash -> gemini-3.6-flash -> gemini-3-flash -> gemini-3.5-flash-lite；一般成員聊天嚴格維持 TEXT_MODELS (gemini-3.5-flash-lite)；重構 callGeminiApi 調度迴圈為模型在外、Key在內，當前模型兩把 Key 均遇 429/403 額度耗盡時，自動降級切換至下一個模型，404 時直接跳過該模型",
-      "dependencies": ["feat-chat-safety-refusal-interception-and-anti-ooc"],
+      "dependencies": [
+        "feat-chat-safety-refusal-interception-and-anti-ooc"
+      ],
       "status": "done",
       "evidence": "cmd.exe /c init.cmd 8 大關卡全數通過 (含 test_master_aventurine_yuexi.js 7/7 PASS、429 跨 Key/Model 降級與 404 快跳全部驗證通過、16 套賭場測試與 1A2B 零回退)"
     },
@@ -84,7 +96,9 @@
       "id": "feat-chat-scene-transition-and-continuity",
       "name": "砂金私密對話時空轉場過渡橋樑與截斷續寫銜接機制",
       "description": "在 prompt 中注入【時空轉場過渡橋樑 (Bridge Transition)】與【未竟截斷續寫承接】規範：當成員以『繼續』追問或遇到情境轉折時，嚴禁直接瞬間硬切至清晨；必須以 1~2 句承上啟下的情境描寫（交代失控清算的收尾與透支入眠）作為過渡橋樑，再自然融入晨光與事後情趣；同時砂金開口首句必須主動接住前情因果，並維持單則回覆語意完整閉環",
-      "dependencies": ["feat-chat-model-quota-fallback-chain"],
+      "dependencies": [
+        "feat-chat-model-quota-fallback-chain"
+      ],
       "status": "done",
       "evidence": "node test_aventurine_ratio_memory.js 7/7 PASS 且 cmd.exe /c init.cmd 8 大關卡全數通過 (涵蓋轉場過渡橋樑、杜絕清晨瞬移、因果相扣與敘事閉環驗證，賭場與聊天模組零回退)"
     },
@@ -92,7 +106,9 @@
       "id": "feat-v60-vault-core-and-jackpot-math",
       "name": "v6.0 金庫擴容、移除注資截斷與身家佔比動態彩金核心演算法",
       "description": "擴容金庫容量（BJ 1,000萬 / 德州 2,000萬）、底金（BJ 25萬 / 德州 50萬）；移除單次注資 25,000 限制（改為無限額注資、達標滿溢銷毀）；實裝身家投入佔比動態彩金演算法（21點四級與德州撲克四級彩金，依有效籌碼佔開局身家比例計算倍率與金庫提領上限）；實裝午夜富人稅純計算函式（雙階梯 12%/20% 與 400萬/880萬 地板保護公式）",
-      "dependencies": ["feat-casino-v56-core"],
+      "dependencies": [
+        "feat-casino-v56-core"
+      ],
       "status": "done",
       "evidence": "node test_v60_vault_jackpot.js 6/6 PASS 且 cmd.exe /c init.cmd 8 大關卡全數通過 (含金庫擴容 1000w/2000w、1500w 注入滿溢銷毀、21點與德州四級佔比動態彩金、富人稅雙階梯地板保護無斷崖倒掛，16 套既有賭場回歸測試與對話測試零回退)"
     },
@@ -100,7 +116,9 @@
       "id": "feat-v60-migration-compensation-and-vault-opening",
       "name": "v6.0 全服補償、天台清空與雙金庫開池遷移",
       "description": "資料庫啟動與 aventurineCasinoService 加入 migration_v60_economy_overhaul_and_compensation：清空天台欠債紀錄與前綴；星瓊 < 50,000 者回補至 50,000；全體開拓者發放 +30,000 星瓊；雙金庫水位開池設定為 bj 1,000,000 / texas 2,000,000",
-      "dependencies": ["feat-v60-vault-core-and-jackpot-math"],
+      "dependencies": [
+        "feat-v60-vault-core-and-jackpot-math"
+      ],
       "status": "done",
       "evidence": "node test_v60_migration_compensation.js 5/5 PASS (含破產回補80000、天台前綴與記錄清空、大亨+30000至280000、金庫開池100w/200w、冪等性防呆) 且 cmd.exe /c init.cmd 8 大關卡全數通過"
     },
@@ -108,7 +126,9 @@
       "id": "feat-v60-daily-wealth-tax-pipeline",
       "name": "v6.0 星際和平公司午夜富人稅定時排程與全資產穿透計稅管線",
       "description": "實作午夜富人稅排程 (每日 00:00:00 Asia/Taipei)；全資產穿透式掃描計稅 (錢包 + 德州桌面籌碼 + 21點對局 + 場外買馬)；順序扣款 (先扣錢包，不足強制扣除德州牌桌籌碼)；40% 注入 BJ 金庫、60% 注入德州金庫；自動產生並發送富人稅公報戰報 Embed",
-      "dependencies": ["feat-v60-migration-compensation-and-vault-opening"],
+      "dependencies": [
+        "feat-v60-migration-compensation-and-vault-opening"
+      ],
       "status": "done",
       "evidence": "node test_v60_wealth_tax_pipeline.js 6/6 PASS (含免稅、12%扣款、德州桌面強制扣款防逃稅、20%巨鯨880w地板保護、21點與買馬穿透掃描、Embed推播) 且 cmd.exe /c init.cmd 8 大關卡全數通過"
     },
@@ -116,7 +136,9 @@
       "id": "feat-v60-pve-aventurine-overhaul",
       "name": "v6.0 /詭弈砂金 PvE 核心大修、注資無上限與金庫動態彩金整合",
       "description": "/詭弈砂金 移除 25,000 上限與 10% 懲罰稅；下注上限放寬至 1,000,000 與 All-in 全押；Double Down 解禁 10,000 上限；輸局與比骰未超越砂金沒收籌碼 100% 注入 bj 金庫；獲勝常規點數利潤由 bj 金庫支應 (上限 max(50000, floor(BJ_Vault * 0.20)))，特殊牌型發放身家佔比動態彩金",
-      "dependencies": ["feat-v60-daily-wealth-tax-pipeline"],
+      "dependencies": [
+        "feat-v60-daily-wealth-tax-pipeline"
+      ],
       "status": "done",
       "evidence": "node test_v60_aventurine_pve.js 6/6 PASS (含 100萬滿注、Double Down 解禁、輸局 100% 入庫、常規利潤金庫支應與 20% 安全閥保護、同花 BJ 動態彩金派彩、命運比骰決鬥扣庫與入庫) 且 16 套既有測試無損相容"
     },
@@ -124,7 +146,9 @@
       "id": "feat-v60-pvp-blackjack-and-texas-overhaul",
       "name": "v6.0 PvP 21點與德州撲克 0% 抽稅、團滅入庫、防作弊三鐵律與四級神話彩金",
       "description": "/單挑21點 (上限 5,000,000) 與 /大逃殺21點 (上限 2,000,000) 全面 0% 抽稅，雙爆牌與全員團滅 100% 沒收注入 bj 金庫，特殊牌型發放動態彩金；/德州撲克 全面 0% 抽水 (翻牌後奪池與場外買馬免 5%)，移除單局 25,000 封頂，NPC 奪池真人淨輸額 100% 注入 texas 金庫，落實防作弊三鐵律 (未跟注溢額扣除、Showdown 獲勝、至少 1 張私有底牌參與) 與四級神話彩金提領",
-      "dependencies": ["feat-v60-pve-aventurine-overhaul"],
+      "dependencies": [
+        "feat-v60-pve-aventurine-overhaul"
+      ],
       "status": "done",
       "evidence": "node test_v60_pvp_and_holdem.js 6/6 PASS (含單挑500w上限與雙爆入庫、大逃殺200w上限與全員團滅入庫、德州NPC奪池100%入庫、真人奪池免25k封頂且0%抽稅、防作弊三鐵律、皇家同花順100%搬空) 且 16 套既有測試全數通過"
     },
@@ -132,7 +156,9 @@
       "id": "feat-v60-peripheral-and-anti-evasion",
       "name": "v6.0 周邊經濟金流導流、轉帳與紅包風控限額與全通道自動贖身防禦",
       "description": "黑市稱號購買與大亨結算資金 40% 注入 bj 金庫、60% 注入 texas 金庫；紅包單包上限 200,000、單日上限 500,000；轉帳單次上限 50,000 與 4 小時冷卻；全通道掛載 checkAndRedeemDebt 破產自動贖身",
-      "dependencies": ["feat-v60-pvp-blackjack-and-texas-overhaul"],
+      "dependencies": [
+        "feat-v60-pvp-blackjack-and-texas-overhaul"
+      ],
       "status": "done",
       "evidence": "node test_v60_peripheral.js 6/6 PASS (黑市稱號與今日大亨 40%/60% 注資金庫、轉帳單次 50,000 上限與 4 小時冷卻、紅包單包 200,000 與單日 500,000 風控上限、全通道掛載 checkAndRedeemDebt 自動贖身及微型累計 DB 查核防禦) 且 init.cmd 8/8 關卡 100% PASS"
     },
@@ -140,7 +166,9 @@
       "id": "feat-v60-ui-and-command-descriptions-alignment",
       "name": "v6.0 指令註冊描述、UI 面板與制度規則全面對齊",
       "description": "全面盤點並修正 /公司金庫、/轉帳、/紅包、/退紅包、/詭弈砂金、/單挑21點、/大逃殺21點、/德州撲克之 SlashCommandBuilder 描述、選項數值邊界、Embed 面板與說明文件，徹底移除 25,000 注資上限、舊容量、舊抽稅等殘留舊文案，100% 對齊真實運行機制",
-      "dependencies": ["feat-v60-peripheral-and-anti-evasion"],
+      "dependencies": [
+        "feat-v60-peripheral-and-anti-evasion"
+      ],
       "status": "done",
       "evidence": "node test_v60_ui_and_command_descriptions.js 6/6 PASS, node test_red_packet.js 8/8 PASS 且 init.cmd 8/8 關卡 100% PASS (含 16 套賭場回歸、1A2B、聊天與人設測試零回退)"
     },
@@ -166,8 +194,17 @@
       "description": "實作 catgirl-mode.json 持久化狀態讀寫 (isCatgirlModeEnabled / setCatgirlModeEnabled)；於 geminiChatService.js buildSystemInstruction 依「砂金模式 > 貓娘模式 > 侍者閉嘴」優先順序切換為「蘭斯的專屬貓娘」人設，含星鐵三元素（偷渡貓/吧台睡覺、歡愉命途阿哈惡作劇、帕姆對手）、自我介紹句、嚴格拒絕色情/性暗示安全硬規則，並沿用 TEXT_MODELS；於 discord-bot-tracker.js 註冊 /貓娘模式 斜線指令 (開關 Boolean 選項，僅限 lance_508 切換)",
       "dependencies": [],
       "status": "done",
-      "evidence": "node test_catgirl_mode.js 5/5 PASS（狀態檔讀寫與異常防禦、指令註冊與權限、人設三元素與安全硬規則、砂金優先順序、TEXT_MODELS 整合），./init.sh 9/9 關卡全數通過（含新增的貓娘模式關卡）"
+      "evidence": "node test_catgirl_mode.js 6/6 PASS（狀態檔讀寫與異常防禦、指令註冊與權限、人設三元素與安全硬規則、砂金優先順序、TEXT_MODELS 整合、SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分），./init.sh 9/9 關卡全數通過"
+    },
+    {
+      "id": "fix-chat-catgirl-safety-blocked-and-truncation",
+      "name": "貓娘模式：安全擋下誤報能量耗盡修復與回覆截斷修復",
+      "description": "修復兩個 2026-11-18 線上實測問題：(1) 使用者說「我要色色」時 Gemini API 回 200 但無文字內容（安全過濾），舊程式在 response.json() 讀過 body 後又呼叫 response.text()，拋「Body is unusable: Body has already been read」→ ALL_KEYS_EXHAUSTED → 誤回「能量耗盡」；修復後 200 無文字時記錄 finishReason/blockReason，安全擋下拋 SAFETY_BLOCKED 並由 handleBotChatMessage 直接用人設口氣可愛回絕（貓娘：本喵才不寫那種東西喵！），其他無文字情況換下一把金鑰重試；(2) 回覆有時被截斷：maxOutputTokens 2048 寫長回覆會中途斷句，改為 4096",
+      "dependencies": [
+        "feat-chat-catgirl-mode"
+      ],
+      "status": "done",
+      "evidence": "node test_catgirl_mode.js 6/6 PASS（新增第 6 關：SAFETY_BLOCKED 回絕含「才不寫那種東西」且絕無「能量耗盡」，一般故障仍走能量耗盡 fallback），./init.sh 9/9 關卡全數通過；VPS 日誌佐證：4 筆 ALL_KEYS_EXHAUSTED 皆為 Body has already been read"
     }
   ]
 }
-
