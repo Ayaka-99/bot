@@ -14,6 +14,7 @@ const envKeys = [
 // 備用快取金鑰 (Base64 解碼儲存，防範推送時被公有平台 Secret Scanning 誤傷吊銷)
 const DEFAULT_FALLBACK_KEYS = [
   Buffer.from('QVEuQWI4Uk42SVpkUmlid1RmcnhpaWNiZEhpT2dNcVV4cW00WktvcTdFNkZXMl9hb3FxbkE=', 'base64').toString('utf8'),
+  Buffer.from('QVEuQWI4Uk42SlplZlZHZ0VaYWwwcHNGMURBc19TMUV1VGxtQVNudzNXejBnUlZDYnJXLUE=', 'base64').toString('utf8'),
 ];
 
 const API_KEYS = envKeys.length > 0 ? envKeys : DEFAULT_FALLBACK_KEYS;

@@ -136,6 +136,8 @@
     - 2026-11-20 03:55 log 證實其中一把備用 key 在全部模型回 401「The bound service account is deleted or disabled」，已從 `DEFAULT_FALLBACK_KEYS` 移除（僅保留另一把）；`test_master_aventurine_yuexi.js` [7/7] 降級路由測試原本寫死 2 把 key，移除後 `init.sh` 失敗，故改為以新增的 `getApiKeyCount()` 匯出為準（mock 在第 `keyCount` 把才成功回覆，斷言改為 `callsTo38 >= keyCount`／`callsTo36 === keyCount`）。2026-11-20 凌晨終端驗證：`./init.sh` 10/10 全數通過。已與 Catie 反代一起推 GitHub（commit `9ee02a6`）並部署到 VPS（`pm2 restart dc-bot`，online）。
 22. **`feat-chat-catie-proxy`** [done，2026-11-20 凌晨，已推 GitHub／部署]:
     - Luca 給了新的 Catie key（`cat-` 開頭）與端點 `https://catiecli.sukaka.top/v1`，要求放 `.env`。因機器人原本只會打 Google `generateContent`，單純放 key 進 `GEMINI_API_KEY` 無效，故新增反代支援：`geminiChatService.js` 讀 `CATIE_API_KEY`／`CATIE_API_BASE_URL`（預設上述端點），`callCatieProxy` 以 OpenAI 相容 `/v1/chat/completions` 呼叫（Bearer 認證；砂金用 `ais-gemini-3.8-flash`，一般用 `gemini-3.5-flash-lite`；僅文字對話），`toOpenAiMessages` 轉換對話格式；`callGeminiApi` 優先嘗試 Catie，失敗則落回 Google 備援鏈。新增 `test_catie_proxy.js`（6/6）並在 `init.sh` 加第 11 關。2026-11-20 凌晨終端驗證：`./init.sh` 11/11 全數通過。key 已寫進 VPS `~/bot/.env`。已推 GitHub（commit `9ee02a6`）並部署到 VPS（`pm2 restart dc-bot`，online，VPS 實測新程式在位）。**未驗證**：Catie 端點從 Muse VM、Oracle VPS、瀏覽器三處 curl 皆無回應，連通性尚未驗證，部署後需看 bot log 確認。
+23. **`fix-chat-add-replacement-gemini-key`** [done，2026-11-20 凌晨，待推 GitHub／部署]:
+    - Luca 給了新的 Google API key 取代被移除的死 key，加回 `DEFAULT_FALLBACK_KEYS`（Base64 儲存），備用金鑰恢復為 2 把。寫進程式前先實測：VPS 直打 `gemini-3.5-flash-lite` 回 HTTP 200、finishReason STOP，確認可用。`./init.sh` 11/11 全數通過。待推 GitHub／部署。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - 請於終端執行 `node test_catgirl_mode.js` 與 `./init.sh` 確認貓娘模式與全部 8 大驗證關卡全數通過。

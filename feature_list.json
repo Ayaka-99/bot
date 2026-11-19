@@ -235,6 +235,16 @@
       ],
       "status": "done",
       "evidence": "2026-11-20 凌晨終端驗證：./init.sh 11/11 全數通過（含新增 test_catie_proxy.js 6/6：訊息轉換、請求格式與模型選擇、非 200／空內容回 null、Catie 優先且不叫 Google、Catie 失敗落回 Google）。key 已寫進 VPS ~/bot/.env（CATIE_API_KEY）。已推 GitHub（commit 9ee02a6）並部署到 VPS（pm2 restart dc-bot，online，VPS 實測新程式在位）。注意：Catie 端點從 Muse VM、Oracle VPS、瀏覽器三處 curl 皆無回應（empty reply／連線失敗），連通性尚未驗證，需看 bot log 確認。"
+    },
+    {
+      "id": "fix-chat-add-replacement-gemini-key",
+      "name": "補上新的 Gemini 備用金鑰（取代死 key）",
+      "description": "Luca 給了新的 Google API key（AQ.Ab8 開頭）取代被移除的死 key，加回 DEFAULT_FALLBACK_KEYS（Base64 儲存），備用金鑰恢復為 2 把；Catie 反代 key 因 VPS 連不上（Connection refused）暫時用不上，維持原樣當備援。",
+      "dependencies": [
+        "fix-chat-remove-dead-gemini-key"
+      ],
+      "status": "done",
+      "evidence": "2026-11-20 凌晨先實測新 key：VPS 直打 gemini-3.5-flash-lite generateContent 回 HTTP 200、finishReason STOP，確認可用才寫進程式。./init.sh 11/11 全數通過。待推 GitHub／部署。"
     }
   ]
 }
