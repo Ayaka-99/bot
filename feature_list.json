@@ -205,6 +205,16 @@
       ],
       "status": "done",
       "evidence": "node test_catgirl_mode.js 10/10 PASS（新增第 6 關：SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API；新增第 8 關：SAFETY_BLOCKED 重試去對話紀錄、去前綴、模型自然回覆、絕無罐頭與能量耗盡；新增第 9 關：斷句偵測與自動續寫，含 isIncompleteReply 懸空結尾判斷與 maybeContinue 續寫接續；新增第 10 關：自我介紹不誤觸發，人設不留現成整句、含「不要主動自我介紹」規則），./init.sh 9/9 關卡全數通過；VPS 日誌佐證：舊版 4 筆 ALL_KEYS_EXHAUSTED 皆為 Body has already been read；新版日誌確認 blockReason=PROHIBITED_CONTENT；VPS 實測：完整系統指令 + 單句「我要色色」回傳模型自然拒絕文字，+「[lance_508 (主人)]: 」前綴則回 PROHIBITED_CONTENT。去前綴修復與斷句自動續寫修復已於 2026-11-18 14:48 經使用者批准推 GitHub（commit 042cb81）並部署到 VPS（dc-bot online，pid 85792），VPS 驗證通過。自我介紹不誤觸發修復已實作並通過測試（test_catgirl_mode.js 10/10，新增第 10 關），待使用者批准推送與部署。"
+    },
+    {
+      "id": "feat-chat-aventurine-complete-sentence-regen",
+      "name": "砂金模式完整句重生成機制",
+      "description": "在 geminiChatService.js 新增 AVENTURINE_MAX_REGENERATIONS = 3 與 isCompleteSentenceEnding(text)（trim 後檢查最後一字是否為 ？ 。 ！ （ ）），抽出 formatReply 與 commitReplyToHistory；砂金模式下若格式化後回覆未以完整句結尾，改以原始 systemInstruction 與 contents 重新呼叫 apiCaller.call（最多重生成 3 次、共 4 次，達上限照常送出最後一次並 console.warn），中間嘗試不寫入共享歷史，僅將最終回覆寫入。",
+      "dependencies": [
+        "feat-chat-scene-transition-and-continuity"
+      ],
+      "status": "in_progress",
+      "evidence": "已驗證 geminiChatService.js 核心實作並小修砂金重生成迴圈移除 maybeContinue 呼叫（確保重生成嚴格使用原始 contents、不把舊回覆餵回去續寫，且保留非砂金模式既有 maybeContinue/isIncompleteReply 行為）；已新增 test_aventurine_complete_sentence.js（6 項測試，mock apiCaller）並於 init.sh 加入第 10 關卡；因當前代理環境無終端執行工具，尚未實測執行 node test_aventurine_complete_sentence.js 與 ./init.sh，待於具終端環境補跑驗證。"
     }
   ]
 }

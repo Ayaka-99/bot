@@ -820,6 +820,17 @@ function isIncompleteReply(text) {
   return /(如果|雖然|因為|但是|一個|一隻|的|在|跟|和|與|是|要|會|想|能|去|來|給|讓|把|被|對|向|往|從|比|像|這|那|小|大|還|也|都|就|、|，|,|（|「|『|"|')$/.test(t);
 }
 
+const AVENTURINE_MAX_REGENERATIONS = 3;
+
+// 偵測砂金模式回覆是否為完整句結尾：trim 後檢查最後一字是否為 ？ 。 ！ （ ） 其中之一
+// （括號算完整，因為砂金回覆常以括號動作描寫收尾，例如「（輕笑）」）
+function isCompleteSentenceEnding(text) {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /[？。！（）]$/.test(trimmed);
+}
+
 function normalizeForComparison(text) {
   if (!text) return '';
   return text.replace(/<@!?\d+>/g, '').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
@@ -982,8 +993,8 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   const isAventurine = (isMaster && isAventurineCall) || isTargetYueXi;
 
   // 9. 發送請求並防呆處理 (若為砂金對話模式，優先調用專屬旗艦模型池)
-  // 回覆後處理（清理、稱謂、截斷、寫入歷史）：主流程與安全擋下重試共用
-  const processReply = (rawReply) => {
+  // 回覆格式化（清理、稱謂、截斷，不寫歷史）：供砂金模式完整句重生成檢查與 processReply 共用
+  const formatReply = (rawReply) => {
     let reply = rawReply;
     // 過濾 AI 自行輸出的字數統計標記與序號標註
     reply = reply.replace(/\*+\s*\*+Character Count.*?$/i, '').replace(/（字數.*?）/g, '').replace(/\(\d+\)/g, '').trim();
@@ -1031,12 +1042,18 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
       }
     }
 
-    // 將該輪對話寫入全體共享歷史 (最多 15 輪 / 30 則訊息)
-    appendSharedHistory('user', `${userPrefix}: ${activeContent || '[傳送了圖片進行辨識]'}`);
-    appendSharedHistory('model', reply);
-
     return reply;
   };
+
+  // 將已格式化的最終回覆寫入全體共享歷史 (最多 15 輪 / 30 則訊息)
+  const commitReplyToHistory = (reply) => {
+    appendSharedHistory('user', `${userPrefix}: ${activeContent || '[傳送了圖片進行辨識]'}`);
+    appendSharedHistory('model', reply);
+    return reply;
+  };
+
+  // 回覆後處理（清理、稱謂、截斷、寫入歷史）：主流程（非砂金）與安全擋下重試共用
+  const processReply = (rawReply) => commitReplyToHistory(formatReply(rawReply));
 
   // 若回覆斷句（模型寫到一半停住，例如結尾是「本喵的小」），自動請模型續寫一次
   // 2026-11-18 實測：「不摸」回覆在「本喵的小」中途斷句，非 Discord、非機器人截斷，
@@ -1058,8 +1075,26 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   };
 
   try {
-    const reply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
-    return processReply(await maybeContinue(reply));
+    if (!isAventurine) {
+      const reply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
+      return processReply(await maybeContinue(reply));
+    }
+
+    // 砂金模式完整句重生成迴圈：以原始系統指令與對話內容重新生成全新回覆（最多重生成 3 次，共 4 次）
+    let finalReply = '';
+    for (let regenCount = 0; regenCount <= AVENTURINE_MAX_REGENERATIONS; regenCount++) {
+      const rawReply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
+      finalReply = formatReply(rawReply);
+      if (isCompleteSentenceEnding(finalReply)) {
+        break;
+      }
+      if (regenCount < AVENTURINE_MAX_REGENERATIONS) {
+        console.warn(`⚠️ [砂金模式] 回覆結尾不完整，改以原始輸入重新生成 (${regenCount + 1}/${AVENTURINE_MAX_REGENERATIONS})`);
+      } else {
+        console.warn(`⚠️ [砂金模式] 已達完整句重生成上限 (${AVENTURINE_MAX_REGENERATIONS} 次)，照常送出最後一次回覆`);
+      }
+    }
+    return commitReplyToHistory(finalReply);
   } catch (err) {
     console.error('Gemini 對話產生嚴重錯誤:', err);
     const isCatgirlFallback = !isAventurine && isCatgirlModeEnabled();
@@ -1138,6 +1173,8 @@ module.exports = {
   interceptSafetyRefusal,
   safeTruncate,
   isIncompleteReply,
+  isCompleteSentenceEnding,
+  AVENTURINE_MAX_REGENERATIONS,
   apiCaller,
   getMasterImpersonation,
   setMasterImpersonation,
