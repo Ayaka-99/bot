@@ -244,7 +244,7 @@
         "fix-chat-remove-dead-gemini-key"
       ],
       "status": "done",
-      "evidence": "2026-11-20 凌晨先實測新 key：VPS 直打 gemini-3.5-flash-lite generateContent 回 HTTP 200、finishReason STOP，確認可用才寫進程式。./init.sh 11/11 全數通過。待推 GitHub／部署。"
+      "evidence": "2026-11-20 凌晨先實測新 key：VPS 直打 gemini-3.5-flash-lite generateContent 回 HTTP 200、finishReason STOP，確認可用才寫進程式。./init.sh 11/11 全數通過。已推 GitHub（commit c3cd4bf）並部署到 VPS（pm2 restart dc-bot，online）；部署後實測呼叫 apiCaller 回「測試成功」，確認新 key 上線可用。"
     }
   ]
 }
