@@ -174,7 +174,7 @@
 - **砂金模式「完整句重生成」機制 (`feat-chat-aventurine-complete-sentence-regen`)**：
   - 驗證並小修 `geminiChatService.js`：移除砂金重生成迴圈內對 `maybeContinue` 的呼叫，確保結尾不完整時嚴格以原始 `systemInstruction` 與 `contents` 重新生成（最多重生成 3 次、共 4 次，達上限照常送出最後一次並 `console.warn`），不把舊回覆餵回續寫、中間嘗試不寫入共享歷史，並維持非砂金模式既有 `maybeContinue` 與 `isIncompleteReply` 行為不變。
   - 新增單元測試 `test_aventurine_complete_sentence.js`（mock `apiCaller`，覆蓋 `isCompleteSentenceEnding` 邊界、4 種完整句結尾單次呼叫、不完整結尾以原始 `contents` 重生成、3 次上限停止於第 4 次結果、非砂金模式不重生成、共享歷史僅寫入最終一則）。
-  - 更新 `init.sh` 新增第 10 關卡執行 `test_aventurine_complete_sentence.js`（計數更新為 `[1/10]`~`[10/10]`）；因當前代理環境無終端執行工具，尚待於具終端環境補跑 `./init.sh` 實測。
+  - 更新 `init.sh` 新增第 10 關卡執行 `test_aventurine_complete_sentence.js`（計數更新為 `[1/10]`~`[10/10]`）。2026-11-20 凌晨終端驗證：`./init.sh` 10/10 全數通過（新測試 6/6、舊測試零回退）。已推 GitHub（commit `a605f34`）並部署到 VPS（`pm2 restart dc-bot`，pid 126278，online）。
 
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。

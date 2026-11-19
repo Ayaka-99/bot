@@ -213,8 +213,8 @@
       "dependencies": [
         "feat-chat-scene-transition-and-continuity"
       ],
-      "status": "in_progress",
-      "evidence": "已驗證 geminiChatService.js 核心實作並小修砂金重生成迴圈移除 maybeContinue 呼叫（確保重生成嚴格使用原始 contents、不把舊回覆餵回去續寫，且保留非砂金模式既有 maybeContinue/isIncompleteReply 行為）；已新增 test_aventurine_complete_sentence.js（6 項測試，mock apiCaller）並於 init.sh 加入第 10 關卡；因當前代理環境無終端執行工具，尚未實測執行 node test_aventurine_complete_sentence.js 與 ./init.sh，待於具終端環境補跑驗證。"
+      "status": "done",
+      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 10/10 全數通過（新測試 test_aventurine_complete_sentence.js 6/6、舊測試零回退；另修測試 bug：結尾「，」會被既有 cleanAllOrNothing 自動改成「。」故不觸發重生成，測試改用真正殘留到檢查階段的不完整結尾並加鎖定案例）。已推 GitHub（commit a605f34）並部署到 VPS（pm2 restart dc-bot，pid 126278，online）。"
     }
   ]
 }

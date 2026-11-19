@@ -129,9 +129,9 @@
     - 追蹤修復一（2026-11-18 13:01 線上仍回「能量耗盡」）：第一版 `SAFETY_BLOCKED` 在 `callGeminiApi` 內層 `catch` 被當一般請求失敗吞掉，換 key 重試後仍以 `ALL_KEYS_EXHAUSTED` 收場；改為內層 catch 遇 `SAFETY_BLOCKED` 直接往上拋（不換 key）。同日誌證實完整對話紀錄下的請求確實被輸入層攔截（`blockReason=PROHIBITED_CONTENT`），而單句重現不攔截，差別在於累積的 18+ 頻道對話紀錄。
     - 追蹤修復二（2026-11-18 13:05 Luca 指出罐頭拒絕只是 trigger，他要正常回覆）：`handleBotChatMessage` 遇 `SAFETY_BLOCKED` 時先重試一次，只送系統指令 + 當前訊息、不帶共享對話紀錄，讓模型自然回覆；只有重試也被擋才用罐頭回絕。後處理（清理、稱謂、截斷、寫入歷史）已抽成 `processReply` 共用。VPS 實測：完整系統指令 + 單句「我要色色」回傳模型自然拒絕文字（「主人！才、才不行色色的喵！」），證實重試可行。
     - `test_catgirl_mode.js` 擴充至 8/8（新增第 6 關：SAFETY_BLOCKED 回絕 vs 一般故障 fallback 區分；新增第 7 關：SAFETY_BLOCKED 穿透內層 catch，只呼叫一次 API；新增第 8 關：SAFETY_BLOCKED 重試去對話紀錄、模型自然回覆、絕無罐頭與能量耗盡），`./init.sh` 9/9 全數通過。部署驗證：VPS `git log` 為 `c61552d`，`SAFETY_BLOCKED` 拋出（691 行）＋內層 catch 重拋（717-718 行）＋外層處理（1025 行），dc-bot online。下一步：推重試修復後以 `cd ~/bot && git pull && pm2 restart dc-bot --update-env` 部署。
-20. **`feat-chat-aventurine-complete-sentence-regen`** [in_progress，已補齊測試與第 10 關卡，待終端補跑 `./init.sh`]:
+20. **`feat-chat-aventurine-complete-sentence-regen`** [done，2026-11-20 凌晨]:
     - 驗證並小修 `geminiChatService.js`：移除砂金重生成迴圈內對 `maybeContinue` 的呼叫，確保 `isAventurine` 回覆結尾不完整時僅以原始 `systemInstruction` 與 `contents` 重新生成（最多 3 次、共 4 次，達上限照常送出第 4 次並 `console.warn`），中間嘗試不寫入共享歷史，同時保留非砂金模式既有 `maybeContinue` / `isIncompleteReply` 行為。
-    - 新增 `test_aventurine_complete_sentence.js`（mock `apiCaller`，6 項測試全覆蓋）並於 `init.sh` 新增第 10 關卡（`[1/10]`~`[10/10]`）；因目前執行環境無終端工具，尚待於終端執行 `./init.sh` 驗證通過後改為 `done`。
+    - 新增 `test_aventurine_complete_sentence.js`（mock `apiCaller`，6 項測試全覆蓋）並於 `init.sh` 新增第 10 關卡（`[1/10]`~`[10/10]`）。2026-11-20 凌晨終端驗證：`./init.sh` 10/10 全數通過（新測試 6/6、舊測試零回退；另修了一個測試 bug：結尾「，」會被既有 `cleanAllOrNothing` 自動改成「。」故不觸發重生成，測試改用真正殘留到檢查階段的不完整結尾並加鎖定案例）。已推 GitHub（commit `a605f34`）並部署到 VPS（`pm2 restart dc-bot`，pid 126278，online，VPS 實測新程式在位）。
 
 ## 3. 下一階段交接事項 (Next Steps)
 - 請於終端執行 `node test_catgirl_mode.js` 與 `./init.sh` 確認貓娘模式與全部 8 大驗證關卡全數通過。
