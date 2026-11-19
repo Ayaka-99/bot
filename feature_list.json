@@ -224,7 +224,7 @@
         "feat-chat-master-aventurine-and-yuexi-ban"
       ],
       "status": "done",
-      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 10/10 全數通過（含修正後的 [7/7] 降級路由測試，keyCount=1 時 3.8-flash 嘗試 1 把後降級、3.6-flash 首把即成功）。尚未推 GitHub／部署，待 Luca 給新的 ais 反代 key 後一起推上去。"
+      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 10/10 全數通過（含修正後的 [7/7] 降級路由測試，keyCount=1 時 3.8-flash 嘗試 1 把後降級、3.6-flash 首把即成功）。已與 Catie 反代一起推 GitHub（commit 9ee02a6）並部署到 VPS（pm2 restart dc-bot，online）。"
     },
     {
       "id": "feat-chat-catie-proxy",
@@ -234,7 +234,7 @@
         "fix-chat-remove-dead-gemini-key"
       ],
       "status": "done",
-      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 11/11 全數通過（含新增 test_catie_proxy.js 6/6：訊息轉換、請求格式與模型選擇、非 200／空內容回 null、Catie 優先且不叫 Google、Catie 失敗落回 Google）。key 已寫進 VPS ~/bot/.env（CATIE_API_KEY）。待推 GitHub／部署。注意：Catie 端點從 Muse VM、Oracle VPS、瀏覽器三處 curl 皆無回應（empty reply／連線失敗），連通性尚未驗證，部署後需看 bot log 確認。"
+      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 11/11 全數通過（含新增 test_catie_proxy.js 6/6：訊息轉換、請求格式與模型選擇、非 200／空內容回 null、Catie 優先且不叫 Google、Catie 失敗落回 Google）。key 已寫進 VPS ~/bot/.env（CATIE_API_KEY）。已推 GitHub（commit 9ee02a6）並部署到 VPS（pm2 restart dc-bot，online，VPS 實測新程式在位）。注意：Catie 端點從 Muse VM、Oracle VPS、瀏覽器三處 curl 皆無回應（empty reply／連線失敗），連通性尚未驗證，需看 bot log 確認。"
     }
   ]
 }
