@@ -215,6 +215,26 @@
       ],
       "status": "done",
       "evidence": "2026-11-20 凌晨終端驗證：./init.sh 10/10 全數通過（新測試 test_aventurine_complete_sentence.js 6/6、舊測試零回退；另修測試 bug：結尾「，」會被既有 cleanAllOrNothing 自動改成「。」故不觸發重生成，測試改用真正殘留到檢查階段的不完整結尾並加鎖定案例）。已推 GitHub（commit a605f34）並部署到 VPS（pm2 restart dc-bot，pid 126278，online）。"
+    },
+    {
+      "id": "fix-chat-remove-dead-gemini-key",
+      "name": "移除失效的 Gemini 備用金鑰",
+      "description": "2026-11-20 03:55 log 證實其中一把備用 key 在全部模型回 401「The bound service account is deleted or disabled」，從 DEFAULT_FALLBACK_KEYS 移除該 key（僅保留另一把）；另將 test_master_aventurine_yuexi.js [7/7] 降級路由測試改為以 getApiKeyCount() 為準（不再寫死 2 把），並在 geminiChatService.js 新增 getApiKeyCount 匯出。",
+      "dependencies": [
+        "feat-chat-master-aventurine-and-yuexi-ban"
+      ],
+      "status": "done",
+      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 10/10 全數通過（含修正後的 [7/7] 降級路由測試，keyCount=1 時 3.8-flash 嘗試 1 把後降級、3.6-flash 首把即成功）。尚未推 GitHub／部署，待 Luca 給新的 ais 反代 key 後一起推上去。"
+    },
+    {
+      "id": "feat-chat-catie-proxy",
+      "name": "Catie 反代（ais 通道）支援",
+      "description": "Google 備用金鑰全數失效（401 service account deleted/disabled）後，改走 Catie 反代：geminiChatService.js 新增 CATIE_API_KEY／CATIE_API_BASE_URL（預設 https://catiecli.sukaka.top/v1，.env 設定），callCatieProxy 以 OpenAI 相容 /v1/chat/completions 呼叫（Bearer 認證；砂金用 ais-gemini-3.8-flash，一般用 gemini-3.5-flash-lite；僅文字對話，圖片不走反代），toOpenAiMessages 將 Gemini 內容轉為 system＋user/assistant 輪次；callGeminiApi 優先嘗試 Catie，失敗則落回 Google 備援鏈。",
+      "dependencies": [
+        "fix-chat-remove-dead-gemini-key"
+      ],
+      "status": "done",
+      "evidence": "2026-11-20 凌晨終端驗證：./init.sh 11/11 全數通過（含新增 test_catie_proxy.js 6/6：訊息轉換、請求格式與模型選擇、非 200／空內容回 null、Catie 優先且不叫 Google、Catie 失敗落回 Google）。key 已寫進 VPS ~/bot/.env（CATIE_API_KEY）。待推 GitHub／部署。注意：Catie 端點從 Muse VM、Oracle VPS、瀏覽器三處 curl 皆無回應（empty reply／連線失敗），連通性尚未驗證，部署後需看 bot log 確認。"
     }
   ]
 }

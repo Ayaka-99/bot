@@ -14,10 +14,16 @@ const envKeys = [
 // 備用快取金鑰 (Base64 解碼儲存，防範推送時被公有平台 Secret Scanning 誤傷吊銷)
 const DEFAULT_FALLBACK_KEYS = [
   Buffer.from('QVEuQWI4Uk42SVpkUmlid1RmcnhpaWNiZEhpT2dNcVV4cW00WktvcTdFNkZXMl9hb3FxbkE=', 'base64').toString('utf8'),
-  Buffer.from('QVEuQWI4Uk42SWRRdE9sR3p2c3NVakpoSlRGa3YxNzNZbzVrUVFscVpkMjlnQW55bFZNSHc=', 'base64').toString('utf8'),
 ];
 
 const API_KEYS = envKeys.length > 0 ? envKeys : DEFAULT_FALLBACK_KEYS;
+
+// Catie 反代 (ais 通道) 配置：OpenAI 相容 /v1 API，key 以 CATIE_API_KEY 放在 .env（勿寫死進程式碼）
+// 密鑰通道模型：砂金用旗艦 ais-gemini-3.8-flash，一般對話用 gemini-3.5-flash-lite（皆為文字模型，不支援圖片辨識）
+const CATIE_API_KEY = process.env.CATIE_API_KEY || '';
+const CATIE_API_BASE_URL = (process.env.CATIE_API_BASE_URL || 'https://catiecli.sukaka.top/v1').replace(/\/$/, '');
+const CATIE_AVENTURINE_MODEL = 'ais-gemini-3.8-flash';
+const CATIE_TEXT_MODEL = 'gemini-3.5-flash-lite';
 
 // 純文字對話專用模型：嚴格維持 gemini-3.5-flash-lite，絕不更動且不超 RPD
 const TEXT_MODELS = ['gemini-3.5-flash-lite'];
@@ -617,6 +623,58 @@ ${ratioMemoryBlock}
 // ==========================================
 // 🌐 呼叫 Gemini REST API (雙 Key 平滑輪替負載平衡 + 多模型故障轉移)
 // ==========================================
+// 將 Gemini 格式的對話內容轉為 OpenAI chat messages（system + user/assistant 輪次）
+function toOpenAiMessages(systemInstruction, contents) {
+  const messages = [{ role: 'system', content: systemInstruction }];
+  for (const c of contents || []) {
+    const text = (c.parts || [])
+      .filter((p) => typeof p.text === 'string')
+      .map((p) => p.text)
+      .join('');
+    if (!text.trim()) continue;
+    messages.push({ role: c.role === 'model' ? 'assistant' : 'user', content: text });
+  }
+  return messages;
+}
+
+// Catie 反代呼叫（OpenAI 相容 /v1/chat/completions）：成功回傳文字，失敗回 null（由呼叫方決定是否落回 Google）
+async function callCatieProxy(systemInstruction, contents, isAventurine = false) {
+  if (!CATIE_API_KEY) return null;
+  const model = isAventurine ? CATIE_AVENTURINE_MODEL : CATIE_TEXT_MODEL;
+  const url = `${CATIE_API_BASE_URL}/chat/completions`;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${CATIE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: toOpenAiMessages(systemInstruction, contents),
+        temperature: 0.8,
+        max_tokens: 4096,
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (response.status === 200) {
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (typeof text === 'string' && text.trim()) {
+        return text.trim();
+      }
+      console.warn(`⚠️ [Catie] Model ${model} 回傳 200 但無文字內容`);
+      return null;
+    }
+    const errText = await response.text().catch(() => '');
+    console.warn(`⚠️ [Catie] Model ${model} 回傳狀態碼 ${response.status}: ${errText.slice(0, 100)}`);
+    return null;
+  } catch (err) {
+    console.warn(`⚠️ [Catie] Model ${model} 請求失敗:`, err.message);
+    return null;
+  }
+}
+
 const apiCaller = {
   call: callGeminiApi,
 };
@@ -658,6 +716,15 @@ async function callGeminiApi(systemInstruction, contents, hasImage = false, isAv
       { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
     ],
   };
+
+  // Catie 反代優先（僅文字對話）：Google 金鑰全數失效時由 ais 通道接手；Catie 無回覆則落回 Google 備援鏈
+  if (!hasImage && CATIE_API_KEY) {
+    const catieReply = await callCatieProxy(systemInstruction, contents, isAventurine);
+    if (catieReply) {
+      return catieReply;
+    }
+    console.warn('⚠️ [Catie] 反代無回覆，落回 Google 金鑰備援鏈...');
+  }
 
   // 外層遍歷模型池（優先級降級階梯），內層遍歷可用金鑰
   for (const model of modelPool) {
@@ -1176,6 +1243,9 @@ module.exports = {
   isCompleteSentenceEnding,
   AVENTURINE_MAX_REGENERATIONS,
   apiCaller,
+  callCatieProxy,
+  toOpenAiMessages,
+  getApiKeyCount: () => API_KEYS.filter(Boolean).length,
   getMasterImpersonation,
   setMasterImpersonation,
   clearMasterImpersonation,

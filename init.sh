@@ -6,7 +6,7 @@ echo "🛡️  [Harness] 開始執行專案驗證關卡 (Fail-Fast Verification)
 echo "===================================================="
 
 # 1. 執行環境與依賴探測
-echo "▶ [1/10] 檢查執行環境與套件依賴..."
+echo "▶ [1/11] 檢查執行環境與套件依賴..."
 if ! command -v node >/dev/null 2>&1; then
   echo "❌ [ERROR] 未找到 node 執行檔，請確認 Node.js 已正確安裝。"
   exit 1
@@ -24,7 +24,7 @@ fi
 echo "  ✅ 執行環境與依賴就緒 (Node $(node -v))"
 
 # 2. 靜態語法檢查 (Syntax / Lint Check)
-echo "▶ [2/10] 執行核心業務模組語法檢查 (node --check)..."
+echo "▶ [2/11] 執行核心業務模組語法檢查 (node --check)..."
 CORE_FILES=(
   "discord-bot-tracker.js"
   "texasHoldemService.js"
@@ -47,7 +47,7 @@ done
 echo "  ✅ 核心模組語法檢查全數通過！"
 
 # 3. 賭場核心回歸測試套件 (Casino v5.6 Suite)
-echo "▶ [3/10] 執行匹諾康尼星際賭場 v5.6 全套回歸測試..."
+echo "▶ [3/11] 執行匹諾康尼星際賭場 v5.6 全套回歸測試..."
 if [ -f "test_all_v56_suite.js" ]; then
   node test_all_v56_suite.js
 else
@@ -56,7 +56,7 @@ else
 fi
 
 # 4. 益智小遊戲測試套件 (1A2B Game Suite)
-echo "▶ [4/10] 執行 1A2B 猜數字小遊戲單元測試..."
+echo "▶ [4/11] 執行 1A2B 猜數字小遊戲單元測試..."
 if [ -f "test_1a2b_game.js" ]; then
   node test_1a2b_game.js
 else
@@ -64,7 +64,7 @@ else
 fi
 
 # 5. 聊天字數解禁與截斷測試套件 (Chat Limits Suite)
-echo "▶ [5/10] 執行聊天字數與安全截斷單元測試..."
+echo "▶ [5/11] 執行聊天字數與安全截斷單元測試..."
 if [ -f "test_chat_limits.js" ]; then
   node test_chat_limits.js
 else
@@ -72,7 +72,7 @@ else
 fi
 
 # 6. 主人專屬群友扮演測試套件 (Master Impersonation Suite)
-echo "▶ [6/10] 執行主人專屬群友扮演單元測試..."
+echo "▶ [6/11] 執行主人專屬群友扮演單元測試..."
 if [ -f "test_master_impersonation.js" ]; then
   node test_master_impersonation.js
 else
@@ -80,7 +80,7 @@ else
 fi
 
 # 7. 主人砂金呼叫與月天狼禁扮演測試套件 (Master Aventurine & YueXi Ban Suite)
-echo "▶ [7/10] 執行主人砂金呼叫與月天狼禁令單元測試..."
+echo "▶ [7/11] 執行主人砂金呼叫與月天狼禁令單元測試..."
 if [ -f "test_master_aventurine_yuexi.js" ]; then
   node test_master_aventurine_yuexi.js
 else
@@ -88,7 +88,7 @@ else
 fi
 
 # 8. AI 破防安全拒絕攔截與反 OOC 測試套件 (Safety Interception & Anti-OOC Suite)
-echo "▶ [8/10] 執行 AI 破防安全拒絕攔截與反 OOC 單元測試..."
+echo "▶ [8/11] 執行 AI 破防安全拒絕攔截與反 OOC 單元測試..."
 if [ -f "test_safety_refusal_interception.js" ]; then
   node test_safety_refusal_interception.js
 else
@@ -96,7 +96,7 @@ else
 fi
 
 # 9. 貓娘模式單元測試套件 (Catgirl Mode Suite)
-echo "▶ [9/10] 執行貓娘模式單元測試..."
+echo "▶ [9/11] 執行貓娘模式單元測試..."
 if [ -f "test_catgirl_mode.js" ]; then
   DISCORD_TOKEN="${DISCORD_TOKEN:-dummy}" CLIENT_ID="${CLIENT_ID:-dummy}" GUILD_ID="${GUILD_ID:-dummy}" node test_catgirl_mode.js
 else
@@ -104,11 +104,19 @@ else
 fi
 
 # 10. 砂金模式完整句重生成測試套件 (Aventurine Complete Sentence Regeneration Suite)
-echo "▶ [10/10] 執行砂金模式完整句重生成單元測試..."
+echo "▶ [10/11] 執行砂金模式完整句重生成單元測試..."
 if [ -f "test_aventurine_complete_sentence.js" ]; then
   node test_aventurine_complete_sentence.js
 else
   echo "⚠️  [FALLBACK] 未找到 test_aventurine_complete_sentence.js，略過測試。"
+fi
+
+# 11. Catie 反代測試套件 (Catie Proxy Suite)
+echo "▶ [11/11] 執行 Catie 反代單元測試..."
+if [ -f "test_catie_proxy.js" ]; then
+  node test_catie_proxy.js
+else
+  echo "⚠️  [FALLBACK] 未找到 test_catie_proxy.js，略過測試。"
 fi
 
 echo ""

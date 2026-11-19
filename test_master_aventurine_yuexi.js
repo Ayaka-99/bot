@@ -8,6 +8,7 @@ const {
   clearMasterImpersonation,
   resolveImpersonationTarget,
   apiCaller,
+  getApiKeyCount,
   TEXT_MODELS,
   AVENTURINE_MODELS,
 } = require('./geminiChatService');
@@ -219,6 +220,9 @@ async function runTests() {
 
     try {
       // 7a. 測試 429 遍歷所有 Key 後自動降級至下一模型
+      // 金鑰數量由模組實際配置決定（死 key 移除後可能只剩 1 把），測試以 getApiKeyCount() 為準，不再寫死 2 把
+      const keyCount = getApiKeyCount();
+      assert.ok(keyCount >= 1, '至少需有 1 把可用金鑰才能測試降級路由');
       const fetchCalls = [];
       globalThis.fetch = async (url, options) => {
         fetchCalls.push({ url, options });
@@ -227,8 +231,8 @@ async function runTests() {
         }
         if (url.includes('gemini-3.6-flash')) {
           const callsTo36 = fetchCalls.filter((c) => c.url.includes('gemini-3.6-flash')).length;
-          if (callsTo36 === 1) {
-            return { status: 429, text: async () => 'Quota exhausted for key 1' };
+          if (callsTo36 < keyCount) {
+            return { status: 429, text: async () => `Quota exhausted for key ${callsTo36}` };
           }
           return {
             status: 200,
@@ -236,7 +240,7 @@ async function runTests() {
               candidates: [
                 {
                   content: {
-                    parts: [{ text: '降級成功回覆：由 gemini-3.6-flash 次席金鑰順利回覆' }],
+                    parts: [{ text: '降級成功回覆：由 gemini-3.6-flash 最後一把金鑰順利回覆' }],
                   },
                 },
               ],
@@ -255,14 +259,14 @@ async function runTests() {
 
       assert.strictEqual(
         fallbackReply,
-        '降級成功回覆：由 gemini-3.6-flash 次席金鑰順利回覆',
-        '調度器必須成功在第二個模型的第二把 Key 取得回覆'
+        '降級成功回覆：由 gemini-3.6-flash 最後一把金鑰順利回覆',
+        '調度器必須成功在第二個模型的最後一把 Key 取得回覆'
       );
 
       const callsTo38 = fetchCalls.filter((c) => c.url.includes('gemini-3.8-flash')).length;
       const callsTo36 = fetchCalls.filter((c) => c.url.includes('gemini-3.6-flash')).length;
-      assert.ok(callsTo38 >= 2, `gemini-3.8-flash 遇到 429 必須完整嘗試所有金鑰 (至少 2 把，實際嘗試: ${callsTo38})`);
-      assert.strictEqual(callsTo36, 2, '降級至 gemini-3.6-flash 後，第一把 429 需繼續嘗試第二把金鑰並順利取得回覆');
+      assert.ok(callsTo38 >= keyCount, `gemini-3.8-flash 遇到 429 必須完整嘗試所有金鑰 (應嘗試 ${keyCount} 把，實際嘗試: ${callsTo38})`);
+      assert.strictEqual(callsTo36, keyCount, '降級至 gemini-3.6-flash 後，需依序嘗試全部金鑰並在最後一把順利取得回覆');
 
       // 7b. 測試 404 模型不存在時，立即 break 跳過該模型剩餘 Key，直接順延下一模型
       fetchCalls.length = 0;
