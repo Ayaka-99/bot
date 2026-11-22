@@ -331,47 +331,54 @@ async function runTests() {
     console.log('  ✅ 安全擋下重試自然回覆測試通過！');
 
     // ------------------------------------------------------------------
-    // 9. 斷句自動續寫：回覆寫到一半停住時，自動請模型續寫一次再送出
+    // 9. 斷句偵測（白名單）與自動重生成：回覆寫到一半停住時，以原始輸入重新生成
     //    回歸：2026-11-18 13:10「不摸」回覆在「本喵的小」中途斷句。
     //    已排除 Discord 與機器人截斷（safeTruncate 僅 1950 字上限且截斷會補「…」，
     //    發送為單次 message.reply，VPS 日誌無錯誤，13:09 更長回覆完整送出），
-    //    為模型生成中途自行停住。修復：isIncompleteReply 偵測懸空結尾，
-    //    maybeContinue 把未完結的回覆當 model turn 送回、請模型續寫（只一次）。
+    //    為模型生成中途自行停住。
+    //    2026-11-22 根因修正：舊的 isIncompleteReply 用黑名單比對懸空詞，永遠列不完——
+    //    當天兩則截斷回覆結尾「連」「下」都不在清單裡，續寫沒觸發就直接送出。
+    //    改白名單：結尾不是完整句標點／表情符號／「喵」／右括號，一律視為斷句；
+    //    主流程改重生成（不再續寫），結尾不完整就用原始輸入重生，最多 2 次。
     // ------------------------------------------------------------------
-    console.log('▶ [9/10] 測試斷句偵測與自動續寫...');
+    console.log('▶ [9/10] 測試斷句偵測（白名單）與自動重生成...');
     assert.strictEqual(isIncompleteReply('嗚哇——！主人竟然拒絕摸摸！本喵的小'), true, '結尾「的」懸空，應判斷句');
     assert.strictEqual(isIncompleteReply('壞主人！大壞蛋！本喵要'), true, '結尾「要」懸空，應判斷句');
+    assert.strictEqual(isIncompleteReply('1. 《明日方舟》抽 300 抽卻連'), true, '2026-11-22 回歸：結尾「連」懸空，應判斷句');
+    assert.strictEqual(isIncompleteReply('如果他再不放下'), true, '2026-11-22 回歸：結尾「下」懸空，應判斷句');
+    assert.strictEqual(isIncompleteReply('真的很好笑哈哈'), true, '任何非標點結尾都應判斷句（白名單）');
     assert.strictEqual(isIncompleteReply('我們還是聊聊小魚乾跟毛線球吧喵！'), false, '結尾「！」應判完整');
     assert.strictEqual(isIncompleteReply('主人，本喵才不寫那種東西喵！'), false, '結尾「喵！」應判完整');
     assert.strictEqual(isIncompleteReply('一起玩毛線球吧。'), false, '結尾「。」應判完整');
+    assert.strictEqual(isIncompleteReply('一起玩毛線球吧喵'), false, '結尾「喵」應判完整');
     assert.strictEqual(isIncompleteReply(''), false, '空字串不判斷句');
     setCatgirlModeEnabled(true);
     clearSharedHistory();
     const originalApiCall5 = apiCaller.call;
     try {
       let callCount = 0;
+      const capturedCalls = [];
       apiCaller.call = async (_sysInstr, contents, _hasImage, _isAventurineFlag) => {
         callCount += 1;
+        capturedCalls.push(JSON.parse(JSON.stringify(contents)));
         if (callCount === 1) {
           assert.strictEqual(contents.length, 1, '第一次呼叫應只有當前訊息');
           return '嗚哇——！主人竟然拒絕摸摸！本喵的小';
         }
-        // 第二次：續寫，內容應包含未完結回覆（model turn）+ 續寫指令（user turn）
-        assert.strictEqual(contents.length, 3, '續寫呼叫應帶上原訊息、未完結回覆與續寫指令');
-        assert.strictEqual(contents[1].role, 'model', '續寫應把未完結回覆當 model turn 送回');
-        assert.ok(contents[1].parts[0].text.includes('本喵的小'), '續寫的 model turn 應為未完結回覆');
-        assert.ok(contents[2].parts[0].text.includes('繼續'), '續寫的 user turn 應要求繼續說完');
+        // 第二次：重生成，必須用原始輸入（不把未完結回覆餵回去續寫）
+        assert.strictEqual(contents.length, 1, '重生成呼叫應只有原始訊息，不可夾帶續寫輪次');
         return '魚乾都被主人搶走了喵！';
       };
       const reply = await handleBotChatMessage(masterUser, '不摸', null, 'lance_508', [], {});
-      assert.strictEqual(callCount, 2, '斷句時應自動續寫一次（共呼叫兩次）');
-      assert.ok(reply.includes('本喵的小魚乾都被主人搶走了喵'), '續寫後回覆應完整接續');
-      assert.ok(!reply.includes('能量耗盡'), '續寫後絕不能回能量耗盡');
+      assert.strictEqual(callCount, 2, '斷句時應自動重生成一次（共呼叫兩次）');
+      assert.deepStrictEqual(capturedCalls[1], capturedCalls[0], '重生成必須使用完全相同的原始 contents');
+      assert.strictEqual(reply, '魚乾都被主人搶走了喵！', '重生成後應送出完整的新回覆（不是把舊回覆接續拼起來）');
+      assert.ok(!reply.includes('能量耗盡'), '重生成後絕不能回能量耗盡');
     } finally {
       apiCaller.call = originalApiCall5;
       clearSharedHistory();
     }
-    console.log('  ✅ 斷句偵測與自動續寫測試通過！');
+    console.log('  ✅ 斷句偵測（白名單）與自動重生成測試通過！');
 
     // ------------------------------------------------------------------
     // 10. 自我介紹不誤觸發：人設裡不留現成整句自我介紹，模型沒人問就不會自作主張介紹

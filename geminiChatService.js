@@ -807,20 +807,19 @@ function safeTruncate(text, maxLength = 1950) {
   return text.slice(0, maxLength - 2).trim() + '…';
 }
 
-// 偵測回覆是否斷句（模型寫到一半停住）：結尾是明顯懸空的詞，後面一定要接東西
-// 例如「本喵的小」結尾的「的」後面一定要有名詞，句子沒寫完。
-// 完整句子的結尾通常是句末標點、表情符號或「喵」，不會是這些懸空詞。
+// 偵測回覆是否斷句（模型寫到一半停住）：白名單檢查——結尾不是完整句標點／表情符號／「喵」／右括號，一律視為斷句。
+// 黑名單永遠列不完（2026-11-22 兩則截斷回覆結尾「連」「下」都不在舊清單裡，續寫沒觸發就直接送出）；
+// 完整句子的結尾只會是句末標點、表情符號或「喵」，其他任何字元結尾都代表句子沒寫完。
 function isIncompleteReply(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim();
   if (!t) return false;
-  // 結尾是句末標點、表情符號或「喵」→ 完整
-  if (/[。！？!?～~…✨🐟🐾⭐💫喵」』）)）]$/.test(t)) return false;
-  // 結尾是懸空詞（後面一定要接東西）或逗號/左括號 → 斷句
-  return /(如果|雖然|因為|但是|一個|一隻|的|在|跟|和|與|是|要|會|想|能|去|來|給|讓|把|被|對|向|往|從|比|像|這|那|小|大|還|也|都|就|、|，|,|（|「|『|"|')$/.test(t);
+  // 結尾是句末標點、表情符號或「喵」→ 完整；其他任何結尾 → 斷句
+  return !/[。！？!?～~…✨🐟🐾⭐💫喵」』）)）]$/.test(t);
 }
 
 const AVENTURINE_MAX_REGENERATIONS = 3;
+const BUTLER_MAX_REGENERATIONS = 2;
 
 // 偵測砂金模式回覆是否為完整句結尾：trim 後檢查最後一字是否為 ？ 。 ！ （ ） 其中之一
 // （括號算完整，因為砂金回覆常以括號動作描寫收尾，例如「（輕笑）」）
@@ -1055,7 +1054,7 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
   // 回覆後處理（清理、稱謂、截斷、寫入歷史）：主流程（非砂金）與安全擋下重試共用
   const processReply = (rawReply) => commitReplyToHistory(formatReply(rawReply));
 
-  // 若回覆斷句（模型寫到一半停住，例如結尾是「本喵的小」），自動請模型續寫一次
+  // 若安全擋下重試的回覆斷句，自動請模型續寫一次（僅重試路徑使用；主流程已改走下方重生成迴圈）
   // 2026-11-18 實測：「不摸」回覆在「本喵的小」中途斷句，非 Discord、非機器人截斷，
   // 而是模型生成中途自行停住。只續寫一次，避免無限循環與額外花費；續寫失敗就保留原回覆。
   const maybeContinue = async (rawReply) => {
@@ -1076,8 +1075,23 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
 
   try {
     if (!isAventurine) {
-      const reply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
-      return processReply(await maybeContinue(reply));
+      // 侍者／貓娘模式完整句重生成迴圈：結尾不是完整句標點就以原始輸入重新生成（最多重生成 2 次，共 3 次）
+      // 2026-11-22：舊的 maybeContinue 續寫只靠黑名單比對懸空詞，「連」「下」等結尾漏判、截斷直接送出；
+      // 改白名單 isIncompleteReply＋重生成治本（任何中文字結尾不完整都會重生，不再逐字補清單）。
+      let finalReply = '';
+      for (let regenCount = 0; regenCount <= BUTLER_MAX_REGENERATIONS; regenCount++) {
+        const rawReply = await apiCaller.call(systemInstruction, contents, Boolean(imageData), isAventurine);
+        finalReply = formatReply(rawReply);
+        if (!isIncompleteReply(finalReply)) {
+          break;
+        }
+        if (regenCount < BUTLER_MAX_REGENERATIONS) {
+          console.warn(`⚠️ [侍者模式] 回覆結尾不完整，改以原始輸入重新生成 (${regenCount + 1}/${BUTLER_MAX_REGENERATIONS})`);
+        } else {
+          console.warn(`⚠️ [侍者模式] 已達完整句重生成上限 (${BUTLER_MAX_REGENERATIONS} 次)，照常送出最後一次回覆`);
+        }
+      }
+      return commitReplyToHistory(finalReply);
     }
 
     // 砂金模式完整句重生成迴圈：以原始系統指令與對話內容重新生成全新回覆（最多重生成 3 次，共 4 次）
@@ -1175,6 +1189,7 @@ module.exports = {
   isIncompleteReply,
   isCompleteSentenceEnding,
   AVENTURINE_MAX_REGENERATIONS,
+  BUTLER_MAX_REGENERATIONS,
   apiCaller,
   getApiKeyCount: () => API_KEYS.filter(Boolean).length,
   getMasterImpersonation,

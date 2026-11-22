@@ -7,6 +7,7 @@ const {
   clearMasterImpersonation,
   isCompleteSentenceEnding,
   AVENTURINE_MAX_REGENERATIONS,
+  BUTLER_MAX_REGENERATIONS,
   apiCaller,
 } = require('./geminiChatService');
 
@@ -216,25 +217,43 @@ async function runTests() {
     console.log('  ✅ 連續 3 次重生成失敗時停在第 4 次結果並正確發出上限警告');
 
     // ------------------------------------------------------------------
-    // 5. 非砂金模式不觸發重生成（維持原本一次生成）
+    // 5. 非砂金模式改走侍者重生成（上限 2 次，共 3 次呼叫）
+    //    2026-11-22 根因修正：侍者／貓娘主流程不再是單次生成＋黑名單續寫，
+    //    結尾不完整就以原始輸入重新生成（白名單 isIncompleteReply 判定），
+    //    最多重生成 BUTLER_MAX_REGENERATIONS（2）次，達上限照常送出最後一次。
     // ------------------------------------------------------------------
-    console.log('▶ [5/6] 測試非砂金模式不觸發完整句重生成...');
+    console.log('▶ [5/6] 測試非砂金模式結尾不完整時重生成（上限 2 次）...');
+    assert.strictEqual(BUTLER_MAX_REGENERATIONS, 2, 'BUTLER_MAX_REGENERATIONS 應為 2');
     clearMasterImpersonation();
     clearSharedHistory();
 
     let nonAventurineCalls = 0;
     let capturedIsAventurineFlag = null;
+    const nonAventurineWarnings = [];
+    const nonAventurineCaptured = [];
+
+    console.warn = (...args) => {
+      nonAventurineWarnings.push(args.join(' '));
+    };
 
     apiCaller.call = async (systemInstruction, contents, hasImage, isAventurine) => {
       nonAventurineCalls += 1;
       capturedIsAventurineFlag = Boolean(isAventurine);
+      nonAventurineCaptured.push(JSON.parse(JSON.stringify(contents)));
       return '一般成員回覆不以全形句末標點結尾abc';
     };
 
     const regularReply = await handleBotChatMessage(regularUser, '你好呀');
+    console.warn = originalConsoleWarn;
     assert.strictEqual(capturedIsAventurineFlag, false, '一般成員不應進入砂金模式');
-    assert.strictEqual(nonAventurineCalls, 1, '非砂金模式結尾無句號也不應觸發重生成');
-    assert.strictEqual(regularReply, '一般成員回覆不以全形句末標點結尾abc');
+    assert.strictEqual(nonAventurineCalls, 3, '非砂金模式結尾不完整應重生成 2 次（共呼叫 3 次）');
+    assert.strictEqual(regularReply, '一般成員回覆不以全形句末標點結尾abc', '達上限時應照常送出最後一次回覆');
+    assert.deepStrictEqual(nonAventurineCaptured[1], nonAventurineCaptured[0], '重生成必須使用完全相同的原始 contents');
+    assert.deepStrictEqual(nonAventurineCaptured[2], nonAventurineCaptured[0], '第 3 次呼叫也必須使用原始 contents');
+    assert.ok(
+      nonAventurineWarnings.some(w => w.includes('已達完整句重生成上限') && w.includes('2')),
+      '達上限時應記錄 console.warn 提示（含上限次數 2）'
+    );
 
     let masterNormalCalls = 0;
     let masterIsAventurineFlag = null;
@@ -244,10 +263,11 @@ async function runTests() {
       return '遵命，先處理這件事abc';
     };
 
-    await handleBotChatMessage(masterUser, '幫我準備茶水');
+    const masterReply = await handleBotChatMessage(masterUser, '幫我準備茶水');
     assert.strictEqual(masterIsAventurineFlag, false, '主人未呼叫砂金時不應進入砂金模式');
-    assert.strictEqual(masterNormalCalls, 1, '主人一般對話結尾無句號也不應觸發重生成');
-    console.log('  ✅ 非砂金模式維持單次生成，不觸發重生成');
+    assert.strictEqual(masterNormalCalls, 3, '主人一般對話結尾不完整也應重生成 2 次（共呼叫 3 次）');
+    assert.ok(masterReply.endsWith('先處理這件事abc'), '達上限時應照常送出最後一次回覆');
+    console.log('  ✅ 非砂金模式結尾不完整時重生成 2 次、達上限送出最後一次');
 
     // ------------------------------------------------------------------
     // 6. 共享歷史只寫入最終一則，中間嘗試不寫入

@@ -254,7 +254,17 @@
         "feat-chat-catie-proxy"
       ],
       "status": "done",
-      "evidence": "2026-11-22 終端驗證：./init.sh 10/10 全數通過。待推 GitHub 並部署到 VPS（部署時一併清除 ~/bot/.env 的 CATIE_API_KEY／CATIE_API_BASE_URL）。注意：push-files 不能刪檔，GitHub 上的 test_catie_proxy.js 會殘留為孤檔（init.sh 已不再執行它，無作用）。"
+      "evidence": "2026-11-22 終端驗證：./init.sh 10/10 全數通過。已推 GitHub（commit 2e121d5）並部署到 VPS（pm2 restart dc-bot，online；VPS 實測部署後 geminiChatService.js 零 Catie 引用；~/bot/.env 的 CATIE_API_KEY／CATIE_API_BASE_URL 已清除）。注意：push-files 不能刪檔，GitHub 上的 test_catie_proxy.js 殘留為孤檔（init.sh 已不再執行它，無作用）。"
+    },
+    {
+      "id": "fix-chat-butler-whitelist-regen",
+      "name": "侍者回覆斷句改白名單檢查＋重生成（治本）",
+      "description": "2026-11-22 兩則侍者回覆截斷（結尾「連」「下」）的根因：isIncompleteReply 用黑名單比對懸空詞，永遠列不完，漏判就直接送出。改白名單：結尾不是完整句標點／表情符號／「喵」／右括號，一律視為斷句；侍者／貓娘主流程改重生成迴圈，結尾不完整就以原始輸入重新生成，最多重生成 2 次（共 3 次），達上限照常送出最後一次並 console.warn。maybeContinue 只留給 SAFETY_BLOCKED 重試路徑使用。",
+      "dependencies": [
+        "feat-chat-master-aventurine-and-yuexi-ban"
+      ],
+      "status": "done",
+      "evidence": "2026-11-22 晚上終端驗證：isIncompleteReply 白名單實測（連／下／哈哈皆判斷句，句號／驚嘆號／喵／右括號皆判完整）；test_catgirl_mode.js 第 9 關改為白名單＋重生成測試（含 11-22 連／下回歸案例）、test_aventurine_complete_sentence.js 第 5 關改為非砂金模式重生成上限 2 次；./init.sh 10/10 全數通過。待推 GitHub 並部署到 VPS。"
     }
   ]
 }

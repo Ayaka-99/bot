@@ -185,7 +185,9 @@
 - **補上新的 Gemini 備用金鑰 (`fix-chat-add-replacement-gemini-key`)**：
   - Luca 給了新的 Google API key 取代被移除的死 key，加回 `DEFAULT_FALLBACK_KEYS`（Base64 儲存），備用金鑰恢復為 2 把。寫進程式前先實測：VPS 直打 `gemini-3.5-flash-lite` 回 HTTP 200、finishReason STOP，確認可用。`./init.sh` 11/11 全數通過。已推 GitHub（commit `c3cd4bf`）並部署到 VPS（`pm2 restart dc-bot`，online）；部署後實測呼叫 `apiCaller` 回「測試成功」，確認新 key 上線可用。
 - **移除 Catie 反代（`fix-chat-remove-catie-proxy`）**：
-  - Luca 指示換掉 Catie：站已掛（2026-11-22 實測 VM 空回應、VPS 拒連），且每次回覆都要先對它 fetch 失敗一次才落回 Google，純屬累贅。已從 `geminiChatService.js` 移除 `CATIE_API_KEY`／`CATIE_API_BASE_URL` 配置、`callCatieProxy` 與 `toOpenAiMessages`，`callGeminiApi` 改為只走 Google 備援鏈；`test_catie_proxy.js` 已刪除，`init.sh` 第 11 關移除、計數改回 `[1/10]`~`[10/10]`。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。待推 GitHub 並部署到 VPS（部署時一併清除 `~/bot/.env` 的 `CATIE_API_KEY`／`CATIE_API_BASE_URL`）。注意：push-files 不能刪檔，GitHub 上的 `test_catie_proxy.js` 會殘留為孤檔（`init.sh` 已不再執行它，無作用）。
+  - Luca 指示換掉 Catie：站已掛（2026-11-22 實測 VM 空回應、VPS 拒連），且每次回覆都要先對它 fetch 失敗一次才落回 Google，純屬累贅。已從 `geminiChatService.js` 移除 `CATIE_API_KEY`／`CATIE_API_BASE_URL` 配置、`callCatieProxy` 與 `toOpenAiMessages`，`callGeminiApi` 改為只走 Google 備援鏈；`test_catie_proxy.js` 已刪除，`init.sh` 第 11 關移除、計數改回 `[1/10]`~`[10/10]`。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。已推 GitHub（commit `2e121d5`）並部署到 VPS（`pm2 restart dc-bot`，online；VPS 實測部署後零 Catie 引用；`~/bot/.env` 的 `CATIE_API_KEY`／`CATIE_API_BASE_URL` 已清除）。注意：push-files 不能刪檔，GitHub 上的 `test_catie_proxy.js` 會殘留為孤檔（`init.sh` 已不再執行它，無作用）。
+- **侍者回覆斷句改白名單檢查＋重生成（`fix-chat-butler-whitelist-regen`）**：
+  - 2026-11-22 兩則侍者回覆截斷（結尾「連」「下」）的根因：`isIncompleteReply` 用黑名單比對懸空詞，永遠列不完，漏判就直接送出；Luca 糾正只補兩個字是治標不治本。已改白名單：結尾不是完整句標點／表情符號／「喵」／右括號一律視為斷句；侍者／貓娘主流程改重生成迴圈，結尾不完整就以原始輸入重新生成，最多重生成 2 次（共 3 次），達上限照常送出最後一次並 `console.warn`。`maybeContinue` 只留給 SAFETY_BLOCKED 重試路徑。測試：`test_catgirl_mode.js` 第 9 關改為白名單＋重生成（含 11-22 連／下回歸案例）、`test_aventurine_complete_sentence.js` 第 5 關改為非砂金模式重生成上限 2 次。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。待推 GitHub 並部署到 VPS。
 
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。
