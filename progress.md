@@ -184,6 +184,8 @@
   - **未驗證**：Catie 端點從 Muse VM、Oracle VPS、瀏覽器三處 curl 皆無回應（empty reply／連線失敗），連通性尚未驗證，部署後需看 bot log 確認。已推 GitHub（commit `9ee02a6`）並部署到 VPS（`pm2 restart dc-bot`，online，VPS 實測新程式在位）。
 - **補上新的 Gemini 備用金鑰 (`fix-chat-add-replacement-gemini-key`)**：
   - Luca 給了新的 Google API key 取代被移除的死 key，加回 `DEFAULT_FALLBACK_KEYS`（Base64 儲存），備用金鑰恢復為 2 把。寫進程式前先實測：VPS 直打 `gemini-3.5-flash-lite` 回 HTTP 200、finishReason STOP，確認可用。`./init.sh` 11/11 全數通過。已推 GitHub（commit `c3cd4bf`）並部署到 VPS（`pm2 restart dc-bot`，online）；部署後實測呼叫 `apiCaller` 回「測試成功」，確認新 key 上線可用。
+- **移除 Catie 反代（`fix-chat-remove-catie-proxy`）**：
+  - Luca 指示換掉 Catie：站已掛（2026-11-22 實測 VM 空回應、VPS 拒連），且每次回覆都要先對它 fetch 失敗一次才落回 Google，純屬累贅。已從 `geminiChatService.js` 移除 `CATIE_API_KEY`／`CATIE_API_BASE_URL` 配置、`callCatieProxy` 與 `toOpenAiMessages`，`callGeminiApi` 改為只走 Google 備援鏈；`test_catie_proxy.js` 已刪除，`init.sh` 第 11 關移除、計數改回 `[1/10]`~`[10/10]`。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。待推 GitHub 並部署到 VPS（部署時一併清除 `~/bot/.env` 的 `CATIE_API_KEY`／`CATIE_API_BASE_URL`）。注意：push-files 不能刪檔，GitHub 上的 `test_catie_proxy.js` 會殘留為孤檔（`init.sh` 已不再執行它，無作用）。
 
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。

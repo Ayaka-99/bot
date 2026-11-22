@@ -245,6 +245,16 @@
       ],
       "status": "done",
       "evidence": "2026-11-20 凌晨先實測新 key：VPS 直打 gemini-3.5-flash-lite generateContent 回 HTTP 200、finishReason STOP，確認可用才寫進程式。./init.sh 11/11 全數通過。已推 GitHub（commit c3cd4bf）並部署到 VPS（pm2 restart dc-bot，online）；部署後實測呼叫 apiCaller 回「測試成功」，確認新 key 上線可用。"
+    },
+    {
+      "id": "fix-chat-remove-catie-proxy",
+      "name": "移除 Catie 反代（改走 Google only）",
+      "description": "Luca 指示換掉 Catie：站已掛（2026-11-22 實測 VM 空回應、VPS 拒連），且每次回覆都要先對它 fetch 失敗一次才落回 Google。從 geminiChatService.js 移除 CATIE_API_KEY／CATIE_API_BASE_URL 配置、callCatieProxy 與 toOpenAiMessages，callGeminiApi 改為只走 Google 備援鏈；刪除 test_catie_proxy.js，init.sh 第 11 關移除、計數改回 [1/10]~[10/10]。",
+      "dependencies": [
+        "feat-chat-catie-proxy"
+      ],
+      "status": "done",
+      "evidence": "2026-11-22 終端驗證：./init.sh 10/10 全數通過。待推 GitHub 並部署到 VPS（部署時一併清除 ~/bot/.env 的 CATIE_API_KEY／CATIE_API_BASE_URL）。注意：push-files 不能刪檔，GitHub 上的 test_catie_proxy.js 會殘留為孤檔（init.sh 已不再執行它，無作用）。"
     }
   ]
 }
