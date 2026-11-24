@@ -187,7 +187,12 @@
 - **移除 Catie 反代（`fix-chat-remove-catie-proxy`）**：
   - Luca 指示換掉 Catie：站已掛（2026-11-22 實測 VM 空回應、VPS 拒連），且每次回覆都要先對它 fetch 失敗一次才落回 Google，純屬累贅。已從 `geminiChatService.js` 移除 `CATIE_API_KEY`／`CATIE_API_BASE_URL` 配置、`callCatieProxy` 與 `toOpenAiMessages`，`callGeminiApi` 改為只走 Google 備援鏈；`test_catie_proxy.js` 已刪除，`init.sh` 第 11 關移除、計數改回 `[1/10]`~`[10/10]`。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。已推 GitHub（commit `2e121d5`）並部署到 VPS（`pm2 restart dc-bot`，online；VPS 實測部署後零 Catie 引用；`~/bot/.env` 的 `CATIE_API_KEY`／`CATIE_API_BASE_URL` 已清除）。注意：push-files 不能刪檔，GitHub 上的 `test_catie_proxy.js` 會殘留為孤檔（`init.sh` 已不再執行它，無作用）。
 - **侍者回覆斷句改白名單檢查＋重生成（`fix-chat-butler-whitelist-regen`）**：
-  - 2026-11-22 兩則侍者回覆截斷（結尾「連」「下」）的根因：`isIncompleteReply` 用黑名單比對懸空詞，永遠列不完，漏判就直接送出；Luca 糾正只補兩個字是治標不治本。已改白名單：結尾不是完整句標點／表情符號／「喵」／右括號一律視為斷句；侍者／貓娘主流程改重生成迴圈，結尾不完整就以原始輸入重新生成，最多重生成 2 次（共 3 次），達上限照常送出最後一次並 `console.warn`。`maybeContinue` 只留給 SAFETY_BLOCKED 重試路徑。測試：`test_catgirl_mode.js` 第 9 關改為白名單＋重生成（含 11-22 連／下回歸案例）、`test_aventurine_complete_sentence.js` 第 5 關改為非砂金模式重生成上限 2 次。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。待推 GitHub 並部署到 VPS。
+  - 2026-11-22 兩則侍者回覆截斷（結尾「連」「下」）的根因：`isIncompleteReply` 用黑名單比對懸空詞，永遠列不完，漏判就直接送出；Luca 糾正只補兩個字是治標不治本。已改白名單：結尾不是完整句標點／表情符號／「喵」／右括號一律視為斷句；侍者／貓娘主流程改重生成迴圈，結尾不完整就以原始輸入重新生成，最多重生成 2 次（共 3 次），達上限照常送出最後一次並 `console.warn`。`maybeContinue` 只留給 SAFETY_BLOCKED 重試路徑。測試：`test_catgirl_mode.js` 第 9 關改為白名單＋重生成（含 11-22 連／下回歸案例）、`test_aventurine_complete_sentence.js` 第 5 關改為非砂金模式重生成上限 2 次。2026-11-22 終端驗證：`./init.sh` 10/10 全數通過。已推 GitHub（commit `7f76ce5`）並部署到 VPS（`pm2 restart dc-bot`，online；VPS 實測部署後 `BUTLER_MAX_REGENERATIONS` 在位）。
+
+- **重生成耗盡後續寫＋截斷＋罐頭收尾 (`fix-chat-regen-exhaustion-continue-truncate-fallback`)**：
+  - 2026-11-24 17:05 砂金「50萬」roast 在 #银狼的游戏宇宙 截斷送出（結尾「天啊！這運氣簡直比黑塔太空站外頭的真空」，無句末標點）。根因：重生成迴圈「全部重試都斷句就放棄照送」——從頭重生成治不了模型連續多次中途停住，截斷回覆最終還是會上 Discord；11-22 修法只降低發生率，沒堵住出口。已查證：maxOutputTokens 4096、送出僅約 500 字（非 token 上限），當時 gemini-3.5-flash-lite 報 503 走降級鏈，模型 finishReason STOP 但句子未完；safeTruncate 1950 字不會觸發。
+  - `geminiChatService.js`：新增模組級 `truncateToLastCompleteSentence`（截到最後一個 。！？，找不到回 ''，已匯出）；`handleBotChatMessage` 閉包內新增 `finalizeExhaustedReply` 與 `getExhaustionFallback`。砂金與侍者兩條重生成迴圈耗盡後不再照送，改為 (a) 先試一次 `maybeContinue` 續寫把句子寫完；(b) 續寫仍斷句就截斷到最後一個完整句邊界再送出，寧可短一點但要是完整句；(c) 整段找不到完整句邊界，送罐頭 fallback（砂金／侍者／貓娘／主人分流，皆通過各自完整句檢查）。耗盡後最多多 1 次 API 呼叫（續寫）。
+  - 測試：`test_aventurine_complete_sentence.js` 擴充至 9/9（[4/9] 耗盡續寫補完、[5/9] 侍者耗盡無邊界改送罐頭、[7/9] 50 萬 roast 耗盡截斷到「天啊！」、[8/9] 無邊界罐頭、[9/9] 侍者截斷；舊 [4/6]／[5/6] 鎖定的「達上限照送斷句」行為已按新規改寫）。`./init.sh` 10/10 全數通過。
 
 ## What's In Progress
 - 無（《v6.0「星際和平公司・財富重分配協議」》全數微任務與全域 UI 文案對齊已全數實作與驗證完畢）。

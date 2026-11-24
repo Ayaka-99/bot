@@ -6,6 +6,8 @@ const {
   getSharedHistory,
   clearMasterImpersonation,
   isCompleteSentenceEnding,
+  isIncompleteReply,
+  truncateToLastCompleteSentence,
   AVENTURINE_MAX_REGENERATIONS,
   BUTLER_MAX_REGENERATIONS,
   apiCaller,
@@ -38,7 +40,7 @@ async function runTests() {
     // ------------------------------------------------------------------
     // 1. isCompleteSentenceEnding 單元測試（含空字串、只有空白、結尾含空白）
     // ------------------------------------------------------------------
-    console.log('▶ [1/6] 測試 isCompleteSentenceEnding 單元判定與常數定義...');
+    console.log('▶ [1/9] 測試 isCompleteSentenceEnding 單元判定與常數定義...');
     assert.strictEqual(AVENTURINE_MAX_REGENERATIONS, 3, 'AVENTURINE_MAX_REGENERATIONS 應為 3');
 
     assert.strictEqual(isCompleteSentenceEnding('今晚的籌碼歸你了。'), true, '句號結尾應判定為完整');
@@ -65,10 +67,22 @@ async function runTests() {
     assert.strictEqual(isCompleteSentenceEnding('半形問號?'), false, '半形問號不在指定全形集合內應判定為不完整');
     console.log('  ✅ isCompleteSentenceEnding 邊界與常數驗證通過');
 
+    // truncateToLastCompleteSentence：截到最後一個 。！？，找不到邊界回 ''（半形標點不算邊界）
+    assert.strictEqual(truncateToLastCompleteSentence('今天天氣很好。公園裡的花都開了。話說一半沒'), '今天天氣很好。公園裡的花都開了。', '應截到最後一個句號');
+    assert.strictEqual(truncateToLastCompleteSentence('天啊！這運氣比真空還真空'), '天啊！', '應截到最後一個驚嘆號');
+    assert.strictEqual(truncateToLastCompleteSentence('想跟我賭一把嗎？然後他又'), '想跟我賭一把嗎？', '應截到最後一個問號');
+    assert.strictEqual(truncateToLastCompleteSentence('half width test! then broken'), '', '半形標點不算邊界，找不到全形邊界回空字串');
+    assert.strictEqual(truncateToLastCompleteSentence('整段都沒有句末標點'), '', '找不到邊界回空字串');
+    assert.strictEqual(truncateToLastCompleteSentence(''), '', '空字串回空字串');
+    assert.strictEqual(truncateToLastCompleteSentence(null), '', 'null 回空字串');
+    assert.strictEqual(truncateToLastCompleteSentence('。開頭就是句號的怪句'), '', '唯一邊界在開頭時不取單一標點，回空字串');
+    assert.strictEqual(truncateToLastCompleteSentence('前面是完整句。   '), '前面是完整句。', '結尾空白應 trim 後判定');
+    console.log('  ✅ truncateToLastCompleteSentence 邊界驗證通過');
+
     // ------------------------------------------------------------------
     // 2. 結尾是 。／？／！／） 時只呼叫一次、不重生成
     // ------------------------------------------------------------------
-    console.log('▶ [2/6] 測試結尾為 。／？／！／） 時只呼叫一次 API、不觸發重生成...');
+    console.log('▶ [2/9] 測試結尾為 。／？／！／） 時只呼叫一次 API、不觸發重生成...');
     const validEndings = [
       '今晚的星光很適合小酌一杯。',
       '大顧問，這次打算押多少籌碼？',
@@ -99,7 +113,7 @@ async function runTests() {
     // 會先把結尾的「，」自動改成「。」（既有清理規則），檢查前就已是完整句；
     // 這裡改用真正會殘留到檢查階段的不完整結尾來測重生成。
     // ------------------------------------------------------------------
-    console.log('▶ [3/6] 測試結尾不完整時以原始 contents 重新生成，直到符合完整句結尾...');
+    console.log('▶ [3/9] 測試結尾不完整時以原始 contents 重新生成，直到符合完整句結尾...');
     clearMasterImpersonation();
     clearSharedHistory();
 
@@ -177,9 +191,11 @@ async function runTests() {
     console.log('  ✅ 結尾「，」經清理改為「。」、只呼叫一次 API');
 
     // ------------------------------------------------------------------
-    // 4. 連續 3 次重生成都不符合時，停在第 4 次結果並送出，不再呼叫
+    // 4. 連續 3 次重生成都不符合時，耗盡後先試一次續寫補完句子再送出
+    //    2026-11-24 根因修復：舊行為「達上限照常送出第 4 次結果」是截斷回覆上線的出口，
+    //    已改為耗盡後續寫（a）；續寫補完就送續寫後的版本。
     // ------------------------------------------------------------------
-    console.log('▶ [4/6] 測試連續 3 次重生成皆不完整時停在第 4 次結果並送出...');
+    console.log('▶ [4/9] 測試連續 3 次重生成皆不完整時，耗盡後續寫補完句子再送出...');
     clearMasterImpersonation();
     clearSharedHistory();
 
@@ -191,38 +207,54 @@ async function runTests() {
     ];
     let maxCapCallCount = 0;
     const maxCapWarnings = [];
+    const maxCapCaptured = [];
 
     console.warn = (...args) => {
       maxCapWarnings.push(args.join(' '));
     };
 
-    apiCaller.call = async () => {
+    apiCaller.call = async (systemInstruction, contents, hasImage, isAventurine) => {
       const idx = maxCapCallCount;
       maxCapCallCount += 1;
-      if (idx >= allIncompleteReplies.length) {
-        throw new Error('已達重生成上限後不應再呼叫第 5 次 API');
+      maxCapCaptured.push(JSON.parse(JSON.stringify(contents)));
+      if (idx < allIncompleteReplies.length) {
+        return allIncompleteReplies[idx];
       }
-      return allIncompleteReplies[idx];
+      if (idx === allIncompleteReplies.length) {
+        // 第 5 次是耗盡後的續寫呼叫：contents 應含原始 user 訊息＋未完結 model 回覆＋續寫指示
+        assert.strictEqual(contents.length, 3, '續寫呼叫應為原始 contents＋model 未完結回覆＋續寫指示');
+        assert.strictEqual(contents[1].role, 'model', '續寫呼叫第 2 則應為未完結的 model 回覆');
+        assert.ok(contents[1].parts[0].text.includes('第四次結果依然沒有句末標點 end'), '續寫應以第 4 次未完結回覆為 model 輪次');
+        assert.ok(contents[2].parts[0].text.includes('繼續把上面沒說完的話說完'), '續寫呼叫應要求模型繼續說完、不要重頭開始');
+        return '空還要更空。';
+      }
+      throw new Error('耗盡＋續寫後不應再呼叫第 6 次 API');
     };
 
     const cappedReply = await handleBotChatMessage(yueXiUser, '把話說完整一點。');
     console.warn = originalConsoleWarn;
 
-    assert.strictEqual(maxCapCallCount, 4, '最多 1 次初始生成 + 3 次重生成 = 4 次呼叫');
-    assert.strictEqual(cappedReply, '第四次結果依然沒有句末標點 end', '應照常送出第 4 次結果');
+    assert.strictEqual(maxCapCallCount, 5, '最多 1 次初始生成 + 3 次重生成 + 1 次耗盡續寫 = 5 次呼叫');
+    assert.strictEqual(cappedReply, '第四次結果依然沒有句末標點 end空還要更空。', '續寫補完後應送出第 4 次回覆＋續寫片段（完整句結尾）');
+    assert.strictEqual(isCompleteSentenceEnding(cappedReply), true, '耗盡後送出的回覆必須是完整句結尾');
+    for (let i = 0; i < 4; i++) {
+      assert.strictEqual(maxCapCaptured[i].length, 1, `第 ${i + 1} 次生成呼叫應只有原始 user 訊息`);
+    }
     assert.ok(
       maxCapWarnings.some(w => w.includes('已達完整句重生成上限') && w.includes('3')),
       '達上限時應記錄 console.warn 提示'
     );
-    console.log('  ✅ 連續 3 次重生成失敗時停在第 4 次結果並正確發出上限警告');
+    console.log('  ✅ 連續 3 次重生成失敗時耗盡後續寫補完句子再送出，不再照送斷句');
 
     // ------------------------------------------------------------------
-    // 5. 非砂金模式改走侍者重生成（上限 2 次，共 3 次呼叫）
+    // 5. 非砂金模式改走侍者重生成（上限 2 次，共 3 次呼叫），耗盡後續寫仍斷句
+    //    且整段找不到完整句邊界時改送罐頭收尾，不再照常送出斷句。
     //    2026-11-22 根因修正：侍者／貓娘主流程不再是單次生成＋黑名單續寫，
     //    結尾不完整就以原始輸入重新生成（白名單 isIncompleteReply 判定），
-    //    最多重生成 BUTLER_MAX_REGENERATIONS（2）次，達上限照常送出最後一次。
+    //    最多重生成 BUTLER_MAX_REGENERATIONS（2）次；
+    //    2026-11-24 根因修復：達上限後續寫＋無邊界改送罐頭，不再照送斷句。
     // ------------------------------------------------------------------
-    console.log('▶ [5/6] 測試非砂金模式結尾不完整時重生成（上限 2 次）...');
+    console.log('▶ [5/9] 測試非砂金模式結尾不完整時重生成（上限 2 次），耗盡後無邊界改送罐頭...');
     assert.strictEqual(BUTLER_MAX_REGENERATIONS, 2, 'BUTLER_MAX_REGENERATIONS 應為 2');
     clearMasterImpersonation();
     clearSharedHistory();
@@ -246,10 +278,11 @@ async function runTests() {
     const regularReply = await handleBotChatMessage(regularUser, '你好呀');
     console.warn = originalConsoleWarn;
     assert.strictEqual(capturedIsAventurineFlag, false, '一般成員不應進入砂金模式');
-    assert.strictEqual(nonAventurineCalls, 3, '非砂金模式結尾不完整應重生成 2 次（共呼叫 3 次）');
-    assert.strictEqual(regularReply, '一般成員回覆不以全形句末標點結尾abc', '達上限時應照常送出最後一次回覆');
+    assert.strictEqual(nonAventurineCalls, 4, '非砂金模式結尾不完整應重生成 2 次＋耗盡續寫 1 次（共呼叫 4 次）');
+    assert.strictEqual(regularReply, '貴賓，在下剛才的話沒能說完，總之先說到這裡。', '續寫仍斷句且找不到完整句邊界時應送罐頭收尾，而非照送斷句');
     assert.deepStrictEqual(nonAventurineCaptured[1], nonAventurineCaptured[0], '重生成必須使用完全相同的原始 contents');
     assert.deepStrictEqual(nonAventurineCaptured[2], nonAventurineCaptured[0], '第 3 次呼叫也必須使用原始 contents');
+    assert.strictEqual(nonAventurineCaptured[3].length, 3, '第 4 次應為耗盡續寫呼叫（原始 contents＋model 未完結回覆＋續寫指示）');
     assert.ok(
       nonAventurineWarnings.some(w => w.includes('已達完整句重生成上限') && w.includes('2')),
       '達上限時應記錄 console.warn 提示（含上限次數 2）'
@@ -265,14 +298,14 @@ async function runTests() {
 
     const masterReply = await handleBotChatMessage(masterUser, '幫我準備茶水');
     assert.strictEqual(masterIsAventurineFlag, false, '主人未呼叫砂金時不應進入砂金模式');
-    assert.strictEqual(masterNormalCalls, 3, '主人一般對話結尾不完整也應重生成 2 次（共呼叫 3 次）');
-    assert.ok(masterReply.endsWith('先處理這件事abc'), '達上限時應照常送出最後一次回覆');
-    console.log('  ✅ 非砂金模式結尾不完整時重生成 2 次、達上限送出最後一次');
+    assert.strictEqual(masterNormalCalls, 4, '主人一般對話結尾不完整也應重生成 2 次＋耗盡續寫 1 次（共呼叫 4 次）');
+    assert.strictEqual(masterReply, '主人，本機剛才的話沒能說完，總之先說到這裡。', '主人對話耗盡後無邊界時也應送罐頭收尾');
+    console.log('  ✅ 非砂金模式結尾不完整時重生成 2 次、耗盡後續寫失敗改送罐頭收尾');
 
     // ------------------------------------------------------------------
     // 6. 共享歷史只寫入最終一則，中間嘗試不寫入
     // ------------------------------------------------------------------
-    console.log('▶ [6/6] 測試共享歷史僅寫入最終一則，中間失敗嘗試不寫入...');
+    console.log('▶ [6/9] 測試共享歷史僅寫入最終一則，中間失敗嘗試不寫入...');
     clearMasterImpersonation();
     clearSharedHistory();
 
@@ -308,8 +341,86 @@ async function runTests() {
     assert.strictEqual(serializedHistory.includes('中間失敗嘗試二'), false, '中間失敗嘗試二不應寫入歷史');
     console.log('  ✅ 共享歷史僅寫入最終定案回覆，中間嘗試完全隔離');
 
+    // ------------------------------------------------------------------
+    // 7. 2026-11-24 回歸：砂金「50 萬」roast 長列表、模型中途停住
+    //    4 次生成皆在「天啊！這運氣簡直比黑塔太空站外頭的真空」斷句，
+    //    耗盡續寫也補不完整句 → 必須截斷到最後一個完整句邊界送出，
+    //    絕不能把「真空」斷句送上 Discord。
+    // ------------------------------------------------------------------
+    console.log('▶ [7/9] 測試 50 萬 roast 耗盡後截斷到最後一個完整句邊界...');
+    clearMasterImpersonation();
+    clearSharedHistory();
+
+    const roastTruncated =
+      '明○方舟 300 抽零限定；鳴○連續 2 次不歪的奇蹟（反向的）；蕭○檔案穩坐牢到保底；' +
+      '貓○ 50 抽只中 1 個聯動角；雀○與 FGO 更是保底常客；邦○ 100 抽零 SSR 的絕望；' +
+      '甚至在鐵道裡創下 365 抽只撈到 2 個千治刃的驚人紀錄；更別提在詭弈砂金那場牌局裡，' +
+      '一口氣把 249 萬籌碼輸得精光，還連續 4 次 All in 全軍覆沒……\n\n' +
+      '天啊！這運氣簡直比黑塔太空站外頭的真空';
+    let roastCallCount = 0;
+    const roastWarnings = [];
+    console.warn = (...args) => { roastWarnings.push(args.join(' ')); };
+    apiCaller.call = async (systemInstruction, contents) => {
+      const idx = roastCallCount;
+      roastCallCount += 1;
+      if (idx < 4) return roastTruncated;
+      if (idx === 4) return '空洞得讓人窒';
+      throw new Error('耗盡＋續寫後不應再呼叫第 6 次 API');
+    };
+
+    const roastReply = await handleBotChatMessage(masterUser, '砂金，50 萬的運氣怎麼樣？');
+    console.warn = originalConsoleWarn;
+
+    assert.strictEqual(roastCallCount, 5, 'roast 應為 4 次生成＋1 次耗盡續寫');
+    assert.strictEqual(isCompleteSentenceEnding(roastReply), true, '耗盡後送出的 roast 必須是完整句結尾');
+    assert.strictEqual(roastReply.endsWith('天啊！'), true, '應截斷到最後一個完整句邊界「天啊！」');
+    assert.strictEqual(roastReply.includes('真空'), false, '斷句尾巴「真空」絕不能出現在送出的回覆裡');
+    assert.ok(roastReply.startsWith('明○方舟 300 抽零限定'), '截斷應保留前面的完整內容，只砍掉斷句尾巴');
+    assert.ok(roastWarnings.some(w => w.includes('已達完整句重生成上限')), '達上限時應記錄警告');
+    const roastHistory = getSharedHistory();
+    assert.strictEqual(roastHistory[1].parts[0].text, roastReply, '共享歷史應只寫入截斷後的最終回覆');
+    console.log('  ✅ 50 萬 roast 耗盡後截斷到「天啊！」送出，斷句尾巴已砍掉');
+
+    // ------------------------------------------------------------------
+    // 8. 耗盡＋續寫仍斷句、且整段找不到完整句邊界時，送罐頭收尾
+    // ------------------------------------------------------------------
+    console.log('▶ [8/9] 測試耗盡後找不到完整句邊界時送罐頭收尾...');
+    clearMasterImpersonation();
+    clearSharedHistory();
+    let noBoundaryCalls = 0;
+    apiCaller.call = async (systemInstruction, contents) => {
+      noBoundaryCalls += 1;
+      if (contents.length > 1) return '還是沒有標點';
+      return '這段話完全沒有句號也沒有驚嘆號';
+    };
+    const noBoundaryReply = await handleBotChatMessage(yueXiUser, '說點什麼吧。');
+    assert.strictEqual(noBoundaryCalls, 5, '應為 4 次生成＋1 次耗盡續寫');
+    assert.strictEqual(noBoundaryReply, '貴賓，今天就先說到這裡，剩下的好戲下次牌桌上見。', '找不到邊界時應送砂金罐頭收尾');
+    assert.strictEqual(isCompleteSentenceEnding(noBoundaryReply), true, '罐頭收尾必須是完整句結尾');
+    console.log('  ✅ 找不到完整句邊界時改送罐頭收尾');
+
+    // ------------------------------------------------------------------
+    // 9. 侍者模式耗盡後續寫仍斷句、有完整句邊界時截斷送出（不送罐頭）
+    // ------------------------------------------------------------------
+    console.log('▶ [9/9] 測試侍者模式耗盡後有邊界時截斷到最後一個完整句送出...');
+    clearMasterImpersonation();
+    clearSharedHistory();
+    const butlerBroken = '今天天氣很好。公園裡的花都開了。大家的心情都不錯。話說到一半就停在這裡沒';
+    let butlerTruncCalls = 0;
+    apiCaller.call = async (systemInstruction, contents) => {
+      butlerTruncCalls += 1;
+      if (contents.length > 1) return '有說完的';
+      return butlerBroken;
+    };
+    const butlerTruncReply = await handleBotChatMessage(regularUser, '今天怎麼樣？');
+    assert.strictEqual(butlerTruncCalls, 4, '侍者應為 3 次生成＋1 次耗盡續寫');
+    assert.strictEqual(butlerTruncReply, '今天天氣很好。公園裡的花都開了。大家的心情都不錯。', '應截斷到最後一個完整句邊界送出');
+    assert.strictEqual(isIncompleteReply(butlerTruncReply), false, '截斷後的回覆必須通過白名單完整檢查');
+    assert.strictEqual(butlerTruncReply.includes('沒說完'), false, '斷句尾巴絕不能出現在送出的回覆裡');
+    console.log('  ✅ 侍者模式耗盡後截斷到最後一個完整句送出');
+
     console.log('====================================================');
-    console.log('🎉 砂金模式「完整句重生成」單元測試 6/6 全數通過！');
+    console.log('🎉 砂金模式「完整句重生成」單元測試 9/9 全數通過！');
     console.log('====================================================');
   } finally {
     apiCaller.call = originalApiCall;

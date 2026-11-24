@@ -264,7 +264,17 @@
         "feat-chat-master-aventurine-and-yuexi-ban"
       ],
       "status": "done",
-      "evidence": "2026-11-22 晚上終端驗證：isIncompleteReply 白名單實測（連／下／哈哈皆判斷句，句號／驚嘆號／喵／右括號皆判完整）；test_catgirl_mode.js 第 9 關改為白名單＋重生成測試（含 11-22 連／下回歸案例）、test_aventurine_complete_sentence.js 第 5 關改為非砂金模式重生成上限 2 次；./init.sh 10/10 全數通過。待推 GitHub 並部署到 VPS。"
+      "evidence": "2026-11-22 晚上終端驗證：isIncompleteReply 白名單實測（連／下／哈哈皆判斷句，句號／驚嘆號／喵／右括號皆判完整）；test_catgirl_mode.js 第 9 關改為白名單＋重生成（含 11-22 連／下回歸案例）、test_aventurine_complete_sentence.js 第 5 關改為非砂金模式重生成上限 2 次；./init.sh 10/10 全數通過。已推 GitHub（commit 7f76ce5）並部署到 VPS（pm2 restart dc-bot，online，restarts 12，unstable 0；VPS 實測部署後 BUTLER_MAX_REGENERATIONS 在位）。"
+    },
+    {
+      "id": "fix-chat-regen-exhaustion-continue-truncate-fallback",
+      "name": "重生成耗盡後續寫＋截斷＋罐頭收尾（截斷回覆不再上線）",
+      "description": "2026-11-24 砂金「50萬」roast 截斷回歸：重生成迴圈（砂金 3 次／侍者 2 次）耗盡後不再照常送出斷句；改為 (a) maybeContinue 續寫一次補完句子，(b) 續寫仍斷句就截斷到最後一個完整句邊界（最後一個 。！？），(c) 整段找不到邊界就送罐頭 fallback（砂金／侍者／貓娘／主人分流）。新增 truncateToLastCompleteSentence（模組級匯出）與 finalizeExhaustedReply／getExhaustionFallback（handleBotChatMessage 閉包內）。",
+      "dependencies": [
+        "fix-chat-butler-whitelist-regen"
+      ],
+      "status": "done",
+      "evidence": "test_aventurine_complete_sentence.js 擴充至 9/9 全數通過（含 50 萬 roast 耗盡截斷回歸 [7/9]、無邊界罐頭 [8/9]、侍者截斷 [9/9]、耗盡續寫補完 [4/9]、侍者耗盡罐頭 [5/9]）；./init.sh 10/10 全數通過。"
     }
   ]
 }

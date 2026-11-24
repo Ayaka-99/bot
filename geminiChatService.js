@@ -830,6 +830,16 @@ function isCompleteSentenceEnding(text) {
   return /[？。！（）]$/.test(trimmed);
 }
 
+// 截斷到最後一個完整句邊界（最後一個 。！？）：重生成耗盡、續寫仍斷句時使用，
+// 寧可短一點也要送完整句，絕不送出斷在句中的回覆。找不到邊界回傳 ''。
+function truncateToLastCompleteSentence(text) {
+  if (!text || typeof text !== 'string') return '';
+  const t = text.trim();
+  const idx = Math.max(t.lastIndexOf('。'), t.lastIndexOf('！'), t.lastIndexOf('？'));
+  if (idx <= 0) return '';
+  return t.slice(0, idx + 1).trim();
+}
+
 function normalizeForComparison(text) {
   if (!text) return '';
   return text.replace(/<@!?\d+>/g, '').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
@@ -1073,6 +1083,44 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
     }
   };
 
+  // 重生成耗盡後的罐頭收尾：整段找不到完整句邊界時用，絕不送斷句。
+  // 須通過各自模式的完整句檢查（砂金：。！？（）；侍者：白名單 isIncompleteReply）。
+  const getExhaustionFallback = () => {
+    if (isAventurine) {
+      return '貴賓，今天就先說到這裡，剩下的好戲下次牌桌上見。';
+    }
+    if (isCatgirlModeEnabled()) {
+      return isMaster
+        ? '主人，本喵剛才的話沒說完喵，總之先說到這裡喵！'
+        : '本喵剛才的話沒說完喵，總之先說到這裡喵！';
+    }
+    return isMaster
+      ? '主人，本機剛才的話沒能說完，總之先說到這裡。'
+      : '貴賓，在下剛才的話沒能說完，總之先說到這裡。';
+  };
+
+  // 重生成迴圈耗盡後的收尾（2026-11-24 根因修復：舊行為「達上限照常送出最後一次」
+  // 讓截斷回覆照樣上 Discord，11-22 修法只降低發生率沒堵住出口）：
+  // (a) 先試一次 maybeContinue 續寫把句子寫完；(b) 續寫仍斷句就截到最後一個完整句邊界；
+  // (c) 整段找不到邊界就送罐頭 fallback。保證最終送出的永遠是完整句結尾。
+  const finalizeExhaustedReply = async (formattedReply) => {
+    const continued = await maybeContinue(formattedReply);
+    const continuedFormatted = formatReply(continued);
+    const isComplete = isAventurine
+      ? isCompleteSentenceEnding(continuedFormatted)
+      : !isIncompleteReply(continuedFormatted);
+    if (isComplete) {
+      return continuedFormatted;
+    }
+    const truncated = truncateToLastCompleteSentence(continuedFormatted);
+    if (truncated) {
+      console.warn('⚠️ 續寫仍斷句，已截斷到最後一個完整句邊界送出');
+      return truncated;
+    }
+    console.warn('⚠️ 續寫仍斷句且找不到完整句邊界，改送罐頭收尾');
+    return formatReply(getExhaustionFallback());
+  };
+
   try {
     if (!isAventurine) {
       // 侍者／貓娘模式完整句重生成迴圈：結尾不是完整句標點就以原始輸入重新生成（最多重生成 2 次，共 3 次）
@@ -1088,7 +1136,9 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
         if (regenCount < BUTLER_MAX_REGENERATIONS) {
           console.warn(`⚠️ [侍者模式] 回覆結尾不完整，改以原始輸入重新生成 (${regenCount + 1}/${BUTLER_MAX_REGENERATIONS})`);
         } else {
-          console.warn(`⚠️ [侍者模式] 已達完整句重生成上限 (${BUTLER_MAX_REGENERATIONS} 次)，照常送出最後一次回覆`);
+          // 2026-11-24 根因修復：達上限不再照常送出斷句，改以續寫＋截斷收尾
+          console.warn(`⚠️ [侍者模式] 已達完整句重生成上限 (${BUTLER_MAX_REGENERATIONS} 次)，改以續寫＋截斷收尾`);
+          finalReply = await finalizeExhaustedReply(finalReply);
         }
       }
       return commitReplyToHistory(finalReply);
@@ -1105,7 +1155,9 @@ async function handleBotChatMessage(user, rawContent, imageData = null, displayN
       if (regenCount < AVENTURINE_MAX_REGENERATIONS) {
         console.warn(`⚠️ [砂金模式] 回覆結尾不完整，改以原始輸入重新生成 (${regenCount + 1}/${AVENTURINE_MAX_REGENERATIONS})`);
       } else {
-        console.warn(`⚠️ [砂金模式] 已達完整句重生成上限 (${AVENTURINE_MAX_REGENERATIONS} 次)，照常送出最後一次回覆`);
+        // 2026-11-24 根因修復：達上限不再照常送出斷句，改以續寫＋截斷收尾
+        console.warn(`⚠️ [砂金模式] 已達完整句重生成上限 (${AVENTURINE_MAX_REGENERATIONS} 次)，改以續寫＋截斷收尾`);
+        finalReply = await finalizeExhaustedReply(finalReply);
       }
     }
     return commitReplyToHistory(finalReply);
@@ -1188,6 +1240,7 @@ module.exports = {
   safeTruncate,
   isIncompleteReply,
   isCompleteSentenceEnding,
+  truncateToLastCompleteSentence,
   AVENTURINE_MAX_REGENERATIONS,
   BUTLER_MAX_REGENERATIONS,
   apiCaller,
