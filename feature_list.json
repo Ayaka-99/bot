@@ -274,7 +274,7 @@
         "fix-chat-butler-whitelist-regen"
       ],
       "status": "done",
-      "evidence": "test_aventurine_complete_sentence.js 擴充至 9/9 全數通過（含 50 萬 roast 耗盡截斷回歸 [7/9]、無邊界罐頭 [8/9]、侍者截斷 [9/9]、耗盡續寫補完 [4/9]、侍者耗盡罐頭 [5/9]）；./init.sh 10/10 全數通過。"
+      "evidence": "test_aventurine_complete_sentence.js 擴充至 9/9 全數通過（含 50 萬 roast 耗盡截斷回歸 [7/9]、無邊界罐頭 [8/9]、侍者截斷 [9/9]、耗盡續寫補完 [4/9]、侍者耗盡罐頭 [5/9]）；./init.sh 10/10 全數通過。已推 GitHub（commit 71aabbd）並部署到 VPS（pm2 restart dc-bot，online，restarts 13，unstable 0；VPS 上 bash ./init.sh 10/10 全數通過）。"
     }
   ]
 }
